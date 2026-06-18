@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import BrandedLogo from './BrandedLogo';
 
 interface LoginProps {
   onLoginSuccess: (userRole: 'admin' | 'staff', userId?: string) => void;
@@ -49,35 +50,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       <div className="absolute top-0 right-0 w-96 h-96 bg-purple-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-rose-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md z-10">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
         {/* Steward Health Care Logo Reconstruction */}
         <div className="flex flex-col items-center justify-center p-3 mb-2" id="logo-branding">
-          <div className="flex items-center space-x-3">
-            {/* Elegant SVG interlocking S-S logo */}
-            <svg id="shc-logo-svg" className="w-14 h-14" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#4A1C68" />
-                  <stop offset="100%" stopColor="#7E22CE" />
-                </linearGradient>
-                <linearGradient id="roseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#BE123C" />
-                  <stop offset="100%" stopColor="#9C1F60" />
-                </linearGradient>
-              </defs>
-              {/* Left interlocking loop */}
-              <path d="M48 30 C30 30, 20 40, 20 50 C20 60, 30 70, 48 70 C55 70, 52 60, 42 60 C32 60, 29 55, 29 50 C29 45, 32 40, 42 40 C52 40, 48 30, 48 30 Z" fill="url(#purpleGrad)" />
-              {/* Right interlocking loop */}
-              <path d="M42 30 C60 30, 70 40, 70 50 C70 60, 60 70, 42 70 C35 70, 38 60, 48 60 C58 60, 61 55, 61 50 C61 45, 58 40, 48 40 C38 40, 42 30, 42 30 Z" fill="url(#roseGrad)" />
-              {/* Center connector core */}
-              <circle cx="45" cy="50" r="5" fill="#9C1F60" className="animate-pulse" />
-            </svg>
-            <div>
-              <div className="text-xl font-extrabold tracking-tight text-slate-800 leading-none">Steward Health Care</div>
-              <div className="text-xs font-semibold text-rose-700 tracking-wider">247 PROFESSIONALS</div>
-              <div className="text-[10px] font-bold text-indigo-900 tracking-widest uppercase">Redefining Care</div>
-            </div>
-          </div>
+          <BrandedLogo layout="vertical" size="lg" />
         </div>
 
         <h2 className="mt-4 text-center text-3xl font-bold tracking-tight text-slate-900">

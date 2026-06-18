@@ -24,7 +24,8 @@ import {
   BriefcaseBusiness,
   TrendingUp,
   Award,
-  Plus
+  Plus,
+  Cloud
 } from 'lucide-react';
 
 import { 
@@ -59,6 +60,8 @@ import ComplianceDashboard from './components/ComplianceDashboard';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
 import DeveloperConsole from './components/DeveloperConsole';
+import WorkspaceSync from './components/WorkspaceSync';
+import BrandedLogo from './components/BrandedLogo';
 
 export default function App() {
   // Authentication State
@@ -127,6 +130,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shc_templates', JSON.stringify(templates));
   }, [templates]);
+
+  // Global OAuth Popup close Handler
+  useEffect(() => {
+    if (window.location.hash && window.location.hash.includes('access_token=') && window.location.hash.includes('state=google_auth_state')) {
+      if (window.opener) {
+        window.opener.postMessage({
+          type: 'GOOGLE_OAUTH_TOKEN',
+          hash: window.location.hash
+        }, window.location.origin);
+        window.close();
+      }
+    }
+  }, []);
 
   // Auth Operations
   const handleLoginSuccess = (role: 'admin' | 'staff', userId?: string) => {
@@ -340,6 +356,7 @@ export default function App() {
     { id: 'compliance', label: 'Compliance Control', icon: Shield, desc: 'Traffic light regulatory alarm' },
     { id: 'templates', label: 'Credential SLA Briefs', icon: BookOpen, desc: 'Criteria checklists by role' },
     { id: 'timesheets', label: 'Timesheet Claims', icon: Clock, desc: 'Shift approvals and pays metrics' },
+    { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
     { id: 'system', label: 'ERD Database Sandbox', icon: Database, desc: 'Architect schema schemas' }
   ];
 
@@ -356,27 +373,8 @@ export default function App() {
       {/* DESKTOP SIDEBAR RAIL: Clean Minimal Look */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-[#e8eaee] shrink-0 sticky top-0 h-screen overflow-y-auto">
         {/* LOGO AREA */}
-        <div className="p-5 border-b border-[#e8eaee]">
-          <div className="flex items-center space-x-3">
-            <svg className="w-10 h-10 shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="purpleG" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#4A1C68" />
-                  <stop offset="100%" stopColor="#6C2891" />
-                </linearGradient>
-                <linearGradient id="roseG" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#BE123C" />
-                  <stop offset="100%" stopColor="#9C1F60" />
-                </linearGradient>
-              </defs>
-              <path d="M48 30 C30 30, 20 40, 20 50 C20 60, 30 70, 48 70 C55 70, 52 60, 42 60 C32 60, 29 55, 29 50 C29 45, 32 40, 42 40 C52 40, 48 30, 48 30 Z" fill="url(#purpleG)" />
-              <path d="M42 30 C60 30, 70 40, 70 50 C70 60, 60 70, 42 70 C35 70, 38 60, 48 60 C58 60, 61 55, 61 50 C61 45, 58 40, 48 40 C38 40, 42 30, 42 30 Z" fill="url(#roseG)" />
-            </svg>
-            <div>
-              <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">Steward Health</h1>
-              <p className="text-[10px] font-bold text-rose-700 uppercase tracking-widest mt-1">247 Professionals</p>
-            </div>
-          </div>
+        <div className="p-4 border-b border-[#e8eaee]">
+          <BrandedLogo layout="horizontal" size="sm" />
         </div>
 
         {/* ROLE INDICATOR */}
@@ -485,14 +483,8 @@ export default function App() {
       </aside>
 
       {/* MOBILE HEADER BAR */}
-      <div className="md:hidden w-full bg-white border-b border-[#e8eaee] p-4 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-7 h-7" viewBox="0 0 100 100" fill="none">
-            <path d="M48 30 C30 30, 20 40, 20 50 C20 60, 30 70, 48 70 C55 70, 52 60, 42 60 C32 60, 29 55, 29 50 C29 45, 32 40, 42 40 C52 40, 48 30, 48 30 Z" fill="#4A1C68" />
-            <path d="M42 30 C60 30, 70 40, 70 50 C70 60, 60 70, 42 70 C35 70, 38 60, 48 60 C58 60, 61 55, 61 50 C61 45, 58 40, 48 40 C38 40, 42 30, 42 30 Z" fill="#BE123C" />
-          </svg>
-          <span className="font-bold text-[#2e2f38] text-xs">StaffHub Portfolio</span>
-        </div>
+      <div className="md:hidden w-full bg-white border-b border-[#e8eaee] p-3 flex items-center justify-between sticky top-0 z-40">
+        <BrandedLogo layout="horizontal" size="sm" />
 
         <div className="flex items-center space-x-3">
           <span className="text-[10px] bg-slate-100 rounded-full font-bold p-1 px-2 uppercase text-slate-600">
@@ -512,8 +504,8 @@ export default function App() {
         <div className="md:hidden fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)}>
           <div className="w-64 bg-white h-full shadow-2xl flex flex-col p-5" onClick={(e) => e.stopPropagation()}>
             <div className="pb-4 border-b mb-4 flex justify-between items-center">
-              <span className="font-bold text-slate-800 text-xs">Navigation Menu</span>
-              <button onClick={() => setMobileMenuOpen(false)} className="text-slate-500 hover:text-slate-800 font-bold">×</button>
+              <BrandedLogo layout="horizontal" size="sm" />
+              <button onClick={() => setMobileMenuOpen(false)} className="text-slate-550 hover:text-slate-800 text-xl font-black p-1 leading-none">×</button>
             </div>
             
             <nav className="flex-1 space-y-2">
@@ -745,6 +737,35 @@ export default function App() {
                       applicants={applicants}
                       documents={documents}
                       timesheets={timesheets}
+                    />
+                  )}
+
+                  {/* Google Workspace operations center */}
+                  {activeTab === 'workspace' && (
+                    <WorkspaceSync
+                      applicants={applicants}
+                      staff={staff}
+                      documents={documents}
+                      timesheets={timesheets}
+                      onAddApplicant={handleAddApplicant}
+                      onUploadDocument={handleUploadDocument}
+                      onAddLog={(action, type) => {
+                        let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'document';
+                        if (type === 'recruitment') logType = 'applicant';
+                        else if (type === 'staff') logType = 'status';
+                        else if (type === 'compliance') logType = 'compliance';
+                        else if (type === 'timesheet') logType = 'timesheet';
+                        else if (type === 'document') logType = 'document';
+
+                        const log: ActivityLog = {
+                          id: `act_${Date.now()}`,
+                          action,
+                          timestamp: 'Just now',
+                          user: 'Emma (Admin)',
+                          type: logType
+                        };
+                        setActivityLogs(prev => [log, ...prev]);
+                      }}
                     />
                   )}
                 </>
