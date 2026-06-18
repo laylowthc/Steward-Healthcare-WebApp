@@ -1,0 +1,6 @@
+{
+  "name": "SHC StaffHub",
+  "description": "Healthcare staffing recruitment, onboarding, and compliance management system for Steward Health Care 247 Professionals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

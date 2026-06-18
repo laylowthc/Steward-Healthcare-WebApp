@@ -1,0 +1,880 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Users, 
+  FileText, 
+  CheckSquare, 
+  ShieldAlert, 
+  Clock, 
+  Settings, 
+  LogOut, 
+  Menu, 
+  X, 
+  ChevronRight, 
+  BookOpen, 
+  Database, 
+  Calendar, 
+  DollarSign, 
+  Activity, 
+  Briefcase,
+  Shield,
+  User,
+  ExternalLink,
+  ChevronDown,
+  Upload,
+  BriefcaseBusiness,
+  TrendingUp,
+  Award,
+  Plus
+} from 'lucide-react';
+
+import { 
+  Applicant, 
+  Staff, 
+  Document, 
+  Timesheet, 
+  ActivityLog, 
+  ApplicantStatus, 
+  StaffRole, 
+  DocumentCategory,
+  RoleTemplate
+} from './types';
+
+import { 
+  initialApplicants, 
+  initialStaff, 
+  initialDocuments, 
+  initialTimesheets, 
+  initialActivityLogs,
+  initialRoleTemplates
+} from './mockData';
+
+// Dynamic Sub-Views Imports
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+import ApplicantKanban from './components/ApplicantKanban';
+import StaffDirectory from './components/StaffDirectory';
+import StaffProfile from './components/StaffProfile';
+import DocumentVault from './components/DocumentVault';
+import ComplianceDashboard from './components/ComplianceDashboard';
+import RoleTemplates from './components/RoleTemplates';
+import TimesheetManager from './components/TimesheetManager';
+import DeveloperConsole from './components/DeveloperConsole';
+
+export default function App() {
+  // Authentication State
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [currentRole, setCurrentRole] = useState<'admin' | 'staff'>('admin');
+  const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Clara Oswald demo
+
+  // Global Core Data Persistence State
+  const [applicants, setApplicants] = useState<Applicant[]>(() => {
+    const local = localStorage.getItem('shc_recruits');
+    return local ? JSON.parse(local) : initialApplicants;
+  });
+
+  const [staff, setStaff] = useState<Staff[]>(() => {
+    const local = localStorage.getItem('shc_staff');
+    return local ? JSON.parse(local) : initialStaff;
+  });
+
+  const [documents, setDocuments] = useState<Document[]>(() => {
+    const local = localStorage.getItem('shc_documents');
+    return local ? JSON.parse(local) : initialDocuments;
+  });
+
+  const [timesheets, setTimesheets] = useState<Timesheet[]>(() => {
+    const local = localStorage.getItem('shc_timesheets');
+    return local ? JSON.parse(local) : initialTimesheets;
+  });
+
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
+    const local = localStorage.getItem('shc_logs');
+    return local ? JSON.parse(local) : initialActivityLogs;
+  });
+
+  const [templates, setTemplates] = useState<RoleTemplate[]>(() => {
+    const local = localStorage.getItem('shc_templates');
+    return local ? JSON.parse(local) : initialRoleTemplates;
+  });
+
+  // Navigation State
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
+
+  // Sync to client-side localStorage
+  useEffect(() => {
+    localStorage.setItem('shc_recruits', JSON.stringify(applicants));
+  }, [applicants]);
+
+  useEffect(() => {
+    localStorage.setItem('shc_staff', JSON.stringify(staff));
+  }, [staff]);
+
+  useEffect(() => {
+    localStorage.setItem('shc_documents', JSON.stringify(documents));
+  }, [documents]);
+
+  useEffect(() => {
+    localStorage.setItem('shc_timesheets', JSON.stringify(timesheets));
+  }, [timesheets]);
+
+  useEffect(() => {
+    localStorage.setItem('shc_logs', JSON.stringify(activityLogs));
+  }, [activityLogs]);
+
+  useEffect(() => {
+    localStorage.setItem('shc_templates', JSON.stringify(templates));
+  }, [templates]);
+
+  // Auth Operations
+  const handleLoginSuccess = (role: 'admin' | 'staff', userId?: string) => {
+    setCurrentRole(role);
+    if (userId) {
+      setCurrentUserId(userId);
+    }
+    setIsLoggedIn(true);
+    setSelectedStaffId(null);
+    setActiveTab(role === 'admin' ? 'dashboard' : 'profile');
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setProfileDropdownOpen(false);
+  };
+
+  // State mutation callbacks passed to children components
+  const handleUpdateApplicantStatus = (id: string, newStatus: ApplicantStatus) => {
+    setApplicants(prev => prev.map(a => {
+      if (a.id === id) {
+        const updated = { ...a, status: newStatus };
+        
+        // Dynamic Promotion: Shifting candidate to Active spawns corresponding Staff profile
+        if (newStatus === 'Active') {
+          const alreadyExists = staff.some(s => s.email.toLowerCase() === a.email.toLowerCase());
+          if (!alreadyExists) {
+            const newStaffMember: Staff = {
+              id: `staff_${Date.now()}`,
+              name: a.name,
+              email: a.email,
+              phone: a.phone,
+              address: 'Registered Candidate Address, Manchester, UK',
+              role: a.position as StaffRole,
+              status: 'Active',
+              dbsStatus: 'Compliant',
+              dbsNumber: `001${Math.floor(10000000 + Math.random() * 90000000)}`,
+              dbsExpiry: new Date(Date.now() + 3 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              rightToWork: 'Compliant',
+              rightToWorkExpiry: new Date(Date.now() + 4 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              trainingStatus: 'Compliant',
+              trainingExpiry: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              joinedDate: new Date().toISOString().split('T')[0]
+            };
+            setStaff(prevStaff => [...prevStaff, newStaffMember]);
+
+            // Auto spawn passport pdf as signed-off document
+            const placeholderDoc: Document = {
+              id: `doc_${Date.now()}_pass`,
+              name: `${a.name.replace(/\s+/g, '_')}_RTW_Passport.pdf`,
+              category: 'Passport',
+              staffId: newStaffMember.id,
+              staffName: a.name,
+              uploadDate: new Date().toISOString().split('T')[0],
+              status: 'Approved',
+              size: '1.5 MB'
+            };
+            setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
+            
+            // Add live Log Event
+            const log: ActivityLog = {
+              id: `act_${Date.now()}`,
+              action: `PROMOTION: Candidate ${a.name} promoted to deployable Approved Staff (${a.position})`,
+              timestamp: 'Just now',
+              user: 'Agency Automation',
+              type: 'status'
+            };
+            setActivityLogs(prevLogs => [log, ...prevLogs]);
+          }
+        }
+        return updated;
+      }
+      return a;
+    }));
+  };
+
+  const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => {
+    const newApp: Applicant = {
+      ...applicant,
+      id: `app_${Date.now()}`,
+      dateCreated: new Date().toISOString().split('T')[0]
+    };
+    setApplicants(prev => [newApp, ...prev]);
+
+    // Push activity log
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
+      timestamp: 'Just now',
+      user: 'System Bot',
+      type: 'applicant'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleUpdateApplicantCompliance = (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
+    setApplicants(prev => prev.map(a => {
+      if (a.id === applicantId) {
+        return {
+          ...a,
+          complianceChecked
+        };
+      }
+      return a;
+    }));
+  };
+
+  const handleUpdateStaffDetails = (updatedStaff: Staff) => {
+    setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
+      timestamp: 'Just now',
+      user: 'System Bot',
+      type: 'compliance'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleUploadDocument = (doc: Omit<Document, 'id' | 'uploadDate'>) => {
+    const newDocItem: Document = {
+      ...doc,
+      id: `doc_${Date.now()}`,
+      uploadDate: new Date().toISOString().split('T')[0]
+    };
+    setDocuments(prev => [newDocItem, ...prev]);
+
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `FILE CABINET: ${doc.category} credential file uploaded to vault: '${doc.name}'`,
+      timestamp: 'Just now',
+      user: doc.staffName || 'Caregiver Oswald',
+      type: 'document'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleAssignDocument = (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
+    const staffMemberName = staff.find(s => s.id === targetStaffId)?.name || 'Unknown';
+    const newAssigned: Document = {
+      id: `doc_assigned_${Date.now()}`,
+      name: docName,
+      category: docCategory,
+      staffId: targetStaffId,
+      staffName: staffMemberName,
+      uploadDate: new Date().toISOString().split('T')[0],
+      status: 'Pending Signature',
+      assignedByAdmin: true,
+      size: '420 KB'
+    };
+    setDocuments(prev => [newAssigned, ...prev]);
+
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `SLA ASSIGNED: E-Signature contract template dispatched to caregiver ${staffMemberName}`,
+      timestamp: 'Just now',
+      user: 'Agency Admin (Emma)',
+      type: 'document'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleDeleteDocument = (docId: string) => {
+    setDocuments(prev => prev.filter(d => d.id !== docId));
+  };
+
+  const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected') => {
+    setTimesheets(prev => prev.map(t => t.id === timesheetId ? { ...t, approvalStatus: status } : t));
+
+    const target = timesheets.find(t => t.id === timesheetId);
+    if (target) {
+      const log: ActivityLog = {
+        id: `act_${Date.now()}`,
+        action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
+        timestamp: 'Just now',
+        user: 'Agency Admin (Emma)',
+        type: 'timesheet'
+      };
+      setActivityLogs(prev => [log, ...prev]);
+    }
+  };
+
+  const handleAddTimesheet = (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
+    const newTime: Timesheet = {
+      ...timesheet,
+      id: `time_${Date.now()}`,
+      uploadDate: new Date().toISOString().split('T')[0]
+    };
+    setTimesheets(prev => [newTime, ...prev]);
+
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `SHIFT CLAIM: Shift claim log reported directly by ${timesheet.staffName}: ${timesheet.hoursWorked} registered hours`,
+      timestamp: 'Just now',
+      user: timesheet.staffName,
+      type: 'timesheet'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  // Helper selectors
+  const activeStaffMember = staff.find(s => s.id === (selectedStaffId || currentUserId));
+
+  // Navigation Links & Icons configuration
+  const navigationTabs = [
+    { id: 'dashboard', label: 'Agency Dashboard', icon: Users, desc: 'Global credentials summary' },
+    { id: 'recruitment', label: 'Recruitment Kanban', icon: Briefcase, desc: 'Registered onboarding pool' },
+    { id: 'staff', label: 'Approved Staff Directory', icon: User, desc: 'Operational caregiver roster' },
+    { id: 'vault', label: 'National Vault Cabinet', icon: FileText, desc: 'GDPR contract records storage' },
+    { id: 'compliance', label: 'Compliance Control', icon: Shield, desc: 'Traffic light regulatory alarm' },
+    { id: 'templates', label: 'Credential SLA Briefs', icon: BookOpen, desc: 'Criteria checklists by role' },
+    { id: 'timesheets', label: 'Timesheet Claims', icon: Clock, desc: 'Shift approvals and pays metrics' },
+    { id: 'system', label: 'ERD Database Sandbox', icon: Database, desc: 'Architect schema schemas' }
+  ];
+
+  // Auth Guard
+  if (!isLoggedIn) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // --- RENDERING PERSPECTIVES ---
+
+  return (
+    <div className="min-h-screen bg-[#fafafc] text-slate-800 font-sans flex flex-col md:flex-row antialiased">
+      
+      {/* DESKTOP SIDEBAR RAIL: Clean Minimal Look */}
+      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-[#e8eaee] shrink-0 sticky top-0 h-screen overflow-y-auto">
+        {/* LOGO AREA */}
+        <div className="p-5 border-b border-[#e8eaee]">
+          <div className="flex items-center space-x-3">
+            <svg className="w-10 h-10 shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="purpleG" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#4A1C68" />
+                  <stop offset="100%" stopColor="#6C2891" />
+                </linearGradient>
+                <linearGradient id="roseG" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#BE123C" />
+                  <stop offset="100%" stopColor="#9C1F60" />
+                </linearGradient>
+              </defs>
+              <path d="M48 30 C30 30, 20 40, 20 50 C20 60, 30 70, 48 70 C55 70, 52 60, 42 60 C32 60, 29 55, 29 50 C29 45, 32 40, 42 40 C52 40, 48 30, 48 30 Z" fill="url(#purpleG)" />
+              <path d="M42 30 C60 30, 70 40, 70 50 C70 60, 60 70, 42 70 C35 70, 38 60, 48 60 C58 60, 61 55, 61 50 C61 45, 58 40, 48 40 C38 40, 42 30, 42 30 Z" fill="url(#roseG)" />
+            </svg>
+            <div>
+              <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">Steward Health</h1>
+              <p className="text-[10px] font-bold text-rose-700 uppercase tracking-widest mt-1">247 Professionals</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ROLE INDICATOR */}
+        <div className="p-4 bg-[#f8f9fc] border-b border-[#e8eaee] mx-3 my-3 rounded-xl text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 font-medium">Logged Role:</span>
+            <span className={`p-0.5 px-2 text-[10px] uppercase font-bold rounded-full ${
+              currentRole === 'admin' ? 'bg-purple-50 text-purple-800 border border-purple-100' : 'bg-rose-50 text-rose-800 border border-rose-100'
+            }`}>
+              {currentRole}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
+            <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Emma (Super-Admin)' : activeStaffMember?.name}</span>
+            <button 
+              onClick={() => {
+                // Instantly swap perspective for satisfied evaluation
+                const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
+                setCurrentRole(nextRole);
+                setSelectedStaffId(null);
+                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'profile');
+              }}
+              className="text-[9px] text-indigo-700 font-bold hover:underline"
+              title="Switch role perspective"
+            >
+              [Swap]
+            </button>
+          </div>
+        </div>
+
+        {/* ADMIN SIDEBAR LINKS */}
+        <nav className="flex-1 px-3 space-y-1">
+          {currentRole === 'admin' ? (
+            navigationTabs.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedStaffId(null);
+                    setActiveTab(item.id);
+                  }}
+                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-left text-xs font-semibold tracking-tight transition-all relative ${
+                    activeTab === item.id && selectedStaffId === null
+                      ? 'bg-slate-900 text-white font-bold shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-[#f1f2f6]'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <div className="truncate">
+                    <p className="leading-none">{item.label}</p>
+                    <p className={`text-[9px] mt-0.5 leading-none ${activeTab === item.id && selectedStaffId === null ? 'text-slate-400' : 'text-slate-400'}`}>{item.desc}</p>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            // STAFF ACCOUNT NAVIGATION
+            <>
+              <button
+                onClick={() => {
+                  setSelectedStaffId(null);
+                  setActiveTab('profile');
+                }}
+                className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
+                  activeTab === 'profile' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
+                }`}
+              >
+                <User className="w-4 h-4" />
+                <span>My Credentials Status</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('staff_timesheets')}
+                className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
+                  activeTab === 'staff_timesheets' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                <span>Submit / View Timesheets</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('role_briefs')}
+                className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
+                  activeTab === 'role_briefs' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Mandatory Brief Checklist</span>
+              </button>
+            </>
+          )}
+        </nav>
+
+        {/* LOG OUT BUTTON AREA */}
+        <div className="p-4 border-t border-[#e8eaee]">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out Securely</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* MOBILE HEADER BAR */}
+      <div className="md:hidden w-full bg-white border-b border-[#e8eaee] p-4 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center space-x-2">
+          <svg className="w-7 h-7" viewBox="0 0 100 100" fill="none">
+            <path d="M48 30 C30 30, 20 40, 20 50 C20 60, 30 70, 48 70 C55 70, 52 60, 42 60 C32 60, 29 55, 29 50 C29 45, 32 40, 42 40 C52 40, 48 30, 48 30 Z" fill="#4A1C68" />
+            <path d="M42 30 C60 30, 70 40, 70 50 C70 60, 60 70, 42 70 C35 70, 38 60, 48 60 C58 60, 61 55, 61 50 C61 45, 58 40, 48 40 C38 40, 42 30, 42 30 Z" fill="#BE123C" />
+          </svg>
+          <span className="font-bold text-[#2e2f38] text-xs">StaffHub Portfolio</span>
+        </div>
+
+        <div className="flex items-center space-x-3">
+          <span className="text-[10px] bg-slate-100 rounded-full font-bold p-1 px-2 uppercase text-slate-600">
+            {currentRole}
+          </span>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-1 rounded-md text-slate-600 hover:bg-slate-50 focus:outline-none"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
+      </div>
+
+      {/* MOBILE NAIL SLIDER DRAWER */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)}>
+          <div className="w-64 bg-white h-full shadow-2xl flex flex-col p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="pb-4 border-b mb-4 flex justify-between items-center">
+              <span className="font-bold text-slate-800 text-xs">Navigation Menu</span>
+              <button onClick={() => setMobileMenuOpen(false)} className="text-slate-500 hover:text-slate-800 font-bold">×</button>
+            </div>
+            
+            <nav className="flex-1 space-y-2">
+              {currentRole === 'admin' ? (
+                navigationTabs.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setSelectedStaffId(null);
+                      setActiveTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
+                      activeTab === item.id && selectedStaffId === null
+                        ? 'bg-slate-900 text-white font-bold'
+                        : 'text-slate-650 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                ))
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setSelectedStaffId(null);
+                      setActiveTab('profile');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
+                      activeTab === 'profile' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>My Profile</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('staff_timesheets');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
+                      activeTab === 'staff_timesheets' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>My Timesheets</span>
+                  </button>
+                </>
+              )}
+            </nav>
+
+            <button
+              onClick={() => {
+                handleLogout();
+                setMobileMenuOpen(false);
+              }}
+              className="mt-auto py-3 w-full bg-rose-50 text-rose-700 rounded-xl font-bold flex justify-center text-xs"
+            >
+              Sign Out Securely
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- MAIN PAGE VIEW CONTENT AND HEADER STAGE --- */}
+      <main className="flex-1 flex flex-col min-w-0" id="shc-main-view-stage">
+        
+        {/* UPPER TITLE BAR HEADER: Beautiful Minimal Look */}
+        <header className="hidden md:flex bg-white h-14 border-b border-[#e8eaee] items-center justify-between px-8 shrink-0">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-400 font-semibold font-mono tracking-wider">SECURE CONNECTED SHIELD</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <p className="text-[11px] font-bold text-slate-500 font-sans uppercase">Steward Health Care National Registry</p>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            
+            {/* Quick swap button directly in the main header for satisfied exploration */}
+            <button
+              onClick={() => {
+                const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
+                setCurrentRole(nextRole);
+                setSelectedStaffId(null);
+                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'profile');
+              }}
+              className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
+            >
+              <span>SWAP ROLE ROLE:</span>
+              <span className="text-[#9C1F60] font-black">{currentRole.toUpperCase()}</span>
+            </button>
+
+            {/* Profile badge with popup settings */}
+            <div className="relative">
+              <button 
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
+              >
+                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
+                  {currentRole === 'admin' ? 'EM' : activeStaffMember?.name.substring(0,2).toUpperCase()}
+                </div>
+                <span className="text-xs font-bold text-slate-700 hidden lg:inline">
+                  {currentRole === 'admin' ? 'Emma (Admin)' : activeStaffMember?.name}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+              </button>
+
+              {profileDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-50 text-xs text-slate-700 font-medium">
+                  <div className="px-3 py-2 border-b border-slate-50">
+                    <p className="font-extrabold text-slate-900 leading-none">Emma Steward</p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-none">emma.admin@shc247.co.uk</p>
+                  </div>
+                  
+                  <button 
+                    onClick={() => {
+                      setCurrentRole('admin');
+                      setSelectedStaffId(null);
+                      setActiveTab('system');
+                      setProfileDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
+                  >
+                    <span>System Architecture Spec</span>
+                  </button>
+
+                  <button 
+                    onClick={handleLogout}
+                    className="w-full text-left px-4 py-2 hover:bg-rose-50 text-rose-700 font-bold border-t flex items-center space-x-2"
+                  >
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </header>
+
+        {/* WORKSPACE CANVAS STAGE */}
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl w-full mx-auto">
+          
+          {/* STAFF DETAIL PROFILE OVERLAY VIEW: Rendered if selectedStaffId is active */}
+          {selectedStaffId !== null ? (
+            <StaffProfile
+              staffMember={staff.find(s => s.id === selectedStaffId) || null}
+              documents={documents}
+              onBack={() => setSelectedStaffId(null)}
+              onUpdateStaffDetails={handleUpdateStaffDetails}
+              onUploadDocument={handleUploadDocument}
+            />
+          ) : (
+            // --- TABBED WORKSPACE CONTENT FOR ACTIVE SELECTIONS ---
+            <>
+              {currentRole === 'admin' ? (
+                <>
+                  {/* Dashboard Tab */}
+                  {activeTab === 'dashboard' && (
+                    <Dashboard 
+                      applicants={applicants}
+                      staff={staff}
+                      documents={documents}
+                      timesheets={timesheets}
+                      activityLogs={activityLogs}
+                      onNavigate={(tabId) => setActiveTab(tabId)}
+                      onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
+                      templates={templates}
+                    />
+                  )}
+
+                  {/* Recruitment Kanban */}
+                  {activeTab === 'recruitment' && (
+                    <ApplicantKanban
+                      applicants={applicants}
+                      onUpdateApplicantStatus={handleUpdateApplicantStatus}
+                      onAddApplicant={handleAddApplicant}
+                      templates={templates}
+                      onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
+                    />
+                  )}
+
+                  {/* Staff Directory */}
+                  {activeTab === 'staff' && (
+                    <StaffDirectory
+                      staff={staff}
+                      onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
+                    />
+                  )}
+
+                  {/* Document Vault */}
+                  {activeTab === 'vault' && (
+                    <DocumentVault 
+                      documents={documents}
+                      staff={staff}
+                      onUploadDocument={handleUploadDocument}
+                      onAssignDocument={handleAssignDocument}
+                      onDeleteDocument={handleDeleteDocument}
+                    />
+                  )}
+
+                  {/* Compliance traffic signals */}
+                  {activeTab === 'compliance' && (
+                    <ComplianceDashboard
+                      staff={staff}
+                      onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
+                    />
+                  )}
+
+                  {/* Job role designation criteria */}
+                  {activeTab === 'templates' && (
+                    <RoleTemplates
+                      templates={templates}
+                      onChangeTemplates={setTemplates}
+                    />
+                  )}
+
+                  {/* Timesheet submission manager */}
+                  {activeTab === 'timesheets' && (
+                    <TimesheetManager
+                      timesheets={timesheets}
+                      staff={staff}
+                      onUpdateTimesheetStatus={handleUpdateTimesheetStatus}
+                      onAddTimesheet={handleAddTimesheet}
+                    />
+                  )}
+
+                  {/* Schema Developer Database ERCD blueprints sandbox */}
+                  {activeTab === 'system' && (
+                    <DeveloperConsole
+                      staff={staff}
+                      applicants={applicants}
+                      documents={documents}
+                      timesheets={timesheets}
+                    />
+                  )}
+                </>
+              ) : (
+                // --- CAREGIVER STAFF PORTAL INTERFACES ---
+                <div className="space-y-6">
+                  
+                  {activeTab === 'profile' && (
+                    <>
+                      {/* GREETING BANNER */}
+                      <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadowrelative overflow-hidden mb-6">
+                        <div className="relative z-10">
+                          <span className="p-0.5 px-2 bg-emerald-500/35 border border-emerald-400 text-emerald-300 rounded text-[9px] font-black uppercase tracking-wider">
+                            Caregiver Portal Cleared
+                          </span>
+                          <h2 className="text-xl font-bold tracking-tight mt-2 text-white">Welcome back, {activeStaffMember?.name}!</h2>
+                          <p className="text-slate-400 text-xs mt-1">
+                            Your deployment status is currently listed as{' '}
+                            <span className="font-extrabold text-emerald-400">Deployed Active</span>. Keep credential sheets updated below.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Embed the standard profile component so Clara can edit details directly & upload credentials */}
+                      <div className="border border-slate-200/80 rounded-2xl bg-white shadow-sm p-1">
+                        <StaffProfile
+                          staffMember={activeStaffMember || null}
+                          documents={documents}
+                          onBack={() => handleLogout()} // Logout triggers back
+                          onUpdateStaffDetails={handleUpdateStaffDetails}
+                          onUploadDocument={handleUploadDocument}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* STAFF PORTAL: Timesheets logging and hours claims review */}
+                  {activeTab === 'staff_timesheets' && (
+                    <div className="space-y-6">
+                      <div className="bg-white p-6 border border-slate-100 rounded-2xl shadow-sm">
+                        <h3 className="text-sm font-black uppercase text-slate-800 border-b pb-2.5 mb-4">
+                          Log Shift Hours
+                        </h3>
+                        <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
+                          Submit shift logs directly online to Steward Health Care 247 for processing. Claim hours matching clinical timesheet signed-off papers. Always upload a clear snapshot pdf/image of validation cards.
+                        </p>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                          
+                          {/* Left: Input Claim form */}
+                          <div className="lg:col-span-4 p-4 border border-dashed rounded-xl bg-slate-50/50">
+                            <h4 className="font-bold text-slate-800 text-xs mb-3">Report Shifts Log</h4>
+                            <TimesheetManager
+                              timesheets={timesheets.filter(t => t.staffName === activeStaffMember?.name)}
+                              staff={staff.filter(s => s.id === currentUserId)}
+                              onUpdateTimesheetStatus={() => {}} // Disabled for caregiver
+                              onAddTimesheet={handleAddTimesheet}
+                            />
+                          </div>
+
+                          {/* Right: Existing claims ledger history */}
+                          <div className="lg:col-span-8 space-y-4">
+                            <h4 className="font-bold text-slate-800 text-xs">My Shifts Claim ledger</h4>
+                            <div className="bg-white rounded-xl border overflow-hidden">
+                              <table className="min-w-full divide-y text-xs">
+                                <thead className="bg-[#f8f9fc]">
+                                  <tr className="text-left text-[10px] text-slate-450 uppercase font-black tracking-wider">
+                                    <th className="px-4 py-3">Week Ending</th>
+                                    <th className="px-4 py-3">Submitted</th>
+                                    <th className="px-4 py-3">Claimed Log</th>
+                                    <th className="px-4 py-3">Audit Review</th>
+                                    <th className="px-4 py-3 text-right">Details</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y text-slate-700">
+                                  {timesheets.filter(t => t.staffName === activeStaffMember?.name).map(t => (
+                                    <tr key={t.id}>
+                                      <td className="px-4 py-3 font-semibold text-slate-800">{t.weekEnding}</td>
+                                      <td className="px-4 py-3 text-slate-400 font-medium">{t.uploadDate}</td>
+                                      <td className="px-4 py-3 font-bold font-mono text-slate-900">{t.hoursWorked} hrs</td>
+                                      <td className="px-4 py-3">
+                                        <span className={`p-0.5 px-2 text-[9px] rounded-full font-bold border ${
+                                          t.approvalStatus === 'Approved'
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                            : t.approvalStatus === 'Pending'
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : 'bg-rose-50 text-rose-800 border-rose-250'
+                                        }`}>
+                                          {t.approvalStatus}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3 text-right">
+                                        <span className="text-[10px] text-slate-400 font-semibold">{t.fileUrl}</span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {timesheets.filter(t => t.staffName === activeStaffMember?.name).length === 0 && (
+                                    <tr>
+                                      <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                                        No claimed shifts registered yet.
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STAFF PORTAL: Template compliance brief view */}
+                  {activeTab === 'role_briefs' && (
+                    <RoleTemplates
+                      templates={templates}
+                      onChangeTemplates={() => {}}
+                    />
+                  )}
+
+                </div>
+              )}
+            </>
+          )}
+
+        </div>
+
+      </main>
+
+    </div>
+  );
+}
