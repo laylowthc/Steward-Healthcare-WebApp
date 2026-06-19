@@ -36,6 +36,7 @@ import {
   GoogleDriveFile,
   extractSpreadsheetId 
 } from '../lib/googleApi';
+import GoogleMeetSchedulerView from './GoogleMeetSchedulerView';
 
 interface WorkspaceSyncProps {
   applicants: Applicant[];
@@ -44,6 +45,7 @@ interface WorkspaceSyncProps {
   timesheets: Timesheet[];
   onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => void;
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>) => void;
+  onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
   onAddLog: (action: string, type: 'recruitment' | 'staff' | 'document' | 'compliance' | 'timesheet') => void;
 }
 
@@ -54,6 +56,7 @@ export default function WorkspaceSync({
   timesheets,
   onAddApplicant,
   onUploadDocument,
+  onUpdateApplicantDetails,
   onAddLog
 }: WorkspaceSyncProps) {
   // OAuth Connection State Cached in Session/State
@@ -65,7 +68,27 @@ export default function WorkspaceSync({
     return localStorage.getItem('shc_google_client_id') || metaEnv.VITE_GOOGLE_CLIENT_ID || '';
   });
   const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import' | 'meetings'>('drive');
+
+  // Persisted Google Meet Scheduled meetings
+  const [meetings, setMeetings] = useState<{
+    id: string;
+    title: string;
+    meetUrl: string;
+    time: string;
+    attendee: string;
+    type: 'candidate' | 'staff' | 'general';
+  }[]>(() => {
+    const local = localStorage.getItem('shc_google_meet_meetings');
+    return local ? JSON.parse(local) : [
+      { id: 'm1', title: 'Senior Care Specialist Panel Interview', meetUrl: 'https://meet.google.com/abc-defg-hij', time: '2026-06-19T10:00', attendee: 'Eleanor Vance', type: 'candidate' },
+      { id: 'm2', title: 'Internal Quality Assurance Review', meetUrl: 'https://meet.google.com/nrs-meet-xjp', time: '2026-06-20T14:30', attendee: 'All Care Staff (HR)', type: 'general' }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('shc_google_meet_meetings', JSON.stringify(meetings));
+  }, [meetings]);
 
   // Google Drive config
   const [driveFolderName, setDriveFolderName] = useState('Steward Health Care Onboarding Sandbox');
@@ -160,7 +183,10 @@ export default function WorkspaceSync({
     const scopes = [
       'https://www.googleapis.com/auth/drive',
       'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/spreadsheets'
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/meetings.space.created',
+      'https://www.googleapis.com/auth/meetings.space.readonly',
+      'https://www.googleapis.com/auth/meetings.space.settings'
     ].join(' ');
 
     const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
@@ -627,6 +653,16 @@ export default function WorkspaceSync({
               }`}
             >
               📥 Sheets Recruitment Importer
+            </button>
+            <button
+              onClick={() => { setActiveTab('meetings'); setExportMessage(null); }}
+              className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                activeTab === 'meetings' 
+                  ? 'border-indigo-600 text-indigo-700 font-extrabold' 
+                  : 'border-transparent text-slate-550 hover:text-slate-800'
+              }`}
+            >
+              🎥 Google Meet Scheduler
             </button>
           </div>
 
@@ -1116,6 +1152,18 @@ export default function WorkspaceSync({
                 )}
 
               </div>
+            )}
+
+            {activeTab === 'meetings' && (
+              <GoogleMeetSchedulerView 
+                googleToken={googleToken}
+                applicants={applicants}
+                staff={staff}
+                meetings={meetings}
+                setMeetings={setMeetings}
+                onAddLog={onAddLog}
+                onUpdateApplicantDetails={onUpdateApplicantDetails}
+              />
             )}
           </div>
         </>

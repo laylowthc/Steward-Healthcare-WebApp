@@ -8,6 +8,7 @@ interface ApplicantKanbanProps {
   onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => void;
   templates: RoleTemplate[];
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
+  onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
 }
 
 export default function ApplicantKanban({
@@ -15,7 +16,8 @@ export default function ApplicantKanban({
   onUpdateApplicantStatus,
   onAddApplicant,
   templates,
-  onUpdateApplicantCompliance
+  onUpdateApplicantCompliance,
+  onUpdateApplicantDetails
 }: ApplicantKanbanProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
@@ -143,6 +145,30 @@ export default function ApplicantKanban({
                             <span>Applied: {applicant.dateCreated}</span>
                           </p>
                         </div>
+                        
+                        {applicant.interviewMeetUrl && (
+                          <div className="mt-2.5 p-2 bg-indigo-50 border border-indigo-150 rounded-lg flex items-center justify-between">
+                            <div className="flex items-center space-x-1.5 text-[10px] text-indigo-950 font-bold max-w-[70%]">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                              </span>
+                              <span className="truncate font-sans text-[10px] text-indigo-900 leading-normal font-semibold">
+                                {applicant.interviewTime ? new Date(applicant.interviewTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Google Meet'}
+                              </span>
+                            </div>
+                            <a
+                              href={applicant.interviewMeetUrl}
+                              target="_blank"
+                              referrerPolicy="no-referrer"
+                              rel="noreferrer"
+                              className="text-[9px] font-black text-[#be185d] hover:text-pink-800 flex items-center bg-white p-1 px-2 border border-slate-250 rounded shadow-sm hover:shadow"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Join Meet
+                            </a>
+                          </div>
+                        )}
                       </div>
 
                       {/* Direction Shift Action Buttons */}
@@ -397,6 +423,144 @@ export default function ApplicantKanban({
                       </div>
                     </div>
                   )}
+
+                  {/* Google Meet virtual interviews */}
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <h4 className="text-[10px] font-black text-[#5e2290] uppercase tracking-wider flex items-center">
+                      <span className="text-sm mr-1.5">🎥</span> virtual interviews & Google Meet
+                    </h4>
+                    
+                    {selectedApplicant.interviewMeetUrl ? (
+                      <div className="p-3 bg-fuchsia-50/50 border border-fuchsia-100 rounded-xl space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="text-[10px] uppercase font-black text-fuchsia-900 leading-normal">Active Meet Space Connected</p>
+                            <p className="text-xs text-slate-700 font-bold mt-1">
+                              Time: {selectedApplicant.interviewTime ? new Date(selectedApplicant.interviewTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not Scheduled'}
+                            </p>
+                          </div>
+                          <span className="p-0.5 px-2 text-[9px] font-black uppercase rounded-full border bg-emerald-50 text-emerald-800 border-emerald-250 flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>Provisioned</span>
+                          </span>
+                        </div>
+
+                        <div className="flex gap-2 font-sans mt-2">
+                          <a
+                            href={selectedApplicant.interviewMeetUrl}
+                            target="_blank"
+                            referrerPolicy="no-referrer"
+                            rel="noreferrer"
+                            className="flex-1 text-center py-1.5 bg-gradient-to-r from-purple-900 to-rose-700 hover:opacity-90 text-white text-[10px] font-bold rounded-lg shadow-sm"
+                          >
+                            Launch Meet Room
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onUpdateApplicantDetails(selectedApplicant.id, {
+                                interviewMeetUrl: undefined,
+                                interviewTime: undefined
+                              });
+                              setSelectedApplicant({
+                                ...selectedApplicant,
+                                interviewMeetUrl: undefined,
+                                interviewTime: undefined
+                              });
+                            }}
+                            className="px-2.5 py-1.5 border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 border border-dashed border-slate-200 bg-slate-50/50 rounded-xl space-y-3">
+                        <p className="text-[11px] text-slate-550 font-medium leading-relaxed">
+                          Schedule a custom virtual recruitment interview space instantly using Google Meet.
+                        </p>
+                        
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wide">Interview Target Time</label>
+                          <input
+                            type="datetime-local"
+                            id="interview-datetime-input"
+                            defaultValue={new Date(Date.now() + 86400000).toISOString().slice(0, 16)} // Defaults to tomorrow
+                            className="w-full border border-slate-300 rounded-lg p-2 text-xs focus:ring-1 focus:ring-purple-500 bg-white shadow-inner font-sans"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const dateInput = document.getElementById('interview-datetime-input') as HTMLInputElement;
+                            const schedTime = dateInput?.value || new Date().toISOString();
+                            
+                            // Check if a workspace token is available in sessionStorage
+                            const token = sessionStorage.getItem('shc_google_access_token');
+                            
+                            if (token) {
+                              try {
+                                const response = await fetch('https://meet.googleapis.com/v2/spaces', {
+                                  method: 'POST',
+                                  headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Content-Type': 'application/json'
+                                  },
+                                  body: JSON.stringify({})
+                                });
+                                
+                                if (response.ok) {
+                                  const data = await response.json();
+                                  const meetUrl = data.meetingUri;
+                                  
+                                  if (meetUrl) {
+                                    onUpdateApplicantDetails(selectedApplicant.id, {
+                                      interviewMeetUrl: meetUrl,
+                                      interviewTime: schedTime
+                                    });
+                                    setSelectedApplicant({
+                                      ...selectedApplicant,
+                                      interviewMeetUrl: meetUrl,
+                                      interviewTime: schedTime
+                                    });
+                                    alert(`Successfully reserved live Google Meet space via Google API:\n\n${meetUrl}`);
+                                    return;
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error creating Google Meet space:', err);
+                              }
+                            }
+                            
+                            // Fallback simulation mode
+                            const codes = ['abc-defg-hij', 'mnp-qrst-uvw', 'xyz-abcd-efg', 'shc-hrt-mtg'];
+                            const selectedCode = codes[Math.floor(Math.random() * codes.length)];
+                            const fallbackUrl = `https://meet.google.com/${selectedCode}`;
+                            
+                            onUpdateApplicantDetails(selectedApplicant.id, {
+                              interviewMeetUrl: fallbackUrl,
+                              interviewTime: schedTime
+                            });
+                            setSelectedApplicant({
+                              ...selectedApplicant,
+                              interviewMeetUrl: fallbackUrl,
+                              interviewTime: schedTime
+                            });
+                            
+                            let alertMsg = `Simulated virtual meeting space generated successfully!`;
+                            if (!token) {
+                              alertMsg += `\n\n(Note: To establish real live Google Meet spaces, simply link your Workspace client credentials in the 'Operations Terminal' first!)`;
+                            }
+                            alert(alertMsg);
+                          }}
+                          className="w-full py-2 bg-purple-900 hover:bg-purple-950 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
+                        >
+                          Generate Google Meet Space
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate Notes</h4>

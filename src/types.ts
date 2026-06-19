@@ -10,6 +10,8 @@ export interface Applicant {
   dateCreated: string;
   notes?: string;
   complianceChecked?: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>; // Individual check marks for role's required docs
+  interviewTime?: string;
+  interviewMeetUrl?: string;
 }
 
 export type StaffRole = 'Nurse' | 'Care Assistant' | 'Senior Care Assistant' | 'Deputy Manager' | string;
@@ -63,6 +65,7 @@ export interface Document {
   status: DocumentStatus;
   size?: string;
   assignedByAdmin?: boolean;
+  filledData?: Record<string, any>;
 }
 
 export interface Timesheet {
@@ -82,6 +85,24 @@ export interface RoleTemplate {
   description: string;
   responsibilities: string[];
   requiredCredentials: string[];
+}
+
+export interface FamilyFeedback {
+  id: string;
+  clientName: string;
+  familyRepresentative: string;
+  relation: string; // e.g. Son, Daughter, Spouse, Guardian
+  caregiverAssigned: string; // Target caregiver
+  ratingCareQuality: number; // 1-5 scale
+  ratingCommunication: number; // 1-5 scale
+  ratingPunctuality: number; // 1-5 scale
+  feedbackComments: string;
+  anonymous: boolean;
+  dateSubmitted: string;
+  status: 'Awaiting Action' | 'Reviewed' | 'Resolved';
+  category: 'Compliment' | 'Suggestion' | 'Concern' | 'General Inquiry';
+  hasContactRequest: boolean;
+  contactEmailOrPhone?: string;
 }
 
 export interface ActivityLog {

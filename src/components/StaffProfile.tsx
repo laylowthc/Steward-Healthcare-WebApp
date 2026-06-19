@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
 import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw } from 'lucide-react';
+import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -8,6 +9,7 @@ interface StaffProfileProps {
   onBack: () => void;
   onUpdateStaffDetails: (updatedStaff: Staff) => void;
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>) => void;
+  onUpdateDocument?: (doc: Document) => void;
 }
 
 export default function StaffProfile({
@@ -15,9 +17,12 @@ export default function StaffProfile({
   documents,
   onBack,
   onUpdateStaffDetails,
-  onUploadDocument
+  onUploadDocument,
+  onUpdateDocument
 }: StaffProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
+
   const [dragActive, setDragActive] = useState(false);
   const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('Passport');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -528,13 +533,39 @@ export default function StaffProfile({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <a
-                          href="#"
-                          onClick={(e) => { e.preventDefault(); alert(`Downloading: ${doc.name}`); }}
-                          className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px]"
-                        >
-                          Download Link
-                        </a>
+                        {['Employment Contract', 'Job Description', 'Privacy Policy', 'Staff Handbook'].includes(doc.category) ? (
+                          doc.status === 'Pending Signature' ? (
+                            <button
+                              onClick={() => setActiveSigningDoc(doc)}
+                              className="p-1 px-2.5 bg-purple-900 border border-purple-950 text-white rounded-lg text-[10.5px] font-black tracking-wide uppercase hover:bg-purple-950 cursor-pointer transition-all flex items-center justify-end gap-1 ml-auto"
+                            >
+                              <span>✏️ Sign & Complete</span>
+                            </button>
+                          ) : doc.status === 'Signed' ? (
+                            <button
+                              onClick={() => setActiveSigningDoc(doc)}
+                              className="p-1 px-2.5 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-lg text-[10.5px] font-bold hover:bg-emerald-100 cursor-pointer transition-all flex items-center justify-end gap-1 ml-auto"
+                            >
+                              <span>🔍 View Signed Copy</span>
+                            </button>
+                          ) : (
+                            <a
+                              href="#"
+                              onClick={(e) => { e.preventDefault(); alert(`Downloading: ${doc.name}`); }}
+                              className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px]"
+                            >
+                              Download Link
+                            </a>
+                          )
+                        ) : (
+                          <a
+                            href="#"
+                            onClick={(e) => { e.preventDefault(); alert(`Downloading: ${doc.name}`); }}
+                            className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px]"
+                          >
+                            Download Link
+                          </a>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -553,6 +584,29 @@ export default function StaffProfile({
         </div>
 
       </div>
+
+      {/* Dynamic Overlay Fillable Interactive Document Signing Portal */}
+      {activeSigningDoc && (
+        <InteractiveDocumentFiller
+          document={activeSigningDoc}
+          staffMember={staffMember}
+          readOnly={activeSigningDoc.status === 'Signed'}
+          onClose={() => setActiveSigningDoc(null)}
+          onSaveSignature={(filledData) => {
+            const updatedDoc: Document = {
+              ...activeSigningDoc,
+              status: 'Signed',
+              filledData,
+              uploadDate: new Date().toISOString().split('T')[0]
+            };
+            if (onUpdateDocument) {
+              onUpdateDocument(updatedDoc);
+            }
+            setActiveSigningDoc(null);
+            alert(`Draft execution completed! ${activeSigningDoc.category} is now legally locked and audited with e-signature stamps.`);
+          }}
+        />
+      )}
     </div>
   );
 }

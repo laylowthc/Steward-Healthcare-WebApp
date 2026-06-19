@@ -1,4 +1,4 @@
-import { Applicant, Staff, Document, Timesheet, RoleTemplate, ActivityLog } from './types';
+import { Applicant, Staff, Document, Timesheet, RoleTemplate, ActivityLog, FamilyFeedback } from './types';
 
 export const initialApplicants: Applicant[] = [
   {
@@ -411,3 +411,56 @@ export const initialActivityLogs: ActivityLog[] = [
     type: 'timesheet'
   }
 ];
+
+export const initialFamilyFeedbacks: FamilyFeedback[] = [
+  {
+    id: 'fb_1',
+    clientName: 'Arthur Vance',
+    familyRepresentative: 'Eleanor Vance',
+    relation: 'Daughter',
+    caregiverAssigned: 'Clara Oswald',
+    ratingCareQuality: 5,
+    ratingCommunication: 5,
+    ratingPunctuality: 5,
+    feedbackComments: "Carer Clara Oswald has been an absolute godsend for my father Arthur. Her clinical expertise and warm attitude have completely transformed his day-to-day spirit. She arrives exactly on time with a warm cheer!",
+    anonymous: false,
+    dateSubmitted: '2026-06-18T09:30:00Z',
+    status: 'Awaiting Action',
+    category: 'Compliment',
+    hasContactRequest: false
+  },
+  {
+    id: 'fb_2',
+    clientName: 'Margaret Rutherford',
+    familyRepresentative: 'Giles Rutherford',
+    relation: 'Son',
+    caregiverAssigned: 'Sarah Jane Smith',
+    ratingCareQuality: 4,
+    ratingCommunication: 5,
+    ratingPunctuality: 4,
+    feedbackComments: 'We are very happy with the care from Sarah Jane. She is very professional and keeps us fully updated on medications. Our only suggestion is to verify if we can receive the shift summary reports via email rather than just paper copies.',
+    anonymous: false,
+    dateSubmitted: '2026-06-17T11:15:00Z',
+    status: 'Reviewed',
+    category: 'Suggestion',
+    hasContactRequest: false
+  },
+  {
+    id: 'fb_3',
+    clientName: 'William Noble',
+    familyRepresentative: 'Donna Noble',
+    relation: 'Granddaughter',
+    caregiverAssigned: 'Robert Tyler',
+    ratingCareQuality: 3,
+    ratingCommunication: 2,
+    ratingPunctuality: 4,
+    feedbackComments: "The actual hands-on support is decent, but communication could be improved. We did not receive updates on the last shift notes and the caregiver was a bit rushed. Please give us a callback to align on the monthly scheduler.",
+    anonymous: false,
+    dateSubmitted: '2026-06-16T15:45:00Z',
+    status: 'Awaiting Action',
+    category: 'Concern',
+    hasContactRequest: true,
+    contactEmailOrPhone: 'donna.noble@shcgmail.co.uk'
+  }
+];
+

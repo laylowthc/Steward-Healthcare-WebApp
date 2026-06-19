@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight, Heart } from 'lucide-react';
 import BrandedLogo from './BrandedLogo';
 
 interface LoginProps {
-  onLoginSuccess: (userRole: 'admin' | 'staff', userId?: string) => void;
+  onLoginSuccess: (userRole: 'admin' | 'staff' | 'family', userId?: string) => void;
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
@@ -251,6 +251,26 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   Staff Member <ArrowRight className="w-3 h-3 ml-1" />
                 </span>
                 <span className="text-[10px] text-slate-500">Clara (Registered Nurse)</span>
+              </button>
+            </div>
+
+            {/* Family & Relatives Live Portal link */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => onLoginSuccess('family')}
+                className="w-full flex items-center justify-between p-3.5 border border-dashed border-rose-200 rounded-xl bg-rose-50/30 hover:bg-rose-50 hover:border-rose-300 transition-all cursor-pointer group text-left"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-rose-100 text-rose-700 rounded-lg group-hover:scale-105 transition-transform">
+                    <Heart className="w-4 h-4 fill-rose-600 text-rose-700 font-bold" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-rose-950 font-sans tracking-wide">Family & Client Care Hub</h4>
+                    <p className="text-[10.5px] text-slate-500 mt-0.5">Are you a client relative? Submit real-time surveys here</p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-rose-700 font-bold transform group-hover:translate-x-1 transition-transform shrink-0" />
               </button>
             </div>
           </div>

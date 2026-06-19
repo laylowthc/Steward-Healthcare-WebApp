@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Document, DocumentCategory, Staff } from '../types';
 import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash } from 'lucide-react';
+import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -20,6 +21,7 @@ export default function DocumentVault({
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+  const [activeInspectorDoc, setActiveInspectorDoc] = useState<Document | null>(null);
 
   // Assignment states
   const [assignTargetStaffId, setAssignTargetStaffId] = useState('');
@@ -265,13 +267,24 @@ export default function DocumentVault({
                   )}
                 </div>
 
-                <div className="w-full mt-4 flex gap-2">
+                <div className="w-full mt-4 flex flex-col gap-2">
+                  {previewDoc.status === 'Signed' && (
+                    <button
+                      onClick={() => {
+                        setActiveInspectorDoc(previewDoc);
+                      }}
+                      className="w-full inline-flex justify-center items-center py-2 bg-purple-900 border border-purple-950 hover:bg-purple-950 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition-all"
+                    >
+                      <ShieldCheck className="w-4 h-4 mr-1 text-emerald-300" />
+                      <span>Inspect Filled Form & E-Signature</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => { alert(`Downloading: ${previewDoc.name}`); }}
-                    className="w-full inline-flex justify-center items-center py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs rounded-lg shadow-sm"
+                    className="w-full inline-flex justify-center items-center py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs rounded-lg shadow-sm font-semibold"
                   >
                     <Download className="w-4 h-4 mr-1 text-slate-400" />
-                    <span>Download</span>
+                    <span>Download Copy</span>
                   </button>
                 </div>
               </div>
@@ -285,6 +298,22 @@ export default function DocumentVault({
         </div>
 
       </div>
+
+      {activeInspectorDoc && (() => {
+        const matchingStaff = staff.find(s => s.id === activeInspectorDoc.staffId);
+        if (matchingStaff) {
+          return (
+            <InteractiveDocumentFiller
+              document={activeInspectorDoc}
+              staffMember={matchingStaff}
+              readOnly={true}
+              onClose={() => setActiveInspectorDoc(null)}
+              onSaveSignature={() => {}}
+            />
+          );
+        }
+        return null;
+      })()}
     </div>
   );
 }

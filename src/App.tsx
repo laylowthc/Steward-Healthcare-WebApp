@@ -25,7 +25,8 @@ import {
   TrendingUp,
   Award,
   Plus,
-  Cloud
+  Cloud,
+  Heart
 } from 'lucide-react';
 
 import { 
@@ -37,7 +38,8 @@ import {
   ApplicantStatus, 
   StaffRole, 
   DocumentCategory,
-  RoleTemplate
+  RoleTemplate,
+  FamilyFeedback
 } from './types';
 
 import { 
@@ -46,7 +48,8 @@ import {
   initialDocuments, 
   initialTimesheets, 
   initialActivityLogs,
-  initialRoleTemplates
+  initialRoleTemplates,
+  initialFamilyFeedbacks
 } from './mockData';
 
 // Dynamic Sub-Views Imports
@@ -62,12 +65,34 @@ import TimesheetManager from './components/TimesheetManager';
 import DeveloperConsole from './components/DeveloperConsole';
 import WorkspaceSync from './components/WorkspaceSync';
 import BrandedLogo from './components/BrandedLogo';
+import FamilyPortal from './components/FamilyPortal';
+import FamilyFeedbackAdmin from './components/FamilyFeedbackAdmin';
 
 export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
-  const [currentRole, setCurrentRole] = useState<'admin' | 'staff'>('admin');
+  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family'>('admin');
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Clara Oswald demo
+
+  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
+    const local = localStorage.getItem('shc_family_feedbacks');
+    return local ? JSON.parse(local) : initialFamilyFeedbacks;
+  });
+
+  // Listen for shareable hash modification links (e.g. #family)
+  useEffect(() => {
+    const handleHashCheck = () => {
+      if (window.location.hash === '#family') {
+        setCurrentRole('family');
+        setIsLoggedIn(true);
+      } else if (window.location.hash === '#login') {
+        setIsLoggedIn(false);
+      }
+    };
+    handleHashCheck();
+    window.addEventListener('hashchange', handleHashCheck);
+    return () => window.removeEventListener('hashchange', handleHashCheck);
+  }, []);
 
   // Global Core Data Persistence State
   const [applicants, setApplicants] = useState<Applicant[]>(() => {
@@ -131,6 +156,10 @@ export default function App() {
     localStorage.setItem('shc_templates', JSON.stringify(templates));
   }, [templates]);
 
+  useEffect(() => {
+    localStorage.setItem('shc_family_feedbacks', JSON.stringify(familyFeedbacks));
+  }, [familyFeedbacks]);
+
   // Global OAuth Popup close Handler
   useEffect(() => {
     if (window.location.hash && window.location.hash.includes('access_token=') && window.location.hash.includes('state=google_auth_state')) {
@@ -145,14 +174,22 @@ export default function App() {
   }, []);
 
   // Auth Operations
-  const handleLoginSuccess = (role: 'admin' | 'staff', userId?: string) => {
+  const handleLoginSuccess = (role: 'admin' | 'staff' | 'family', userId?: string) => {
     setCurrentRole(role);
     if (userId) {
       setCurrentUserId(userId);
     }
     setIsLoggedIn(true);
     setSelectedStaffId(null);
-    setActiveTab(role === 'admin' ? 'dashboard' : 'profile');
+    if (role === 'family') {
+      window.location.hash = 'family';
+    } else {
+      // Clear hash if logging in as staff/admin so they don't get routed back
+      if (window.location.hash === '#family') {
+        window.location.hash = '';
+      }
+      setActiveTab(role === 'admin' ? 'dashboard' : 'profile');
+    }
   };
 
   const handleLogout = () => {
@@ -250,6 +287,15 @@ export default function App() {
     }));
   };
 
+  const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
+    setApplicants(prev => prev.map(a => {
+      if (a.id === id) {
+        return { ...a, ...fields };
+      }
+      return a;
+    }));
+  };
+
   const handleUpdateStaffDetails = (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
 
@@ -259,6 +305,19 @@ export default function App() {
       timestamp: 'Just now',
       user: 'System Bot',
       type: 'compliance'
+    };
+    setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleUpdateDocument = (updatedDoc: Document) => {
+    setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
+
+    const log: ActivityLog = {
+      id: `act_${Date.now()}`,
+      action: `COMPLIANCE: Online form completed and e-signed: '${updatedDoc.category}' for ${updatedDoc.staffName}`,
+      timestamp: 'Just now',
+      user: updatedDoc.staffName || 'System Bot',
+      type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
   };
@@ -357,12 +416,43 @@ export default function App() {
     { id: 'templates', label: 'Credential SLA Briefs', icon: BookOpen, desc: 'Criteria checklists by role' },
     { id: 'timesheets', label: 'Timesheet Claims', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
+    { id: 'family_feedback', label: 'Family Surveys Hub', icon: Heart, desc: 'Real-time client satisfaction' },
     { id: 'system', label: 'ERD Database Sandbox', icon: Database, desc: 'Architect schema schemas' }
   ];
 
   // Auth Guard
   if (!isLoggedIn) {
     return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // Family & Client Feedback Portal: Clean Isolated Perspective
+  if (currentRole === 'family') {
+    return (
+      <FamilyPortal 
+        onBackToLogin={handleLogout} 
+        onSubmitFeedback={(newFeed) => {
+          const feed: FamilyFeedback = {
+            ...newFeed,
+            id: `fb_${Date.now()}`,
+            dateSubmitted: new Date().toISOString(),
+            status: 'Awaiting Action'
+          };
+          
+          setFamilyFeedbacks(prev => [feed, ...prev]);
+          
+          // Prepend an activity log!
+          const log: ActivityLog = {
+            id: `act_${Date.now()}`,
+            action: `Real-time family feedback: Client "${feed.clientName}" (${feed.category})`,
+            timestamp: 'Just now',
+            user: feed.anonymous ? 'Anonymous Relation' : `${feed.familyRepresentative} (${feed.relation})`,
+            type: 'status'
+          };
+          setActivityLogs(prev => [log, ...prev]);
+        }} 
+        staffList={staff} 
+      />
+    );
   }
 
   // --- RENDERING PERSPECTIVES ---
@@ -654,6 +744,7 @@ export default function App() {
               onBack={() => setSelectedStaffId(null)}
               onUpdateStaffDetails={handleUpdateStaffDetails}
               onUploadDocument={handleUploadDocument}
+              onUpdateDocument={handleUpdateDocument}
             />
           ) : (
             // --- TABBED WORKSPACE CONTENT FOR ACTIVE SELECTIONS ---
@@ -682,6 +773,7 @@ export default function App() {
                       onAddApplicant={handleAddApplicant}
                       templates={templates}
                       onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
+                      onUpdateApplicantDetails={handleUpdateApplicantDetails}
                     />
                   )}
 
@@ -749,6 +841,7 @@ export default function App() {
                       timesheets={timesheets}
                       onAddApplicant={handleAddApplicant}
                       onUploadDocument={handleUploadDocument}
+                      onUpdateApplicantDetails={handleUpdateApplicantDetails}
                       onAddLog={(action, type) => {
                         let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'document';
                         if (type === 'recruitment') logType = 'applicant';
@@ -757,6 +850,33 @@ export default function App() {
                         else if (type === 'timesheet') logType = 'timesheet';
                         else if (type === 'document') logType = 'document';
 
+                        const log: ActivityLog = {
+                          id: `act_${Date.now()}`,
+                          action,
+                          timestamp: 'Just now',
+                          user: 'Emma (Admin)',
+                          type: logType
+                        };
+                        setActivityLogs(prev => [log, ...prev]);
+                      }}
+                    />
+                  )}
+
+                  {/* Family Feedbacks & Care Quality QA Management */}
+                  {activeTab === 'family_feedback' && (
+                    <FamilyFeedbackAdmin
+                      feedbacks={familyFeedbacks}
+                      onUpdateStatus={(id, newStatus) => {
+                        setFamilyFeedbacks(prev => prev.map(f => f.id === id ? { ...f, status: newStatus } : f));
+                      }}
+                      onDeleteFeedback={(id) => {
+                        setFamilyFeedbacks(prev => prev.filter(f => f.id !== id));
+                      }}
+                      onAddLog={(action, type) => {
+                        let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'compliance';
+                        if (type === 'recruitment') logType = 'applicant';
+                        else if (type === 'staff') logType = 'status';
+                        else if (type === 'timesheet') logType = 'timesheet';
                         const log: ActivityLog = {
                           id: `act_${Date.now()}`,
                           action,
@@ -797,6 +917,7 @@ export default function App() {
                           onBack={() => handleLogout()} // Logout triggers back
                           onUpdateStaffDetails={handleUpdateStaffDetails}
                           onUploadDocument={handleUploadDocument}
+                          onUpdateDocument={handleUpdateDocument}
                         />
                       </div>
                     </>
