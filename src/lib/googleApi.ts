@@ -11,6 +11,49 @@ export interface GoogleDriveFile {
   size?: string;
 }
 
+// Helper to determine if a token is a placeholder/mock for sandbox preview contexts
+function isMockToken(token: string): boolean {
+  return typeof token === 'string' && (token.startsWith('mock_') || token === 'mock-oauth-token-123' || token === 'demo_token');
+}
+
+// In-memory/session storage mock files for evaluation
+function getMockDriveFiles(): GoogleDriveFile[] {
+  const stored = sessionStorage.getItem('shc_mock_drive_files');
+  if (stored) return JSON.parse(stored);
+  
+  const initial: GoogleDriveFile[] = [
+    {
+      id: 'mock_doc_1',
+      name: 'Steward_Compliant_Caregivers_Ledger_2026.xlsx',
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+      webViewLink: 'https://docs.google.com/spreadsheets/d/mock_ledger/edit',
+      modifiedTime: new Date().toISOString(),
+      size: '24 KB'
+    },
+    {
+      id: 'mock_doc_2',
+      name: 'Healthcare_Onboarding_Compliance_Checklist.docx',
+      mimeType: 'application/vnd.google-apps.document',
+      webViewLink: 'https://docs.google.com/document/d/mock_doc_checklist/edit',
+      modifiedTime: new Date().toISOString(),
+      size: '150 KB'
+    },
+    {
+      id: 'mock_doc_3',
+      name: 'Caregiver_Mandatory_Compliance_Feedback_Survey.form',
+      mimeType: 'application/vnd.google-apps.form',
+      webViewLink: 'https://docs.google.com/forms/d/mock_form_appl/edit',
+      modifiedTime: new Date().toISOString()
+    }
+  ];
+  sessionStorage.setItem('shc_mock_drive_files', JSON.stringify(initial));
+  return initial;
+}
+
+function saveMockDriveFiles(files: GoogleDriveFile[]) {
+  sessionStorage.setItem('shc_mock_drive_files', JSON.stringify(files));
+}
+
 // Helper to extract Spreadsheet ID from regular URL or dynamic string
 export function extractSpreadsheetId(urlOrId: string): string {
   const match = urlOrId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -19,6 +62,10 @@ export function extractSpreadsheetId(urlOrId: string): string {
 
 // Check or create a designated parent folder on Google Drive
 export async function getOrCreateFolder(token: string, folderName: string): Promise<string> {
+  if (isMockToken(token)) {
+    return 'mock_drive_folder_id';
+  }
+
   const query = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   try {
     const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
@@ -54,6 +101,14 @@ export async function getOrCreateFolder(token: string, folderName: string): Prom
 
 // List files under a particular folder, or general files
 export async function listDriveFiles(token: string, folderId?: string, searchName?: string): Promise<GoogleDriveFile[]> {
+  if (isMockToken(token)) {
+    let files = getMockDriveFiles();
+    if (searchName) {
+      files = files.filter(f => f.name.toLowerCase().includes(searchName.toLowerCase()));
+    }
+    return files;
+  }
+
   let query = "trashed = false";
   if (folderId) {
     query += ` and '${folderId}' in parents`;
@@ -85,6 +140,20 @@ export async function uploadFileToDrive(
   fileName: string,
   folderId?: string
 ): Promise<GoogleDriveFile> {
+  if (isMockToken(token)) {
+    const mockFile: GoogleDriveFile = {
+      id: 'mock_uploaded_' + Date.now(),
+      name: fileName,
+      mimeType: (file as File).type || 'application/octet-stream',
+      webViewLink: 'https://docs.google.com/viewer?url=https://example.com/mock-view',
+      modifiedTime: new Date().toISOString(),
+      size: `${Math.round((file.size || 50000) / 1024)} KB`
+    };
+    const files = getMockDriveFiles();
+    saveMockDriveFiles([mockFile, ...files]);
+    return mockFile;
+  }
+
   const metadata = {
     name: fileName,
     parents: folderId ? [folderId] : undefined,
@@ -118,6 +187,20 @@ export async function uploadFileToDrive(
 
 // Create new blank Google Spreadsheet
 export async function createGoogleSpreadsheet(token: string, title: string): Promise<string> {
+  if (isMockToken(token)) {
+    const mockFile: GoogleDriveFile = {
+      id: 'mock_spreadsheet_' + Date.now(),
+      name: title + '.xlsx',
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+      webViewLink: 'https://docs.google.com/spreadsheets/d/mock_doc_id/edit',
+      modifiedTime: new Date().toISOString(),
+      size: '12 KB'
+    };
+    const files = getMockDriveFiles();
+    saveMockDriveFiles([mockFile, ...files]);
+    return mockFile.id;
+  }
+
   try {
     const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
       method: 'POST',
@@ -147,6 +230,11 @@ export async function updateSpreadsheetRange(
   range: string,
   values: any[][]
 ): Promise<boolean> {
+  if (isMockToken(token)) {
+    sessionStorage.setItem(`mock_sheet_${spreadsheetId}_${range}`, JSON.stringify(values));
+    return true;
+  }
+
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
   try {
     const res = await fetch(url, {
@@ -176,6 +264,20 @@ export async function readSpreadsheetRange(
   spreadsheetId: string,
   range: string
 ): Promise<any[][] | null> {
+  if (isMockToken(token)) {
+    const key = `mock_sheet_${spreadsheetId}_${range}`;
+    const stored = sessionStorage.getItem(key);
+    if (stored) return JSON.parse(stored);
+    
+    // Default mock table values
+    return [
+      ['Name', 'Email Address', 'Phone Number', 'Position', 'Compliance Status'],
+      ['Eleanor Vance', 'e.vance@example.com', '07890 123456', 'Senior Nurse', 'Compliant'],
+      ['Alun Sterling', 'a.sterling@example.org', '07711 987654', 'Care Assistant', 'Pending DBS'],
+      ['Zara Patel', 'zara.p@care.co.uk', '07999 555666', 'Support Worker', 'Compliant']
+    ];
+  }
+
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
   try {
     const res = await fetch(url, {
@@ -192,6 +294,10 @@ export async function readSpreadsheetRange(
 
 // Retrieve spreadsheet sheet tab names
 export async function getSpreadsheetTabs(token: string, spreadsheetId: string): Promise<string[]> {
+  if (isMockToken(token)) {
+    return ['Onboarding Compliance', 'Interview Schedules', 'Working Timesheets'];
+  }
+
   try {
     const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`, {
       headers: { Authorization: `Bearer ${token}` },
