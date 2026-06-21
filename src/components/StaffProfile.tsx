@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
-import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 
 interface StaffProfileProps {
@@ -8,7 +8,7 @@ interface StaffProfileProps {
   documents: Document[];
   onBack: () => void;
   onUpdateStaffDetails: (updatedStaff: Staff) => void;
-  onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>) => void;
+  onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => void;
   onUpdateDocument?: (doc: Document) => void;
 }
 
@@ -22,6 +22,7 @@ export default function StaffProfile({
 }: StaffProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
+  const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
 
   const [dragActive, setDragActive] = useState(false);
   const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('Passport');
@@ -96,8 +97,11 @@ export default function StaffProfile({
   };
 
   // Mock upload simulator
-  const handleFileUpload = (fileName: string, fileSize: string) => {
+  const handleFileUpload = (file: File) => {
     setUploadProgress(10);
+    const fileSize = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+    const fileUrl = URL.createObjectURL(file);
+
     // Simulate step progress increments
     const interval = setInterval(() => {
       setUploadProgress((prev) => {
@@ -105,13 +109,14 @@ export default function StaffProfile({
         if (prev >= 100) {
           clearInterval(interval);
           onUploadDocument({
-            name: `${staffMember.name.replace(' ', '_')}_${uploadCategory.replace(' ', '_')}.pdf`,
+            name: file.name,
             category: uploadCategory,
             staffId: staffMember.id,
             staffName: staffMember.name,
             status: 'Awaiting Review',
-            size: fileSize
-          });
+            size: fileSize,
+            fileUrl: fileUrl
+          }, file);
           setTimeout(() => setUploadProgress(null), 1000);
           return 100;
         }
@@ -136,8 +141,7 @@ export default function StaffProfile({
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      handleFileUpload(file.name, `${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+      handleFileUpload(e.dataTransfer.files[0]);
     }
   };
 
@@ -486,8 +490,7 @@ export default function StaffProfile({
                     className="hidden"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
-                        const file = e.target.files[0];
-                        handleFileUpload(file.name, `${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+                        handleFileUpload(e.target.files[0]);
                       }
                     }}
                   />
@@ -533,7 +536,25 @@ export default function StaffProfile({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {['Employment Contract', 'Job Description', 'Privacy Policy', 'Staff Handbook'].includes(doc.category) ? (
+                        {doc.fileUrl ? (
+                          <div className="flex items-center justify-end gap-2">
+                             <button
+                                onClick={() => setViewingFileUrl(doc.fileUrl || null)}
+                                className="p-1 px-2.5 bg-indigo-600 border border-indigo-700 text-white rounded-lg text-[10.5px] font-bold hover:bg-indigo-700 cursor-pointer transition-all flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3 text-indigo-200" />
+                                <span>View File</span>
+                              </button>
+                             {doc.status === 'Pending Signature' && (
+                                <button
+                                  onClick={() => setActiveSigningDoc(doc)}
+                                  className="p-1 px-2.5 bg-purple-900 border border-purple-950 text-white rounded-lg text-[10.5px] font-black tracking-wide uppercase hover:bg-purple-950 cursor-pointer transition-all flex items-center justify-end gap-1"
+                                >
+                                  <span>✏️ Sign</span>
+                                </button>
+                             )}
+                          </div>
+                        ) : ['Employment Contract', 'Job Description', 'Privacy Policy', 'Staff Handbook', 'Appendix D', 'New Starter Information', 'Pay 1 B', 'Weekly Timesheet', 'Supervision Record', 'Personnel File Checklist', 'Application Form', 'Pre-employment Checklist', 'Interview Assessment', 'Statement of Purpose'].some(tag => doc.category.toLowerCase().includes(tag.toLowerCase())) ? (
                           doc.status === 'Pending Signature' ? (
                             <button
                               onClick={() => setActiveSigningDoc(doc)}
@@ -584,6 +605,33 @@ export default function StaffProfile({
         </div>
 
       </div>
+
+      {viewingFileUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
+              </div>
+              <button 
+                onClick={() => setViewingFileUrl(null)}
+                className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+              >
+                <span>Close</span>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 bg-slate-200/50 p-4">
+              <iframe 
+                src={viewingFileUrl} 
+                className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                title="Document Viewer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dynamic Overlay Fillable Interactive Document Signing Portal */}
       {activeSigningDoc && (

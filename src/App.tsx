@@ -52,6 +52,9 @@ import {
   initialFamilyFeedbacks
 } from './mockData';
 
+import { auth } from './lib/firebase';
+import { signInAnonymously } from 'firebase/auth';
+
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -72,7 +75,14 @@ export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family'>('admin');
-  const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Clara Oswald demo
+  const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
+
+  useEffect(() => {
+    // Authenticate anonymously so we can upload files to Firebase Storage securely
+    signInAnonymously(auth).catch(err => {
+      console.error("Firebase Auth failed:", err);
+    });
+  }, []);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
     const local = localStorage.getItem('shc_family_feedbacks');
@@ -131,6 +141,18 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
 
+  // One-time patch for "Clara" to "Blessing" locally
+  useEffect(() => {
+    const patched = localStorage.getItem('shc_name_patched_v2');
+    if (!patched) {
+      setStaff(initialStaff);
+      setDocuments(initialDocuments);
+      setTimesheets(initialTimesheets);
+      setActivityLogs(initialActivityLogs);
+      localStorage.setItem('shc_name_patched_v2', 'true');
+    }
+  }, []);
+
   // Sync to client-side localStorage
   useEffect(() => {
     localStorage.setItem('shc_recruits', JSON.stringify(applicants));
@@ -159,6 +181,32 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shc_family_feedbacks', JSON.stringify(familyFeedbacks));
   }, [familyFeedbacks]);
+
+  const [visibleCards, setVisibleCards] = useState<string[]>(() => {
+    const local = localStorage.getItem('shc_visible_cards');
+    return local ? JSON.parse(local) : ['health_index', 'recruiting_targets', 'pending_timesheets', 'recent_activity', 'quick_actions', 'workspace_sync', 'family_surveys'];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('shc_visible_cards', JSON.stringify(visibleCards));
+  }, [visibleCards]);
+
+  const handleToggleCard = (cardId: string, visible?: boolean) => {
+    setVisibleCards(prev => {
+      const isCurrentlyVisible = prev.includes(cardId);
+      const shouldBeVisible = visible !== undefined ? visible : !isCurrentlyVisible;
+      if (shouldBeVisible) {
+        if (isCurrentlyVisible) return prev;
+        return [...prev, cardId];
+      } else {
+        return prev.filter(id => id !== cardId);
+      }
+    });
+  };
+
+  const handleClearActivityLogs = () => {
+    setActivityLogs([]);
+  };
 
   // Global OAuth Popup close Handler
   useEffect(() => {
@@ -322,9 +370,24 @@ export default function App() {
     setActivityLogs(prev => [log, ...prev]);
   };
 
-  const handleUploadDocument = (doc: Omit<Document, 'id' | 'uploadDate'>) => {
+  const handleUploadDocument = async (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => {
+    let finalFileUrl = doc.fileUrl;
+    
+    if (file) {
+      try {
+        const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+        const storage = getStorage();
+        const fileRef = ref(storage, `documents/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(fileRef, file);
+        finalFileUrl = await getDownloadURL(snapshot.ref);
+      } catch (e) {
+        console.error("Failed to upload to Firebase Storage:", e);
+      }
+    }
+
     const newDocItem: Document = {
       ...doc,
+      fileUrl: finalFileUrl,
       id: `doc_${Date.now()}`,
       uploadDate: new Date().toISOString().split('T')[0]
     };
@@ -359,7 +422,7 @@ export default function App() {
       id: `act_${Date.now()}`,
       action: `SLA ASSIGNED: E-Signature contract template dispatched to caregiver ${staffMemberName}`,
       timestamp: 'Just now',
-      user: 'Agency Admin (Emma)',
+      user: 'Agency Admin (Blessing)',
       type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
@@ -378,7 +441,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
         timestamp: 'Just now',
-        user: 'Agency Admin (Emma)',
+        user: 'Agency Admin (Blessing)',
         type: 'timesheet'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -408,16 +471,15 @@ export default function App() {
 
   // Navigation Links & Icons configuration
   const navigationTabs = [
-    { id: 'dashboard', label: 'Agency Dashboard', icon: Users, desc: 'Global credentials summary' },
-    { id: 'recruitment', label: 'Recruitment Kanban', icon: Briefcase, desc: 'Registered onboarding pool' },
-    { id: 'staff', label: 'Approved Staff Directory', icon: User, desc: 'Operational caregiver roster' },
-    { id: 'vault', label: 'National Vault Cabinet', icon: FileText, desc: 'GDPR contract records storage' },
-    { id: 'compliance', label: 'Compliance Control', icon: Shield, desc: 'Traffic light regulatory alarm' },
-    { id: 'templates', label: 'Credential SLA Briefs', icon: BookOpen, desc: 'Criteria checklists by role' },
-    { id: 'timesheets', label: 'Timesheet Claims', icon: Clock, desc: 'Shift approvals and pays metrics' },
+    { id: 'dashboard', label: 'Dashboard', icon: Users, desc: 'Global credentials summary' },
+    { id: 'recruitment', label: 'Recruitment', icon: Briefcase, desc: 'Registered onboarding pool' },
+    { id: 'staff', label: 'Approved Staff', icon: User, desc: 'Operational caregiver roster' },
+    { id: 'vault', label: 'Documents', icon: FileText, desc: 'GDPR contract records storage' },
+    { id: 'templates', label: 'Roles', icon: BookOpen, desc: 'Criteria checklists by role' },
+    { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
     { id: 'family_feedback', label: 'Family Surveys Hub', icon: Heart, desc: 'Real-time client satisfaction' },
-    { id: 'system', label: 'ERD Database Sandbox', icon: Database, desc: 'Architect schema schemas' }
+    { id: 'system', label: 'Developer Settings', icon: Database, desc: 'Architect schema schemas' }
   ];
 
   // Auth Guard
@@ -456,6 +518,20 @@ export default function App() {
   }
 
   // --- RENDERING PERSPECTIVES ---
+  const getPageTitle = () => {
+    if (selectedStaffId) {
+      return "Approved Staff";
+    }
+    if (currentRole === 'admin') {
+      const currentTab = navigationTabs.find(tab => tab.id === activeTab);
+      return currentTab ? currentTab.label : 'Dashboard';
+    } else {
+      if (activeTab === 'profile') return 'My Credentials';
+      if (activeTab === 'staff_timesheets') return 'Timesheets';
+      if (activeTab === 'role_briefs') return 'Mandatory Checklist';
+      return 'Staff Portal';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#fafafc] text-slate-800 font-sans flex flex-col md:flex-row antialiased">
@@ -478,7 +554,7 @@ export default function App() {
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
-            <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Emma (Super-Admin)' : activeStaffMember?.name}</span>
+            <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Blessing (Super-Admin)' : activeStaffMember?.name}</span>
             <button 
               onClick={() => {
                 // Instantly swap perspective for satisfied evaluation
@@ -507,17 +583,14 @@ export default function App() {
                     setSelectedStaffId(null);
                     setActiveTab(item.id);
                   }}
-                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-left text-xs font-semibold tracking-tight transition-all relative ${
+                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-tight transition-all relative ${
                     activeTab === item.id && selectedStaffId === null
                       ? 'bg-slate-900 text-white font-bold shadow-sm'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-[#f1f2f6]'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <div className="truncate">
-                    <p className="leading-none">{item.label}</p>
-                    <p className={`text-[9px] mt-0.5 leading-none ${activeTab === item.id && selectedStaffId === null ? 'text-slate-400' : 'text-slate-400'}`}>{item.desc}</p>
-                  </div>
+                  <span className="truncate">{item.label}</span>
                 </button>
               );
             })
@@ -665,9 +738,7 @@ export default function App() {
         {/* UPPER TITLE BAR HEADER: Beautiful Minimal Look */}
         <header className="hidden md:flex bg-white h-14 border-b border-[#e8eaee] items-center justify-between px-8 shrink-0">
           <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400 font-semibold font-mono tracking-wider">SECURE CONNECTED SHIELD</span>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <p className="text-[11px] font-bold text-slate-500 font-sans uppercase">Steward Health Care National Registry</p>
+            <h2 className="text-base font-bold text-slate-800 tracking-tight">{getPageTitle()}</h2>
           </div>
 
           <div className="flex items-center space-x-4">
@@ -682,8 +753,8 @@ export default function App() {
               }}
               className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
             >
-              <span>SWAP ROLE ROLE:</span>
-              <span className="text-[#9C1F60] font-black">{currentRole.toUpperCase()}</span>
+              <span>SWAP ROLE:</span>
+              <span className="text-[#9C1F60] font-black">{currentRole === 'admin' ? 'STAFF' : 'ADMIN'}</span>
             </button>
 
             {/* Profile badge with popup settings */}
@@ -693,10 +764,10 @@ export default function App() {
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
                 <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
-                  {currentRole === 'admin' ? 'EM' : activeStaffMember?.name.substring(0,2).toUpperCase()}
+                  {currentRole === 'admin' ? 'BL' : activeStaffMember?.name.substring(0,2).toUpperCase()}
                 </div>
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
-                  {currentRole === 'admin' ? 'Emma (Admin)' : activeStaffMember?.name}
+                  {currentRole === 'admin' ? 'Blessing (Admin)' : activeStaffMember?.name}
                 </span>
                 <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
               </button>
@@ -704,8 +775,8 @@ export default function App() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-50 text-xs text-slate-700 font-medium">
                   <div className="px-3 py-2 border-b border-slate-50">
-                    <p className="font-extrabold text-slate-900 leading-none">Emma Steward</p>
-                    <p className="text-[10px] text-slate-400 mt-1 leading-none">emma.admin@shc247.co.uk</p>
+                    <p className="font-extrabold text-slate-900 leading-none">Blessing Steward</p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-none">blessing.admin@shc247.co.uk</p>
                   </div>
                   
                   <button 
@@ -754,6 +825,8 @@ export default function App() {
                   {/* Dashboard Tab */}
                   {activeTab === 'dashboard' && (
                     <Dashboard 
+                      currentUser={staff.find(s => s.id === currentUserId)}
+                      currentRole={currentRole}
                       applicants={applicants}
                       staff={staff}
                       documents={documents}
@@ -762,6 +835,10 @@ export default function App() {
                       onNavigate={(tabId) => setActiveTab(tabId)}
                       onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
                       templates={templates}
+                      visibleCards={visibleCards}
+                      onToggleCard={handleToggleCard}
+                      onClearActivityLogs={handleClearActivityLogs}
+                      familyFeedbacks={familyFeedbacks}
                     />
                   )}
 
@@ -854,7 +931,7 @@ export default function App() {
                           id: `act_${Date.now()}`,
                           action,
                           timestamp: 'Just now',
-                          user: 'Emma (Admin)',
+                          user: 'Blessing (Admin)',
                           type: logType
                         };
                         setActivityLogs(prev => [log, ...prev]);
@@ -881,7 +958,7 @@ export default function App() {
                           id: `act_${Date.now()}`,
                           action,
                           timestamp: 'Just now',
-                          user: 'Emma (Admin)',
+                          user: 'Blessing (Admin)',
                           type: logType
                         };
                         setActivityLogs(prev => [log, ...prev]);
@@ -909,7 +986,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Embed the standard profile component so Clara can edit details directly & upload credentials */}
+                      {/* Embed the standard profile component so Blessing can edit details directly & upload credentials */}
                       <div className="border border-slate-200/80 rounded-2xl bg-white shadow-sm p-1">
                         <StaffProfile
                           staffMember={activeStaffMember || null}

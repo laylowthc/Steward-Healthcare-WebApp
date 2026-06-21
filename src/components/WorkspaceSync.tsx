@@ -63,12 +63,8 @@ export default function WorkspaceSync({
   const [googleToken, setGoogleToken] = useState<string | null>(() => {
     return sessionStorage.getItem('shc_google_access_token');
   });
-  const [clientId, setClientId] = useState<string>(() => {
-    const metaEnv = (import.meta as any).env || {};
-    return localStorage.getItem('shc_google_client_id') || metaEnv.VITE_GOOGLE_CLIENT_ID || '';
-  });
   const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import' | 'meetings'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import' | 'meetings' | 'forms'>('drive');
 
   // Persisted Google Meet Scheduled meetings
   const [meetings, setMeetings] = useState<{
@@ -136,28 +132,6 @@ export default function WorkspaceSync({
     localStorage.setItem('shc_spreadsheet_ids', JSON.stringify(spreadsheetIdMap));
   }, [spreadsheetIdMap]);
 
-  useEffect(() => {
-    // Listener for Google OAuth popup posting back the token
-    const handleOauthMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data && event.data.type === 'GOOGLE_OAUTH_TOKEN') {
-        const hash = event.data.hash;
-        const params = new URLSearchParams(hash.substring(1)); // strip '#'
-        const token = params.get('access_token');
-        if (token) {
-          setGoogleToken(token);
-          sessionStorage.setItem('shc_google_access_token', token);
-          onAddLog('Successfully authenticated Google Workspace secure liaison', 'document');
-          setDriveError(null);
-        }
-        setIsConnecting(false);
-      }
-    };
-
-    window.addEventListener('message', handleOauthMessage);
-    return () => window.removeEventListener('message', handleOauthMessage);
-  }, [onAddLog]);
-
   // Handle auto-refresh or listing files when connection exists
   useEffect(() => {
     if (googleToken) {
@@ -169,50 +143,38 @@ export default function WorkspaceSync({
   // Action Helpers
   // -----------------------------------------------------------------
   
-  const handleConnectGoogle = () => {
-    if (!clientId.trim()) {
-      alert('Please configure a valid Google Cloud Client ID in the credentials field first.');
-      return;
-    }
-    
-    // Save Client ID
-    localStorage.setItem('shc_google_client_id', clientId.trim());
+  const handleConnectGoogle = async () => {
     setIsConnecting(true);
 
-    const redirectUri = window.location.origin;
-    const scopes = [
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/meetings.space.created',
-      'https://www.googleapis.com/auth/meetings.space.readonly',
-      'https://www.googleapis.com/auth/meetings.space.settings'
-    ].join(' ');
-
-    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${encodeURIComponent(clientId.trim())}&` +
-      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-      `response_type=token&` +
-      `scope=${encodeURIComponent(scopes)}&` +
-      `state=google_auth_state`;
-
-    // Open popup
-    const width = 500, height = 600;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    window.open(
-      oauthUrl, 
-      'GoogleOAuthPopup', 
-      `width=${width},height=${height},left=${left},top=${top},status=yes,toolbar=no,menubar=no,location=yes`
-    );
+    try {
+      const { googleSignIn } = await import('../lib/auth');
+      const result = await googleSignIn();
+      if (result) {
+        setGoogleToken(result.accessToken);
+        sessionStorage.setItem('shc_google_access_token', result.accessToken);
+        onAddLog('Successfully authenticated Google Workspace secure liaison', 'document');
+        setDriveError(null);
+      }
+    } catch (err) {
+      console.error('Login failed:', err);
+      alert('Authentication failed to complete. Please try signing in again.');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
-  const handleDisconnectGoogle = () => {
+  const handleDisconnectGoogle = async () => {
     setGoogleToken(null);
     sessionStorage.removeItem('shc_google_access_token');
     setCurrentFolderId(null);
     setDriveFiles([]);
     onAddLog('De-registered and cleared local Google Workspace session token', 'document');
+    try {
+      const { logout } = await import('../lib/auth');
+      await logout();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const syncDriveFolder = async () => {
@@ -539,33 +501,18 @@ export default function WorkspaceSync({
 
       {/* OAUTH CONNECT CONTROLLER PANEL */}
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
           
-          <div className="lg:col-span-1 space-y-2">
+          <div className="space-y-2">
             <h3 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
               <span>🎛️ liaison Identity Console</span>
             </h3>
             <p className="text-xs leading-normal text-slate-500">
-              The AI Studio sandbox utilizes the official client ID credentials. Configure your client-id below to deploy active links in real-time.
+              The AI Studio sandbox utilizes secure Firebase Authentication to connect your Google Workspace account safely.
             </p>
-            <div className="pt-2">
-              <label className="block text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">
-                Google Client ID
-              </label>
-              <div className="mt-1 flex rounded-lg shadow-sm">
-                <input
-                  type="text"
-                  disabled={googleToken !== null}
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  className="block w-full p-2 border border-slate-300 rounded-lg text-xs placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:bg-slate-100 disabled:text-slate-400 font-mono"
-                  placeholder="xxxx-xxxx.apps.googleusercontent.com"
-                />
-              </div>
-            </div>
           </div>
 
-          <div className="lg:col-span-2 flex flex-col sm:flex-row items-center sm:justify-end gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <div className="flex flex-col sm:flex-row items-center sm:justify-end gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
             {googleToken ? (
               <div className="flex flex-col sm:flex-row items-center w-full gap-4 justify-between">
                 <div className="flex items-center space-x-3">
@@ -605,14 +552,26 @@ export default function WorkspaceSync({
                     Connecting unlocks continuous spreadsheet sync & dynamic onboarding file back-ups.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleConnectGoogle}
-                  className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-purple-900 border border-transparent rounded-lg shadow-sm text-xs font-bold text-white p-2.5 px-5 hover:bg-purple-950 transition-all cursor-pointer"
-                >
-                  <Cloud className="w-4 h-4 text-purple-300" />
-                  <span>Connect Google Workspace</span>
-                </button>
+                {isConnecting ? (
+                  <span className="text-xs text-slate-500 font-medium">Connecting...</span>
+                ) : (
+                  <button className="gsi-material-button w-full sm:w-auto" onClick={handleConnectGoogle}>
+                    <div className="gsi-material-button-state"></div>
+                    <div className="gsi-material-button-content-wrapper p-2 px-4 border border-slate-200 rounded text-slate-700 bg-white hover:bg-slate-50 flex items-center space-x-2 font-medium cursor-pointer shadow-sm transition">
+                      <div className="gsi-material-button-icon">
+                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                          <path fill="none" d="M0 0h48v48H0z"></path>
+                        </svg>
+                      </div>
+                      <span className="gsi-material-button-contents text-sm">Sign in with Google</span>
+                      <span style={{ display: 'none' }}>Sign in with Google</span>
+                    </div>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -664,9 +623,76 @@ export default function WorkspaceSync({
             >
               🎥 Google Meet Scheduler
             </button>
+            <button
+              onClick={() => { setActiveTab('forms'); setExportMessage(null); }}
+              className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                activeTab === 'forms' 
+                  ? 'border-indigo-600 text-indigo-700 font-extrabold' 
+                  : 'border-transparent text-slate-550 hover:text-slate-800'
+              }`}
+            >
+              📝 Google Forms Manager
+            </button>
           </div>
 
           <div id="workspace-tab-contents" className="space-y-6">
+            {/* GOOGLE FORMS HUB */}
+            {activeTab === 'forms' && (
+              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-4 border-b border-slate-100 mb-4">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-850">
+                      Feedback & Registration Forms
+                    </h4>
+                    <p className="text-xs text-slate-500">View and manage your Google Forms directly mapped to your applicants and staff.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={syncDriveFolder} className="flex items-center space-x-1.5 p-2 px-4 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-xs hover:bg-indigo-100 transition cursor-pointer">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Sync Forms</span>
+                    </button>
+                    <a href="https://docs.google.com/forms/u/0/create" target="_blank" rel="noopener noreferrer" className="flex items-center space-x-1.5 p-2 px-4 rounded-lg bg-purple-900 shadow-sm text-white font-bold text-xs hover:bg-purple-950 transition cursor-pointer">
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create Form</span>
+                    </a>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {driveFiles.filter(f => f.mimeType === 'application/vnd.google-apps.form').length > 0 ? (
+                    driveFiles.filter(f => f.mimeType === 'application/vnd.google-apps.form').map((form) => (
+                      <div key={form.id} className="p-4 border border-slate-200 rounded-xl hover:border-slate-300 transition bg-slate-50 relative group">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center space-x-3">
+                            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-800 truncate max-w-[200px]">{form.name}</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">Google Form</p>
+                            </div>
+                          </div>
+                          {form.webViewLink && (
+                            <a href={form.webViewLink} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Open Form">
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-2 py-8 text-center bg-white border-2 border-dashed border-slate-200 rounded-xl">
+                      <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm font-bold text-slate-700">No Forms Found</p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                        No Google Forms were found in the "{driveFolderName}" Drive directory. Try creating one!
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* DRIVE AUDIT BACKUPS */}
             {activeTab === 'drive' && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

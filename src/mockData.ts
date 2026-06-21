@@ -66,7 +66,7 @@ export const initialApplicants: Applicant[] = [
 export const initialStaff: Staff[] = [
   {
     id: 'staff_1',
-    name: 'Clara Oswald',
+    name: 'Blessing Gurure',
     email: 'clara.oswald@shc247.co.uk',
     phone: '+44 7700 955301',
     address: 'Flat 4B, Baker St, London NW1 6XE',
@@ -175,10 +175,10 @@ export const initialStaff: Staff[] = [
 export const initialDocuments: Document[] = [
   {
     id: 'doc_1',
-    name: 'Clara_Oswald_Passport.pdf',
+    name: 'Blessing_Oswald_Passport.pdf',
     category: 'Passport',
     staffId: 'staff_1',
-    staffName: 'Clara Oswald',
+    staffName: 'Blessing Gurure',
     uploadDate: '2025-03-09',
     expiryDate: '2029-05-20',
     status: 'Approved',
@@ -186,10 +186,10 @@ export const initialDocuments: Document[] = [
   },
   {
     id: 'doc_2',
-    name: 'Clara_Oswald_DBS_Certificate.pdf',
+    name: 'Blessing_Oswald_DBS_Certificate.pdf',
     category: 'DBS',
     staffId: 'staff_1',
-    staffName: 'Clara Oswald',
+    staffName: 'Blessing Gurure',
     uploadDate: '2025-03-09',
     expiryDate: '2028-09-10',
     status: 'Approved',
@@ -233,7 +233,7 @@ export const initialDocuments: Document[] = [
     name: 'SHC_Employment_Contract_2026.pdf',
     category: 'Employment Contract',
     staffId: 'staff_1',
-    staffName: 'Clara Oswald',
+    staffName: 'Blessing Gurure',
     uploadDate: '2026-06-15',
     status: 'Pending Signature',
     assignedByAdmin: true,
@@ -244,7 +244,7 @@ export const initialDocuments: Document[] = [
     name: 'Job_Description_Registered_Nurse.pdf',
     category: 'Job Description',
     staffId: 'staff_1',
-    staffName: 'Clara Oswald',
+    staffName: 'Blessing Gurure',
     uploadDate: '2026-06-15',
     status: 'Signed',
     assignedByAdmin: true,
@@ -266,7 +266,7 @@ export const initialDocuments: Document[] = [
 export const initialTimesheets: Timesheet[] = [
   {
     id: 'time_1',
-    staffName: 'Clara Oswald',
+    staffName: 'Blessing Gurure',
     role: 'Nurse',
     weekEnding: '2026-06-14',
     uploadDate: '2026-06-15',
@@ -391,16 +391,16 @@ export const initialActivityLogs: ActivityLog[] = [
   },
   {
     id: 'act_4',
-    action: 'Registered General Nurse Clara Oswald approved for Active shift roster',
+    action: 'Registered General Nurse Blessing Gurure approved for Active shift roster',
     timestamp: '1 day ago',
-    user: 'Agency Admin (Emma)',
+    user: 'Agency Admin (Blessing)',
     type: 'status'
   },
   {
     id: 'act_5',
-    action: 'Job Description signed electronically by Clara Oswald',
+    action: 'Job Description signed electronically by Blessing Gurure',
     timestamp: '2 days ago',
-    user: 'Clara Oswald',
+    user: 'Blessing Gurure',
     type: 'document'
   },
   {
@@ -418,11 +418,11 @@ export const initialFamilyFeedbacks: FamilyFeedback[] = [
     clientName: 'Arthur Vance',
     familyRepresentative: 'Eleanor Vance',
     relation: 'Daughter',
-    caregiverAssigned: 'Clara Oswald',
+    caregiverAssigned: 'Blessing Gurure',
     ratingCareQuality: 5,
     ratingCommunication: 5,
     ratingPunctuality: 5,
-    feedbackComments: "Carer Clara Oswald has been an absolute godsend for my father Arthur. Her clinical expertise and warm attitude have completely transformed his day-to-day spirit. She arrives exactly on time with a warm cheer!",
+    feedbackComments: "Carer Blessing Gurure has been an absolute godsend for my father Arthur. Her clinical expertise and warm attitude have completely transformed his day-to-day spirit. She arrives exactly on time with a warm cheer!",
     anonymous: false,
     dateSubmitted: '2026-06-18T09:30:00Z',
     status: 'Awaiting Action',

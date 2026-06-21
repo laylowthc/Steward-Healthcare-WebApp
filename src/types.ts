@@ -49,7 +49,17 @@ export type DocumentCategory =
   | 'References'
   | 'Job Description'
   | 'Privacy Policy'
-  | 'Staff Handbook';
+  | 'Staff Handbook'
+  | 'Appendix D'
+  | 'Pay 1 B'
+  | 'New Starter Information'
+  | 'Statement of Purpose'
+  | 'Weekly Timesheet'
+  | 'Supervision Record'
+  | 'Personnel File Checklist'
+  | 'Interview Assessment'
+  | 'Application Form'
+  | 'Pre-employment Checklist';
 
 export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed';
 

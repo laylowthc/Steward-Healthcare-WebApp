@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Document, DocumentCategory, Staff } from '../types';
-import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash } from 'lucide-react';
+import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash, Eye, X } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 
 interface DocumentVaultProps {
   documents: Document[];
   staff: Staff[];
-  onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>) => void;
+  onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => void;
   onAssignDocument: (staffId: string, docCategory: DocumentCategory, docName: string) => void;
   onDeleteDocument: (docId: string) => void;
 }
@@ -22,6 +22,13 @@ export default function DocumentVault({
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [activeInspectorDoc, setActiveInspectorDoc] = useState<Document | null>(null);
+  const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
+
+  // Upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('Passport');
+  const [uploadTargetStaffId, setUploadTargetStaffId] = useState('');
 
   // Assignment states
   const [assignTargetStaffId, setAssignTargetStaffId] = useState('');
@@ -56,6 +63,32 @@ export default function DocumentVault({
     setAssignMessage(`Successfully assigned ${assignTemplateCategory} to ${targetStaff.name}! It is now marked 'Pending Signature' on their profile.`);
     setTimeout(() => setAssignMessage(''), 4500);
     setAssignTargetStaffId('');
+  };
+
+  const handleFileUpload = () => {
+    if (!uploadFile) return;
+
+    const targetStaff = staff.find(s => s.id === uploadTargetStaffId);
+    
+    // Create an object URL so the file can be viewed in the browser natively
+    const fileUrl = URL.createObjectURL(uploadFile);
+
+    onUploadDocument({
+      name: uploadFile.name,
+      category: uploadCategory,
+      staffId: targetStaff?.id,
+      staffName: targetStaff?.name,
+      status: 'Approved',
+      size: `${(uploadFile.size / 1024 / 1024).toFixed(2)} MB`,
+      fileUrl: fileUrl,
+    }, uploadFile);
+
+    setUploadFile(null);
+    setUploadCategory('Passport');
+    setUploadTargetStaffId('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const getPreviewIconColor = (status: string) => {
@@ -268,6 +301,15 @@ export default function DocumentVault({
                 </div>
 
                 <div className="w-full mt-4 flex flex-col gap-2">
+                  {previewDoc.fileUrl && (
+                    <button
+                      onClick={() => setViewingFileUrl(previewDoc.fileUrl || null)}
+                      className="w-full inline-flex justify-center items-center py-2 bg-indigo-600 border border-indigo-700 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition-all"
+                    >
+                      <Eye className="w-4 h-4 mr-1 text-indigo-200" />
+                      <span>View File Contents</span>
+                    </button>
+                  )}
                   {previewDoc.status === 'Signed' && (
                     <button
                       onClick={() => {
@@ -280,7 +322,16 @@ export default function DocumentVault({
                     </button>
                   )}
                   <button
-                    onClick={() => { alert(`Downloading: ${previewDoc.name}`); }}
+                    onClick={() => { 
+                      if (previewDoc.fileUrl) {
+                        const a = document.createElement('a');
+                        a.href = previewDoc.fileUrl;
+                        a.download = previewDoc.name;
+                        a.click();
+                      } else {
+                        alert(`Downloading: ${previewDoc.name}`); 
+                      }
+                    }}
                     className="w-full inline-flex justify-center items-center py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs rounded-lg shadow-sm font-semibold"
                   >
                     <Download className="w-4 h-4 mr-1 text-slate-400" />
@@ -295,9 +346,95 @@ export default function DocumentVault({
             </div>
           )}
 
+          {/* Form: Upload custom document file to Vault */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="flex items-center space-x-2 pb-3 border-b border-slate-100 mb-4 bg-slate-50 rounded-lg p-2.5">
+              <Upload className="w-5 h-5 text-indigo-600 shrink-0" />
+              <div>
+                <h4 className="text-xs font-black uppercase text-slate-800">Upload Local Document</h4>
+                <p className="text-[10px] text-slate-500 font-semibold font-sans mt-0.5">Upload a PDF or document directly.</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+               <div>
+                  <label className="block text-[10px] font-bold text-slate-650 uppercase mb-1">Select File</label>
+                  <input 
+                    type="file" 
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    ref={fileInputRef}
+                    className="block w-full text-xs text-slate-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-lg file:border-0
+                      file:text-xs file:font-semibold
+                      file:bg-indigo-50 file:text-indigo-700
+                      hover:file:bg-indigo-100 cursor-pointer"
+                  />
+               </div>
+               <div>
+                <label className="block text-[10px] font-bold text-slate-650 uppercase">Assign to Staff (Optional)</label>
+                <select
+                  value={uploadTargetStaffId}
+                  onChange={(e) => setUploadTargetStaffId(e.target.value)}
+                  className="mt-1 block w-full border border-slate-300 rounded-lg p-2 bg-white text-xs focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">System Admin / General</option>
+                  {staff.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                  ))}
+                </select>
+               </div>
+               <div>
+                <label className="block text-[10px] font-bold text-slate-650 uppercase">Category type</label>
+                <select
+                  value={uploadCategory}
+                  onChange={(e) => setUploadCategory(e.target.value as any)}
+                  className="mt-1 block w-full border border-slate-300 rounded-lg p-2 bg-white text-xs focus:ring-1 focus:ring-indigo-500"
+                >
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+               </div>
+               
+               <button
+                  type="button"
+                  onClick={handleFileUpload}
+                  disabled={!uploadFile}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 font-bold transition rounded-lg text-white text-xs disabled:opacity-40 disabled:hover:bg-indigo-600 cursor-pointer"
+                >
+                  Upload File to Vault
+                </button>
+            </div>
+          </div>
         </div>
 
       </div>
+
+      {viewingFileUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
+              </div>
+              <button 
+                onClick={() => setViewingFileUrl(null)}
+                className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+              >
+                <span>Close</span>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 bg-slate-200/50 p-4">
+              <iframe 
+                src={viewingFileUrl} 
+                className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                title="Document Viewer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeInspectorDoc && (() => {
         const matchingStaff = staff.find(s => s.id === activeInspectorDoc.staffId);

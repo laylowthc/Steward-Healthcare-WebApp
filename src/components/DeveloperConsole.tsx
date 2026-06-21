@@ -51,7 +51,7 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
               name: "SHC_Employment_Contract_2026.pdf",
               category: "Employment Contract",
               staffId: "staff_1",
-              staffName: "Clara Oswald",
+              staffName: "Blessing Gurure",
               status: "Pending Signature",
               assignedByAdmin: true,
               size: "420 KB"

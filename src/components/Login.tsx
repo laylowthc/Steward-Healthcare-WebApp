@@ -250,7 +250,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 <span className="text-xs font-bold text-rose-950 group-hover:text-rose-600 flex items-center">
                   Staff Member <ArrowRight className="w-3 h-3 ml-1" />
                 </span>
-                <span className="text-[10px] text-slate-500">Clara (Registered Nurse)</span>
+                <span className="text-[10px] text-slate-500">Blessing (Registered Nurse)</span>
               </button>
             </div>
 
