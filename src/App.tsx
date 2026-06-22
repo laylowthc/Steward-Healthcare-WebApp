@@ -73,7 +73,7 @@ import FamilyFeedbackAdmin from './components/FamilyFeedbackAdmin';
 
 export default function App() {
   // Authentication State
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family'>('admin');
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
 
