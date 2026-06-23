@@ -36,11 +36,22 @@ export default function DocumentVault({
   const [assignMessage, setAssignMessage] = useState('');
 
   // Filtering documents
+  const [activeTab, setActiveTab] = useState<'All' | 'Applicants' | 'Internal'>('All');
+
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (doc.staffName && doc.staffName.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesCategory = categoryFilter === 'All' || doc.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+
+    let matchesTab = true;
+    const internalCat = ['Employment Contract', 'Privacy Policy', 'Staff Handbook', 'Job Description'];
+    if (activeTab === 'Applicants') {
+      matchesTab = !!doc.staffId && !internalCat.includes(doc.category);
+    } else if (activeTab === 'Internal') {
+      matchesTab = internalCat.includes(doc.category) || (!doc.staffId && doc.category !== 'CV');
+    }
+
+    return matchesSearch && matchesCategory && matchesTab;
   });
 
   const categories: DocumentCategory[] = [
@@ -120,7 +131,27 @@ export default function DocumentVault({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Document Search & Directory Table */}
-        <div className="lg:col-span-2 space-y-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="lg:col-span-2 space-y-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
+          
+          <div className="flex items-center space-x-1 border-b border-slate-100 mb-2">
+            {[
+              { id: 'All', label: 'All Documents' },
+              { id: 'Applicants', label: 'Applicant Credentials' },
+              { id: 'Internal', label: 'Internal Employment' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2 text-xs font-bold transition-all relative ${activeTab === tab.id ? 'text-purple-700' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                {tab.label}
+                {activeTab === tab.id && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-700 rounded-t-full"></span>
+                )}
+              </button>
+            ))}
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
             <div className="relative shrink-0 w-full sm:w-64">
               <Search className="absolute inset-y-0 left-0 pl-3 h-5 w-5 text-slate-400 flex items-center pointer-events-none" />

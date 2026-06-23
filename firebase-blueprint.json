@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "applicant": {
+      "title": "Applicant",
+      "description": "Represents an applicant",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "position": { "type": "string" },
+        "status": { "type": "string" },
+        "dateCreated": { "type": "string" },
+        "notes": { "type": "string" },
+        "interviewMeetUrl": { "type": "string" },
+        "interviewTime": { "type": "string" }
+      },
+      "required": ["name", "email", "phone", "position", "status", "dateCreated"]
+    },
+    "user": {
+      "title": "User",
+      "description": "A registered user (admin, staff, applicant)",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "id": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "applicants": {
+      "schema": "applicant",
+      "description": "Global list of all applicants"
+    },
+    "users": {
+        "schema": "user",
+        "description": "Registered users"
+    }
+  }
+}

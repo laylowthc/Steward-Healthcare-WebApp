@@ -5,10 +5,11 @@ import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight
 interface ApplicantKanbanProps {
   applicants: Applicant[];
   onUpdateApplicantStatus: (id: string, newStatus: ApplicantStatus) => void;
-  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => void;
+  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => string;
   templates: RoleTemplate[];
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
+  onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
 }
 
 export default function ApplicantKanban({
@@ -17,7 +18,8 @@ export default function ApplicantKanban({
   onAddApplicant,
   templates,
   onUpdateApplicantCompliance,
-  onUpdateApplicantDetails
+  onUpdateApplicantDetails,
+  onUploadDocument
 }: ApplicantKanbanProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
@@ -36,7 +38,7 @@ export default function ApplicantKanban({
     e.preventDefault();
     if (!newName || !newEmail || !newPhone) return;
 
-    onAddApplicant({
+    const newId = onAddApplicant({
       name: newName,
       email: newEmail,
       phone: newPhone,
@@ -52,6 +54,19 @@ export default function ApplicantKanban({
     setNewPos('Care Assistant');
     setNewNotes('');
     setShowAddModal(false);
+    
+    // Auto-select the newly registered candidate to trigger document upload prompts
+    const newlyCreated = {
+      id: newId,
+      name: newName,
+      email: newEmail,
+      phone: newPhone,
+      position: newPos,
+      status: 'Applied' as ApplicantStatus,
+      dateCreated: new Date().toISOString().split('T')[0],
+      notes: newNotes
+    };
+    setSelectedApplicant(newlyCreated);
   };
 
   const getStatusColor = (status: ApplicantStatus) => {
@@ -188,6 +203,18 @@ export default function ApplicantKanban({
                             if (applicant.status === 'Active') {
                               // If shifting active, mark rejected
                               onUpdateApplicantStatus(applicant.id, 'Rejected');
+                            } else if (applicant.status === 'Applied') {
+                              // Require checklist completed before moving to screening
+                              const template = templates.find(t => t.role === applicant.position);
+                              const reqs = template?.requiredCredentials || [];
+                              const allCompliant = reqs.length > 0 && reqs.every(req => applicant.complianceChecked && applicant.complianceChecked[req] === 'Compliant');
+                              
+                              if (!allCompliant && reqs.length > 0) {
+                                alert("Documentation incomplete. Please open the applicant's profile to upload documents and complete the compliance checklist first.");
+                                setSelectedApplicant(applicant); // Open the profile to prompt upload
+                                return;
+                              }
+                              moveRight(applicant.id, applicant.status);
                             } else {
                               moveRight(applicant.id, applicant.status);
                             }
@@ -390,32 +417,52 @@ export default function ApplicantKanban({
                                   {currentStatus}
                                 </span>
                               </div>
-                              <div className="flex justify-end gap-1 font-sans">
-                                {(['Missing', 'Awaiting Review', 'Compliant'] as const).map(opt => (
-                                  <button
-                                    key={opt}
-                                    type="button"
-                                    onClick={() => {
-                                      const nextChecklist = { ...statusChecklist, [cred]: opt };
+                              <div className="flex justify-between items-center gap-1 font-sans mt-1">
+                                <label className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100 transition">
+                                  + Upload Document
+                                  <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf,image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file && onUploadDocument) {
+                                        onUploadDocument(file, cred, selectedApplicant.id, selectedApplicant.name);
+                                      }
+                                      
+                                      const nextChecklist = { ...statusChecklist, [cred]: 'Awaiting Review' };
                                       onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
-                                      setSelectedApplicant({
-                                        ...selectedApplicant,
-                                        complianceChecked: nextChecklist
-                                      });
-                                    }}
-                                    className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
-                                      currentStatus === opt
-                                        ? opt === 'Compliant'
-                                          ? 'bg-emerald-600 text-white shadow-sm'
-                                          : opt === 'Awaiting Review'
-                                          ? 'bg-amber-500 text-slate-900 shadow-sm'
-                                          : 'bg-rose-600 text-white shadow-sm'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border'
-                                    }`}
-                                  >
-                                    {opt === 'Awaiting Review' ? 'Review' : opt}
-                                  </button>
-                                ))}
+                                      setSelectedApplicant({ ...selectedApplicant, complianceChecked: nextChecklist });
+                                    }} 
+                                  />
+                                </label>
+                                <div className="flex gap-1 border-l pl-2 border-slate-200">
+                                  {(['Missing', 'Awaiting Review', 'Compliant'] as const).map(opt => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => {
+                                        const nextChecklist = { ...statusChecklist, [cred]: opt };
+                                        onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
+                                        setSelectedApplicant({
+                                          ...selectedApplicant,
+                                          complianceChecked: nextChecklist
+                                        });
+                                      }}
+                                      className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                        currentStatus === opt
+                                          ? opt === 'Compliant'
+                                            ? 'bg-emerald-600 text-white shadow-sm'
+                                            : opt === 'Awaiting Review'
+                                            ? 'bg-amber-500 text-slate-900 shadow-sm'
+                                            : 'bg-rose-600 text-white shadow-sm'
+                                          : 'bg-white text-slate-600 hover:bg-slate-100 border'
+                                      }`}
+                                    >
+                                      {opt === 'Awaiting Review' ? 'Review' : opt}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           );

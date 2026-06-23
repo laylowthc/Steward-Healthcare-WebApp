@@ -1,20 +1,34 @@
 import React, { useState } from 'react';
 import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight, Heart } from 'lucide-react';
 import BrandedLogo from './BrandedLogo';
+import { Applicant } from '../types';
+import { auth, db } from '../lib/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface LoginProps {
-  onLoginSuccess: (userRole: 'admin' | 'staff' | 'family', userId?: string) => void;
+  onLoginSuccess: (userRole: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => void;
+  onAddApplicant?: (applicant: Omit<Applicant, 'id' | 'dateCreated'>, id?: string) => string;
 }
 
-export default function Login({ onLoginSuccess }: LoginProps) {
+export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showForgot, setShowForgot] = useState(false);
+  const [showRegistration, setShowRegistration] = useState(false);
+  
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Registration State
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regRole, setRegRole] = useState<'staff' | 'admin' | 'applicant'>('applicant');
+  const [regSuccess, setRegSuccess] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -23,25 +37,90 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       return;
     }
 
-    // Direct validation routes for easier evaluation
-    if (email.toLowerCase() === 'admin@shc247.co.uk' || email.toLowerCase() === 'admin') {
-      onLoginSuccess('admin');
-    } else if (email.toLowerCase() === 'clara.oswald@shc247.co.uk' || email.toLowerCase() === 'clara' || email.toLowerCase() === 'staff') {
-      onLoginSuccess('staff', 'staff_1');
-    } else {
-      setError('Invalid username or password. Use demo quick-login buttons below.');
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        onLoginSuccess(userData.role, userCredential.user.uid);
+      } else {
+        // Fallback or demo fallback
+        if (email.toLowerCase().includes('admin')) {
+          onLoginSuccess('admin', userCredential.user.uid);
+        } else {
+          onLoginSuccess('applicant', userCredential.user.uid);
+        }
+      }
+    } catch (err: any) {
+      // Fallback for demo users that aren't registered yet
+      if (email.toLowerCase() === 'admin@shc247.co.uk' || email.toLowerCase() === 'admin') {
+        onLoginSuccess('admin');
+      } else if (email.toLowerCase() === 'clara.oswald@shc247.co.uk' || email.toLowerCase() === 'clara' || email.toLowerCase() === 'staff') {
+        onLoginSuccess('staff', 'staff_1');
+      } else {
+        setError(err.message || 'Invalid username or password.');
+      }
     }
   };
 
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotEmail) return;
-    setForgotSent(true);
-    setTimeout(() => {
-      setForgotSent(false);
-      setShowForgot(false);
-      setForgotEmail('');
-    }, 2800);
+    try {
+      await sendPasswordResetEmail(auth, forgotEmail);
+      setForgotSent(true);
+      setTimeout(() => {
+        setForgotSent(false);
+        setShowForgot(false);
+        setForgotEmail('');
+      }, 2800);
+    } catch (err: any) {
+      setForgotSent(true);
+      setTimeout(() => {
+        setForgotSent(false);
+        setShowForgot(false);
+        setForgotEmail('');
+      }, 2800);
+    }
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!regName || !regEmail || !regPassword) {
+      setError('Please fill out all fields.');
+      return;
+    }
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+      const userId = userCredential.user.uid;
+      
+      await setDoc(doc(db, 'users', userId), {
+        name: regName,
+        email: regEmail,
+        role: regRole,
+        uid: userId
+      });
+
+      setRegSuccess(true);
+      setTimeout(() => {
+        if (regRole === 'applicant' && onAddApplicant) {
+          onAddApplicant({
+            name: regName,
+            email: regEmail,
+            phone: '',
+            position: 'Care Assistant', // Default target role
+            status: 'Applied',
+            notes: 'Self-registered applicant via portal.'
+          }, userId); // Pass userId if onAddApplicant accepts it
+        }
+        onLoginSuccess(regRole, userId);
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to register.');
+    }
   };
 
   return (
@@ -66,7 +145,144 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md z-10" id="login-container-card">
         <div className="bg-white py-8 px-4 shadow-xl border border-slate-100 rounded-2xl sm:px-10">
-          {!showForgot ? (
+          {showRegistration ? (
+            <form className="space-y-6" onSubmit={handleRegisterSubmit}>
+              <div className="text-center mb-6">
+                <h3 className="text-lg font-bold text-slate-900">Create an Account</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Join Steward Health Care StaffHub
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-rose-50 border-l-4 border-rose-600 p-3 rounded-r-md flex items-start space-x-2">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="text-xs text-rose-800 font-medium">{error}</span>
+                </div>
+              )}
+
+              {regSuccess ? (
+                <div className="bg-emerald-50 border-l-4 border-emerald-600 p-3 rounded-r-md text-center">
+                  <span className="text-xs text-emerald-800 font-semibold">
+                    ✓ Registration successful! Logging you in...
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label htmlFor="reg-name" className="block text-sm font-semibold text-slate-700">Full Name</label>
+                    <div className="mt-1">
+                      <input
+                        id="reg-name"
+                        type="text"
+                        required
+                        value={regName}
+                        onChange={(e) => setRegName(e.target.value)}
+                        className="block w-full px-3 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-sm"
+                        placeholder="John Doe"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="reg-email" className="block text-sm font-semibold text-slate-700">Email Address</label>
+                    <div className="mt-1 relative rounded-md shadow-sm">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Mail className="h-5 w-5 text-slate-400" />
+                      </div>
+                      <input
+                        id="reg-email"
+                        type="email"
+                        required
+                        value={regEmail}
+                        onChange={(e) => setRegEmail(e.target.value)}
+                        className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-sm"
+                        placeholder="yourname@shc247.co.uk"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="reg-password" className="block text-sm font-semibold text-slate-700">Password</label>
+                    <div className="mt-1 relative rounded-md shadow-sm">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Lock className="h-5 w-5 text-slate-400" />
+                      </div>
+                      <input
+                        id="reg-password"
+                        type="password"
+                        required
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-sm"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                     <label className="block text-sm font-semibold text-slate-700 mb-2">Role</label>
+                     <div className="flex gap-4">
+                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
+                         <input 
+                           type="radio" 
+                           name="regRole" 
+                           value="applicant" 
+                           checked={regRole === 'applicant'} 
+                           onChange={() => setRegRole('applicant')}
+                           className="text-purple-600 focus:ring-purple-500"
+                         />
+                         <span>Applicant</span>
+                       </label>
+                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
+                         <input 
+                           type="radio" 
+                           name="regRole" 
+                           value="staff" 
+                           checked={regRole === 'staff'} 
+                           onChange={() => setRegRole('staff')}
+                           className="text-purple-600 focus:ring-purple-500"
+                         />
+                         <span>Staff</span>
+                       </label>
+                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
+                         <input 
+                           type="radio" 
+                           name="regRole" 
+                           value="admin" 
+                           checked={regRole === 'admin'} 
+                           onChange={() => setRegRole('admin')}
+                           className="text-purple-600 focus:ring-purple-500"
+                         />
+                         <span>Admin</span>
+                       </label>
+                     </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-md text-sm font-semibold text-white bg-gradient-to-r from-purple-900 via-purple-800 to-rose-700 hover:from-purple-950 hover:to-rose-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-600 cursor-pointer text-center transition-all duration-200"
+                    >
+                      Complete Registration
+                    </button>
+                  </div>
+                  <div className="text-center mt-4">
+                     <p className="text-xs text-slate-600">
+                       Already have an account?{' '}
+                       <button 
+                         type="button" 
+                         onClick={() => setShowRegistration(false)}
+                         className="text-purple-700 font-bold hover:underline"
+                       >
+                         Sign in here
+                       </button>
+                     </p>
+                  </div>
+                </>
+              )}
+            </form>
+          ) : !showForgot ? (
             <form className="space-y-6" onSubmit={handleSubmit}>
               {error && (
                 <div className="bg-rose-50 border-l-4 border-rose-600 p-3 rounded-r-md flex items-start space-x-2">
@@ -152,6 +368,19 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 >
                   Sign In to StaffHub
                 </button>
+              </div>
+
+              <div className="text-center mt-4 border-t border-slate-100 pt-4">
+                 <p className="text-xs text-slate-600">
+                   Don't have an account?{' '}
+                   <button 
+                     type="button" 
+                     onClick={() => setShowRegistration(true)}
+                     className="text-purple-700 font-bold hover:underline"
+                   >
+                     Register here
+                   </button>
+                 </p>
               </div>
             </form>
           ) : (

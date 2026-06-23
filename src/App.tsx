@@ -52,8 +52,9 @@ import {
   initialFamilyFeedbacks
 } from './mockData';
 
-import { auth } from './lib/firebase';
-import { signInAnonymously } from 'firebase/auth';
+import { auth, db } from './lib/firebase';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -70,22 +71,42 @@ import WorkspaceSync from './components/WorkspaceSync';
 import BrandedLogo from './components/BrandedLogo';
 import FamilyPortal from './components/FamilyPortal';
 import FamilyFeedbackAdmin from './components/FamilyFeedbackAdmin';
+import ApplicantPortal from './components/ApplicantPortal';
 
 export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family'>('admin');
+  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
 
+  const [isAuthRestoring, setIsAuthRestoring] = useState(true);
+
   useEffect(() => {
-    // Authenticate anonymously so we can upload files to Firebase Storage securely
-    signInAnonymously(auth).catch(err => {
-      console.error("Firebase Auth failed:", err);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Did they register a real account?
+        if (!user.isAnonymous) {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setCurrentRole(userData.role);
+            setCurrentUserId(userData.uid);
+            setIsLoggedIn(true);
+          }
+        }
+      } else {
+        // Authenticate anonymously so we can upload files to Firebase Storage securely
+        signInAnonymously(auth).catch(err => {
+          console.error("Firebase Auth fallback failed:", err);
+        });
+      }
+      setIsAuthRestoring(false);
     });
+    return () => unsub();
   }, []);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
-    const local = localStorage.getItem('shc_family_feedbacks');
+    const local = localStorage.getItem('shc_family_feedbacks_v2');
     return local ? JSON.parse(local) : initialFamilyFeedbacks;
   });
 
@@ -105,33 +126,51 @@ export default function App() {
   }, []);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>(() => {
-    const local = localStorage.getItem('shc_recruits');
-    return local ? JSON.parse(local) : initialApplicants;
-  });
+  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
+
+  useEffect(() => {
+    // Listen to Firebase applicants collection
+    const unsubscribe = onSnapshot(collection(db, 'applicants'), (snapshot) => {
+      const fetchedApplicants: Applicant[] = [];
+      snapshot.forEach(docSnap => {
+        fetchedApplicants.push(docSnap.data() as Applicant);
+      });
+      if (fetchedApplicants.length > 0) {
+        setApplicants(fetchedApplicants);
+      } else {
+        // Seed initial data if empty
+        initialApplicants.forEach(async (app) => {
+          await setDoc(doc(db, 'applicants', app.id), app);
+        });
+      }
+    }, (error) => {
+      console.error('Firestore Error sync applicants: ', error);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const [staff, setStaff] = useState<Staff[]>(() => {
-    const local = localStorage.getItem('shc_staff');
+    const local = localStorage.getItem('shc_staff_v2');
     return local ? JSON.parse(local) : initialStaff;
   });
 
   const [documents, setDocuments] = useState<Document[]>(() => {
-    const local = localStorage.getItem('shc_documents');
+    const local = localStorage.getItem('shc_documents_v2');
     return local ? JSON.parse(local) : initialDocuments;
   });
 
   const [timesheets, setTimesheets] = useState<Timesheet[]>(() => {
-    const local = localStorage.getItem('shc_timesheets');
+    const local = localStorage.getItem('shc_timesheets_v2');
     return local ? JSON.parse(local) : initialTimesheets;
   });
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
-    const local = localStorage.getItem('shc_logs');
+    const local = localStorage.getItem('shc_logs_v2');
     return local ? JSON.parse(local) : initialActivityLogs;
   });
 
   const [templates, setTemplates] = useState<RoleTemplate[]>(() => {
-    const local = localStorage.getItem('shc_templates');
+    const local = localStorage.getItem('shc_templates_v2');
     return local ? JSON.parse(local) : initialRoleTemplates;
   });
 
@@ -155,31 +194,31 @@ export default function App() {
 
   // Sync to client-side localStorage
   useEffect(() => {
-    localStorage.setItem('shc_recruits', JSON.stringify(applicants));
+    localStorage.setItem('shc_recruits_v2', JSON.stringify(applicants));
   }, [applicants]);
 
   useEffect(() => {
-    localStorage.setItem('shc_staff', JSON.stringify(staff));
+    localStorage.setItem('shc_staff_v2', JSON.stringify(staff));
   }, [staff]);
 
   useEffect(() => {
-    localStorage.setItem('shc_documents', JSON.stringify(documents));
+    localStorage.setItem('shc_documents_v2', JSON.stringify(documents));
   }, [documents]);
 
   useEffect(() => {
-    localStorage.setItem('shc_timesheets', JSON.stringify(timesheets));
+    localStorage.setItem('shc_timesheets_v2', JSON.stringify(timesheets));
   }, [timesheets]);
 
   useEffect(() => {
-    localStorage.setItem('shc_logs', JSON.stringify(activityLogs));
+    localStorage.setItem('shc_logs_v2', JSON.stringify(activityLogs));
   }, [activityLogs]);
 
   useEffect(() => {
-    localStorage.setItem('shc_templates', JSON.stringify(templates));
+    localStorage.setItem('shc_templates_v2', JSON.stringify(templates));
   }, [templates]);
 
   useEffect(() => {
-    localStorage.setItem('shc_family_feedbacks', JSON.stringify(familyFeedbacks));
+    localStorage.setItem('shc_family_feedbacks_v2', JSON.stringify(familyFeedbacks));
   }, [familyFeedbacks]);
 
   const [visibleCards, setVisibleCards] = useState<string[]>(() => {
@@ -222,7 +261,7 @@ export default function App() {
   }, []);
 
   // Auth Operations
-  const handleLoginSuccess = (role: 'admin' | 'staff' | 'family', userId?: string) => {
+  const handleLoginSuccess = (role: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => {
     setCurrentRole(role);
     if (userId) {
       setCurrentUserId(userId);
@@ -241,12 +280,14 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    import('firebase/auth').then(({ signOut }) => signOut(auth));
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
   };
 
   // State mutation callbacks passed to children components
   const handleUpdateApplicantStatus = (id: string, newStatus: ApplicantStatus) => {
+    updateDoc(doc(db, 'applicants', id), { status: newStatus }).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === id) {
         const updated = { ...a, status: newStatus };
@@ -304,12 +345,16 @@ export default function App() {
     }));
   };
 
-  const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => {
+  const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
+    const newId = specificId || `app_${Date.now()}`;
     const newApp: Applicant = {
       ...applicant,
-      id: `app_${Date.now()}`,
+      id: newId,
       dateCreated: new Date().toISOString().split('T')[0]
     };
+    // Sync to Firestore
+    setDoc(doc(db, 'applicants', newId), newApp).catch(e => console.error("Error setting doc", e));
+
     setApplicants(prev => [newApp, ...prev]);
 
     // Push activity log
@@ -321,9 +366,11 @@ export default function App() {
       type: 'applicant'
     };
     setActivityLogs(prev => [log, ...prev]);
+    return newApp.id;
   };
 
   const handleUpdateApplicantCompliance = (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
+    updateDoc(doc(db, 'applicants', applicantId), { complianceChecked }).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === applicantId) {
         return {
@@ -336,6 +383,7 @@ export default function App() {
   };
 
   const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
+    updateDoc(doc(db, 'applicants', id), fields).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === id) {
         return { ...a, ...fields };
@@ -483,8 +531,12 @@ export default function App() {
   ];
 
   // Auth Guard
+  if (isAuthRestoring) {
+    return <div className="flex h-screen items-center justify-center font-sans"><span className="text-slate-500 font-bold">Restoring user session...</span></div>;
+  }
+  
   if (!isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} />;
   }
 
   // Family & Client Feedback Portal: Clean Isolated Perspective
@@ -513,6 +565,33 @@ export default function App() {
           setActivityLogs(prev => [log, ...prev]);
         }} 
         staffList={staff} 
+      />
+    );
+  }
+
+  // Applicant Portal Navigation Guard
+  if (currentRole === 'applicant') {
+    const activeApplicant = applicants.find(a => a.id === currentUserId);
+    if (!activeApplicant) {
+      // Fallback if they were somehow deleted
+      return <div>Profile not found. <button onClick={handleLogout}>Logout</button></div>;
+    }
+    return (
+      <ApplicantPortal 
+        applicant={activeApplicant}
+        templates={templates}
+        documents={documents}
+        onUploadDocument={(file, category) => {
+          handleUploadDocument({
+            name: file.name,
+            category: category as any,
+            staffId: currentUserId,
+            staffName: activeApplicant.name,
+            status: 'Awaiting Review',
+          }, file);
+        }}
+        onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
+        onLogout={handleLogout}
       />
     );
   }
@@ -851,6 +930,15 @@ export default function App() {
                       templates={templates}
                       onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
+                      onUploadDocument={(file, category, staffId, staffName) => {
+                        handleUploadDocument({
+                          name: file.name,
+                          category: category as any,
+                          staffId: staffId,
+                          staffName: staffName,
+                          status: 'Awaiting Review',
+                        }, file);
+                      }}
                     />
                   )}
 
