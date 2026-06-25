@@ -53,7 +53,7 @@ import {
 } from './mockData';
 
 import { auth, db } from './lib/firebase';
-import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 
 // Dynamic Sub-Views Imports
@@ -84,21 +84,15 @@ export default function App() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Did they register a real account?
-        if (!user.isAnonymous) {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            setCurrentRole(userData.role);
-            setCurrentUserId(userData.uid);
-            setIsLoggedIn(true);
-          }
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setCurrentRole(userData.role);
+          setCurrentUserId(userData.uid);
+          setIsLoggedIn(true);
         }
       } else {
-        // Authenticate anonymously so we can upload files to Firebase Storage securely
-        signInAnonymously(auth).catch(err => {
-          console.error("Firebase Auth fallback failed:", err);
-        });
+        setIsLoggedIn(false);
       }
       setIsAuthRestoring(false);
     });
@@ -297,7 +291,7 @@ export default function App() {
           const alreadyExists = staff.some(s => s.email.toLowerCase() === a.email.toLowerCase());
           if (!alreadyExists) {
             const newStaffMember: Staff = {
-              id: `staff_${Date.now()}`,
+              id: `staff_${Date.now()}_${Math.random().toString(36).substring(7)}`,
               name: a.name,
               email: a.email,
               phone: a.phone,
@@ -317,7 +311,7 @@ export default function App() {
 
             // Auto spawn passport pdf as signed-off document
             const placeholderDoc: Document = {
-              id: `doc_${Date.now()}_pass`,
+              id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
               name: `${a.name.replace(/\s+/g, '_')}_RTW_Passport.pdf`,
               category: 'Passport',
               staffId: newStaffMember.id,
@@ -383,7 +377,8 @@ export default function App() {
   };
 
   const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
-    updateDoc(doc(db, 'applicants', id), fields).catch(e => console.error("Error updating doc", e));
+    const cleanFields = Object.fromEntries(Object.entries(fields).filter(([_, v]) => v !== undefined));
+    updateDoc(doc(db, 'applicants', id), cleanFields).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === id) {
         return { ...a, ...fields };

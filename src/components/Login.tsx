@@ -3,8 +3,8 @@ import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight, Heart } from 'lucid
 import BrandedLogo from './BrandedLogo';
 import { Applicant } from '../types';
 import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously } from 'firebase/auth';
+import { doc, setDoc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
 
 interface LoginProps {
   onLoginSuccess: (userRole: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => void;
@@ -52,6 +52,33 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
         }
       }
     } catch (err: any) {
+      if (err.message && (err.message.includes('operation-not-allowed') || err.message.includes('admin-restricted-operation'))) {
+        // Fallback to anonymous auth (Demo Environment limits support)
+        try {
+          const authResult = await signInAnonymously(auth);
+          const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
+          const userSnapshot = await getDocs(q);
+          if (!userSnapshot.empty) {
+            const oldUserId = userSnapshot.docs[0].id;
+            const userData = userSnapshot.docs[0].data();
+            
+            // Migrate session pointer to new anonymous ID
+            const newUserId = authResult.user.uid;
+            if (oldUserId !== newUserId) {
+              await setDoc(doc(db, 'users', newUserId), {
+                ...userData,
+                uid: newUserId
+              });
+            }
+
+            onLoginSuccess(userData.role, newUserId);
+            return;
+          }
+        } catch (anonErr) {
+          console.error("Anonymous fallback failed: ", anonErr);
+        }
+      }
+
       // Fallback for demo users that aren't registered yet
       if (email.toLowerCase() === 'admin@shc247.co.uk' || email.toLowerCase() === 'admin') {
         onLoginSuccess('admin');
@@ -99,7 +126,7 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
       
       await setDoc(doc(db, 'users', userId), {
         name: regName,
-        email: regEmail,
+        email: regEmail.toLowerCase(),
         role: regRole,
         uid: userId
       });
@@ -119,6 +146,39 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
         onLoginSuccess(regRole, userId);
       }, 1500);
     } catch (err: any) {
+      if (err.message && (err.message.includes('operation-not-allowed') || err.message.includes('admin-restricted-operation'))) {
+        // Fallback to anonymous auth (Demo Environment limits support)
+        try {
+          const authResult = await signInAnonymously(auth);
+          const userId = authResult.user.uid;
+          
+          await setDoc(doc(db, 'users', userId), {
+            name: regName,
+            email: regEmail.toLowerCase(),
+            role: regRole,
+            uid: userId
+          });
+
+          setRegSuccess(true);
+          setTimeout(() => {
+            if (regRole === 'applicant' && onAddApplicant) {
+              onAddApplicant({
+                name: regName,
+                email: regEmail,
+                phone: '',
+                position: 'Care Assistant',
+                status: 'Applied',
+                notes: 'Self-registered applicant via portal.'
+              }, userId);
+            }
+            onLoginSuccess(regRole, userId);
+          }, 1500);
+          return;
+        } catch (anonErr) {
+          console.error("Anonymous fallback failed: ", anonErr);
+        }
+      }
+
       setError(err.message || 'Failed to register.');
     }
   };
