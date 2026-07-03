@@ -1,5 +1,14 @@
 export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Compliance' | 'Accepted' | 'Rejected';
 
+export interface CVData {
+  personalDetails: { address: string; dob: string; nationality: string };
+  employmentHistory: Array<{ company: string; role: string; startDate: string; endDate: string; duties: string }>;
+  qualifications: Array<{ institution: string; degree: string; year: string }>;
+  mandatoryTraining: string[];
+  skills: string[];
+  references: Array<{ name: string; contact: string; relation: string }>;
+}
+
 export interface Applicant {
   id: string;
   name: string;
@@ -12,6 +21,7 @@ export interface Applicant {
   complianceChecked?: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>; // Individual check marks for role's required docs
   interviewTime?: string;
   interviewMeetUrl?: string;
+  cvData?: CVData;
 }
 
 export type StaffRole = 'Nurse' | 'Care Assistant' | 'Senior Care Assistant' | 'Deputy Manager' | string;

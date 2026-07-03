@@ -56,7 +56,7 @@ export default function Dashboard({
   const [isCardSelectorOpen, setIsCardSelectorOpen] = useState(false);
   
   // Calculate dynamic stats from application state
-  const totalApplicants = applicants.filter(a => a.status !== 'Active' && a.status !== 'Rejected').length;
+  const totalApplicants = applicants.filter(a => a.status !== 'Accepted' && a.status !== 'Rejected').length;
   const activeStaff = staff.filter(s => s.status === 'Active').length;
   const awaitingReviewDocs = documents.filter(d => d.status === 'Awaiting Review').length;
   const complianceAlerts = staff.filter(
@@ -417,7 +417,7 @@ export default function Dashboard({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {templates.map((tpl) => {
-                    const pipelinesTargeting = applicants.filter(a => a.position.toLowerCase() === tpl.role.toLowerCase() && a.status !== 'Active' && a.status !== 'Rejected').length;
+                    const pipelinesTargeting = applicants.filter(a => a.position.toLowerCase() === tpl.role.toLowerCase() && a.status !== 'Accepted' && a.status !== 'Rejected').length;
                     return (
                       <div key={tpl.role} className="p-4 bg-slate-55 border border-slate-150 rounded-2xl flex flex-col justify-between hover:shadow-sm transition-all animate-fade-in">
                         <div>

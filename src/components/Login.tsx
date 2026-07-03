@@ -280,45 +280,6 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
                     </div>
                   </div>
 
-                  <div>
-                     <label className="block text-sm font-semibold text-slate-700 mb-2">Role</label>
-                     <div className="flex gap-4">
-                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
-                         <input 
-                           type="radio" 
-                           name="regRole" 
-                           value="applicant" 
-                           checked={regRole === 'applicant'} 
-                           onChange={() => setRegRole('applicant')}
-                           className="text-purple-600 focus:ring-purple-500"
-                         />
-                         <span>Applicant</span>
-                       </label>
-                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
-                         <input 
-                           type="radio" 
-                           name="regRole" 
-                           value="staff" 
-                           checked={regRole === 'staff'} 
-                           onChange={() => setRegRole('staff')}
-                           className="text-purple-600 focus:ring-purple-500"
-                         />
-                         <span>Staff</span>
-                       </label>
-                       <label className="flex items-center space-x-2 text-sm cursor-pointer">
-                         <input 
-                           type="radio" 
-                           name="regRole" 
-                           value="admin" 
-                           checked={regRole === 'admin'} 
-                           onChange={() => setRegRole('admin')}
-                           className="text-purple-600 focus:ring-purple-500"
-                         />
-                         <span>Admin</span>
-                       </label>
-                     </div>
-                  </div>
-
                   <div className="pt-2">
                     <button
                       type="submit"

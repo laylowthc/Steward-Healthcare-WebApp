@@ -26,7 +26,8 @@ import {
   Award,
   Plus,
   Cloud,
-  Heart
+  Heart,
+  LayoutDashboard
 } from 'lucide-react';
 
 import { 
@@ -39,7 +40,8 @@ import {
   StaffRole, 
   DocumentCategory,
   RoleTemplate,
-  FamilyFeedback
+  FamilyFeedback,
+  DocumentStatus
 } from './types';
 
 import { 
@@ -67,11 +69,13 @@ import ComplianceDashboard from './components/ComplianceDashboard';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
 import DeveloperConsole from './components/DeveloperConsole';
+import UserAdministration from './components/UserAdministration';
 import WorkspaceSync from './components/WorkspaceSync';
 import BrandedLogo from './components/BrandedLogo';
 import FamilyPortal from './components/FamilyPortal';
 import FamilyFeedbackAdmin from './components/FamilyFeedbackAdmin';
 import ApplicantPortal from './components/ApplicantPortal';
+import StaffDashboard from './components/StaffDashboard';
 
 export default function App() {
   // Authentication State
@@ -294,7 +298,7 @@ export default function App() {
       if (window.location.hash === '#family') {
         window.location.hash = '';
       }
-      setActiveTab(role === 'admin' ? 'dashboard' : 'profile');
+      setActiveTab(role === 'admin' ? 'dashboard' : 'staff_dashboard');
     }
   };
 
@@ -440,6 +444,33 @@ export default function App() {
     }));
   };
 
+  const handleSaveCVData = (applicantId: string, cvData: any) => {
+    handleUpdateApplicantDetails(applicantId, { cvData });
+    setActivityLogs(prev => [{
+      id: `act_${Date.now()}_cv`,
+      action: `CV Builder data updated for applicant.`,
+      timestamp: 'Just now',
+      user: 'Applicant Portal',
+      type: 'applicant'
+    }, ...prev]);
+  };
+
+  const handleGenerateCVPdf = (applicantId: string, pdfBlob: Blob) => {
+    const applicant = applicants.find(a => a.id === applicantId);
+    if (!applicant) return;
+
+    const file = new File([pdfBlob], `${applicant.name.replace(/\s+/g, '_')}_CV.pdf`, { type: 'application/pdf' });
+    
+    handleUploadDocument({
+      name: `${applicant.name} Generated CV`,
+      category: 'CV',
+      staffId: applicant.id,
+      staffName: applicant.name,
+      status: 'Approved',
+      size: `${(file.size / 1024).toFixed(1)} KB`
+    }, file);
+  };
+
   const handleUpdateStaffDetails = (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
 
@@ -562,7 +593,7 @@ export default function App() {
         return { 
           ...t, 
           approvalStatus: status,
-          reviewer: status !== 'Pending' ? 'Admin' : t.reviewer // Hardcoded to Admin for now, as we only have one admin user in this MVP context
+          reviewer: 'Admin'
         };
       }
       return t;
@@ -612,6 +643,7 @@ export default function App() {
     { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
     { id: 'family_feedback', label: 'Family Surveys Hub', icon: Heart, desc: 'Real-time client satisfaction' },
+    { id: 'administration', label: 'User Administration', icon: Shield, desc: 'Manage system users and access roles' },
     { id: 'system', label: 'Developer Settings', icon: Database, desc: 'Architect schema schemas' }
   ];
 
@@ -676,6 +708,8 @@ export default function App() {
           }, file);
         }}
         onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
+        onSaveCVData={handleSaveCVData}
+        onGenerateCVPdf={handleGenerateCVPdf}
         onLogout={handleLogout}
       />
     );
@@ -725,7 +759,7 @@ export default function App() {
                 const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
                 setCurrentRole(nextRole);
                 setSelectedStaffId(null);
-                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'profile');
+                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
               }}
               className="text-[9px] text-indigo-700 font-bold hover:underline"
               title="Switch role perspective"
@@ -764,6 +798,19 @@ export default function App() {
               <button
                 onClick={() => {
                   setSelectedStaffId(null);
+                  setActiveTab('staff_dashboard');
+                }}
+                className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
+                  activeTab === 'staff_dashboard' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>My Dashboard</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSelectedStaffId(null);
                   setActiveTab('profile');
                 }}
                 className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
@@ -771,7 +818,7 @@ export default function App() {
                 }`}
               >
                 <User className="w-4 h-4" />
-                <span>My Credentials Status</span>
+                <span>Compliance & Documents</span>
               </button>
 
               <button
@@ -781,17 +828,17 @@ export default function App() {
                 }`}
               >
                 <Clock className="w-4 h-4" />
-                <span>Submit / View Timesheets</span>
+                <span>Timesheets</span>
               </button>
 
               <button
-                onClick={() => setActiveTab('role_briefs')}
+                onClick={() => setActiveTab('training')}
                 className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl text-left text-xs font-semibold tracking-tight transition ${
-                  activeTab === 'role_briefs' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
+                  activeTab === 'training' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-[#f1f2f6]'
                 }`}
               >
                 <BookOpen className="w-4 h-4" />
-                <span>Mandatory Brief Checklist</span>
+                <span>Training & CPD</span>
               </button>
             </>
           )}
@@ -859,6 +906,18 @@ export default function App() {
                   <button
                     onClick={() => {
                       setSelectedStaffId(null);
+                      setActiveTab('staff_dashboard');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
+                      activeTab === 'staff_dashboard' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>My Dashboard</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedStaffId(null);
                       setActiveTab('profile');
                       setMobileMenuOpen(false);
                     }}
@@ -866,7 +925,7 @@ export default function App() {
                       activeTab === 'profile' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
                     }`}
                   >
-                    <span>My Profile</span>
+                    <span>Compliance & Documents</span>
                   </button>
                   <button
                     onClick={() => {
@@ -877,7 +936,18 @@ export default function App() {
                       activeTab === 'staff_timesheets' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
                     }`}
                   >
-                    <span>My Timesheets</span>
+                    <span>Timesheets</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('training');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
+                      activeTab === 'training' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>Training & CPD</span>
                   </button>
                 </>
               )}
@@ -913,7 +983,7 @@ export default function App() {
                 const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
                 setCurrentRole(nextRole);
                 setSelectedStaffId(null);
-                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'profile');
+                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
               }}
               className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
             >
@@ -1015,6 +1085,8 @@ export default function App() {
                       templates={templates}
                       onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
+                      onSaveCVData={handleSaveCVData}
+                      onGenerateCVPdf={handleGenerateCVPdf}
                       onUploadDocument={(file, category, staffId, staffName) => {
                         handleUploadDocument({
                           name: file.name,
@@ -1043,6 +1115,7 @@ export default function App() {
                       onUploadDocument={handleUploadDocument}
                       onAssignDocument={handleAssignDocument}
                       onDeleteDocument={handleDeleteDocument}
+                      onUpdateDocument={handleUpdateDocument}
                     />
                   )}
 
@@ -1080,6 +1153,10 @@ export default function App() {
                       documents={documents}
                       timesheets={timesheets}
                     />
+                  )}
+
+                  {activeTab === 'administration' && (
+                    <UserAdministration />
                   )}
 
                   {/* Google Workspace operations center */}
@@ -1143,42 +1220,35 @@ export default function App() {
                 // --- CAREGIVER STAFF PORTAL INTERFACES ---
                 <div className="space-y-6">
                   
-                  {activeTab === 'profile' && (
-                    <>
-                      {/* GREETING BANNER */}
-                      <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadowrelative overflow-hidden mb-6">
-                        <div className="relative z-10">
-                          <span className="p-0.5 px-2 bg-emerald-500/35 border border-emerald-400 text-emerald-300 rounded text-[9px] font-black uppercase tracking-wider">
-                            Caregiver Portal Cleared
-                          </span>
-                          <h2 className="text-xl font-bold tracking-tight mt-2 text-white">Welcome back, {activeStaffMember?.name}!</h2>
-                          <p className="text-slate-400 text-xs mt-1">
-                            Your deployment status is currently listed as{' '}
-                            <span className="font-extrabold text-emerald-400">Deployed Active</span>. Keep credential sheets updated below.
-                          </p>
-                        </div>
-                      </div>
+                  {activeTab === 'staff_dashboard' && activeStaffMember && (
+                    <StaffDashboard
+                      currentUser={activeStaffMember}
+                      documents={documents}
+                      timesheets={timesheets.filter(t => t.staffName === activeStaffMember.name)}
+                      onNavigate={(tabId) => setActiveTab(tabId)}
+                    />
+                  )}
 
-                      {/* Embed the standard profile component so Blessing can edit details directly & upload credentials */}
-                      <div className="border border-slate-200/80 rounded-2xl bg-white shadow-sm p-1">
-                        <StaffProfile
-                          staffMember={activeStaffMember || null}
-                          documents={documents}
-                          onBack={() => handleLogout()} // Logout triggers back
-                          onUpdateStaffDetails={handleUpdateStaffDetails}
-                          onUploadDocument={handleUploadDocument}
-                          onUpdateDocument={handleUpdateDocument}
-                        />
-                      </div>
-                    </>
+                  {activeTab === 'profile' && (
+                    <div className="border border-slate-200/80 rounded-2xl bg-white shadow-sm p-1">
+                      <StaffProfile
+                        staffMember={activeStaffMember || null}
+                        documents={documents}
+                        onBack={() => setActiveTab('staff_dashboard')}
+                        onUpdateStaffDetails={handleUpdateStaffDetails}
+                        onUploadDocument={handleUploadDocument}
+                        onUpdateDocument={handleUpdateDocument}
+                      />
+                    </div>
                   )}
 
                   {/* STAFF PORTAL: Timesheets logging and hours claims review */}
                   {activeTab === 'staff_timesheets' && (
                     <div className="space-y-6">
                       <div className="bg-white p-6 border border-slate-100 rounded-2xl shadow-sm">
-                        <h3 className="text-sm font-black uppercase text-slate-800 border-b pb-2.5 mb-4">
-                          Log Shift Hours
+                        <h3 className="text-sm font-black uppercase text-slate-800 border-b pb-2.5 mb-4 flex items-center justify-between">
+                          <span>Log Shift Hours</span>
+                          <button onClick={() => setActiveTab('staff_dashboard')} className="text-indigo-600 hover:underline text-xs font-bold">Back to Dashboard</button>
                         </h3>
                         <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
                           Submit shift logs directly online to Steward Health Care 247 for processing. Claim hours matching clinical timesheet signed-off papers. Always upload a clear snapshot pdf/image of validation cards.
@@ -1220,7 +1290,7 @@ export default function App() {
                                       <td className="px-4 py-3 font-bold font-mono text-slate-900">{t.hoursWorked} hrs</td>
                                       <td className="px-4 py-3">
                                         <span className={`p-0.5 px-2 text-[9px] rounded-full font-bold border ${
-                                          t.approvalStatus === 'Approved'
+                                          t.approvalStatus === 'Approved' || t.approvalStatus === 'Paid'
                                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                             : t.approvalStatus === 'Pending'
                                             ? 'bg-amber-50 text-amber-800 border-amber-200'
@@ -1251,12 +1321,45 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* STAFF PORTAL: Template compliance brief view */}
-                  {activeTab === 'role_briefs' && (
-                    <RoleTemplates
-                      templates={templates}
-                      onChangeTemplates={() => {}}
-                    />
+                  {activeTab === 'training' && (
+                    <div className="bg-white p-6 border border-slate-100 rounded-2xl shadow-sm">
+                      <div className="flex justify-between items-center border-b pb-3 mb-4">
+                        <h3 className="text-sm font-black uppercase text-slate-800">Training & CPD Modules</h3>
+                        <button onClick={() => setActiveTab('staff_dashboard')} className="text-indigo-600 hover:underline text-[10px] font-bold">Back to Dashboard</button>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 border rounded-xl bg-emerald-50 border-emerald-200">
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-bold text-emerald-900 text-xs">Mandatory Training</h4>
+                            <span className="bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Compliant</span>
+                          </div>
+                          <p className="text-[10px] text-emerald-700">Expires: {activeStaffMember?.trainingExpiry || 'N/A'}</p>
+                          <div className="mt-3">
+                            <div className="h-2 w-full bg-emerald-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-emerald-500 w-full"></div>
+                            </div>
+                            <span className="text-[9px] text-emerald-600 mt-1 block">100% Completed</span>
+                          </div>
+                          <button onClick={() => setActiveTab('profile')} className="mt-4 text-[10px] font-bold bg-white text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 transition-colors w-full">View Certificate</button>
+                        </div>
+                        
+                        <div className="p-4 border rounded-xl bg-amber-50 border-amber-200">
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-bold text-amber-900 text-xs">Safeguarding Level 3</h4>
+                            <span className="bg-amber-200 text-amber-800 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Expiring Soon</span>
+                          </div>
+                          <p className="text-[10px] text-amber-700">Expires: Next Month</p>
+                          <div className="mt-3">
+                            <div className="h-2 w-full bg-amber-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-amber-500 w-[80%]"></div>
+                            </div>
+                            <span className="text-[9px] text-amber-600 mt-1 block">Requires Renewal</span>
+                          </div>
+                          <button onClick={() => setActiveTab('profile')} className="mt-4 text-[10px] font-bold bg-white text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 transition-colors w-full">Upload New Certificate</button>
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                 </div>

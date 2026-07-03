@@ -10,6 +10,7 @@ interface DocumentVaultProps {
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => void;
   onAssignDocument: (staffId: string, docCategory: DocumentCategory, docName: string) => void;
   onDeleteDocument: (docId: string) => void;
+  onUpdateDocument?: (doc: Document) => void;
 }
 
 export default function DocumentVault({
@@ -17,7 +18,8 @@ export default function DocumentVault({
   staff,
   onUploadDocument,
   onAssignDocument,
-  onDeleteDocument
+  onDeleteDocument,
+  onUpdateDocument
 }: DocumentVaultProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -218,12 +220,30 @@ export default function DocumentVault({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => onDeleteDocument(doc.id)}
-                        className="text-slate-400 hover:text-rose-600 transition"
-                      >
-                        <Trash className="w-4 h-4" />
-                      </button>
+                      <div className="flex justify-end items-center space-x-2">
+                        {onUpdateDocument && (doc.status === 'Sent' || doc.status === 'Opened' || doc.status === 'Pending Signature') && (
+                          <button
+                            onClick={() => onUpdateDocument({ ...doc, status: 'Declined' })}
+                            className="text-[9px] font-bold text-rose-500 hover:underline"
+                          >
+                            Decline
+                          </button>
+                        )}
+                        {onUpdateDocument && (doc.status === 'Signed' || doc.status === 'Completed' || doc.status === 'Approved') && (
+                          <button
+                            onClick={() => onUpdateDocument({ ...doc, status: 'Expired' })}
+                            className="text-[9px] font-bold text-amber-500 hover:underline"
+                          >
+                            Expire
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onDeleteDocument(doc.id)}
+                          className="text-slate-400 hover:text-rose-600 transition ml-2"
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

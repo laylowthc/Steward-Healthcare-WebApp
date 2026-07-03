@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Applicant, RoleTemplate, Document } from '../types';
-import { Upload, FileText, CheckCircle, Clock } from 'lucide-react';
+import { Applicant, RoleTemplate, Document, CVData } from '../types';
+import { Upload, FileText, CheckCircle, Clock, FileBadge } from 'lucide-react';
+import CVBuilder from './CVBuilder';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -9,6 +10,8 @@ interface ApplicantPortalProps {
   onUploadDocument: (file: File, category: string) => void;
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onLogout: () => void;
+  onSaveCVData?: (applicantId: string, cvData: CVData) => void;
+  onGenerateCVPdf?: (applicantId: string, pdfBlob: Blob) => void;
 }
 
 export default function ApplicantPortal({
@@ -17,11 +20,14 @@ export default function ApplicantPortal({
   documents,
   onUploadDocument,
   onUpdateApplicantCompliance,
-  onLogout
+  onLogout,
+  onSaveCVData,
+  onGenerateCVPdf
 }: ApplicantPortalProps) {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'cv'>('overview');
 
   const jobTemplate = templates.find(t => t.role.toLowerCase() === applicant.position.toLowerCase()) || templates[0];
   const reqs = jobTemplate?.requiredCredentials || [];
@@ -65,18 +71,36 @@ export default function ApplicantPortal({
           <h1 className="text-xl font-bold text-slate-800">My Applicant Portal</h1>
           <p className="text-xs text-slate-500">Welcome, {applicant.name}</p>
         </div>
-        <button 
-          onClick={onLogout}
-          className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded hover:bg-rose-100 transition"
-        >
-          Logout
-        </button>
+        <div className="flex space-x-3 items-center">
+          <div className="flex bg-slate-100 p-1 rounded-lg">
+            <button 
+              onClick={() => setActiveTab('overview')} 
+              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${activeTab === 'overview' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Overview
+            </button>
+            <button 
+              onClick={() => setActiveTab('cv')} 
+              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${activeTab === 'cv' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              CV Builder
+            </button>
+          </div>
+          <button 
+            onClick={onLogout}
+            className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded hover:bg-rose-100 transition"
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       <main className="max-w-5xl mx-auto p-6 space-y-6">
         
-        {/* Progress Tracker */}
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        {activeTab === 'overview' ? (
+          <>
+            {/* Progress Tracker */}
+            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Clock className="w-4 h-4 text-purple-600" />
             Application Progress
@@ -212,7 +236,14 @@ export default function ApplicantPortal({
             </div>
           )}
         </section>
-
+          </>
+        ) : (
+          <CVBuilder 
+            applicant={applicant} 
+            onSaveCVData={(id, data) => onSaveCVData && onSaveCVData(id, data)}
+            onGeneratePDF={(id, blob) => onGenerateCVPdf && onGenerateCVPdf(id, blob)}
+          />
+        )}
       </main>
     </div>
   );

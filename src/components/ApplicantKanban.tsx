@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Applicant, ApplicantStatus, RoleTemplate } from '../types';
-import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle } from 'lucide-react';
+import { Applicant, ApplicantStatus, RoleTemplate, CVData } from '../types';
+import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
+import CVBuilder from './CVBuilder';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -10,6 +11,8 @@ interface ApplicantKanbanProps {
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
   onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
+  onSaveCVData?: (applicantId: string, cvData: CVData) => void;
+  onGenerateCVPdf?: (applicantId: string, pdfBlob: Blob) => void;
 }
 
 export default function ApplicantKanban({
@@ -19,10 +22,13 @@ export default function ApplicantKanban({
   templates,
   onUpdateApplicantCompliance,
   onUpdateApplicantDetails,
-  onUploadDocument
+  onUploadDocument,
+  onSaveCVData,
+  onGenerateCVPdf
 }: ApplicantKanbanProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
+  const [showCVBuilder, setShowCVBuilder] = useState(false);
 
   // New applicant form state
   const [newName, setNewName] = useState('');
@@ -75,7 +81,7 @@ export default function ApplicantKanban({
       case 'Screening': return 'border-t-2 border-t-amber-500 bg-amber-50/30';
       case 'Interview': return 'border-t-2 border-t-purple-500 bg-purple-50/30';
       case 'Compliance': return 'border-t-2 border-t-rose-500 bg-rose-50/30';
-      case 'Active': return 'border-t-2 border-t-emerald-500 bg-emerald-50/40';
+      case 'Accepted': return 'border-t-2 border-t-emerald-500 bg-emerald-50/40';
       case 'Rejected': return 'border-t-2 border-t-slate-500 bg-slate-100/50';
     }
   };
@@ -200,7 +206,7 @@ export default function ApplicantKanban({
                         <button
                           disabled={applicant.status === 'Rejected'}
                           onClick={() => {
-                            if (applicant.status === 'Active') {
+                            if (applicant.status === 'Accepted') {
                               // If shifting active, mark rejected
                               onUpdateApplicantStatus(applicant.id, 'Rejected');
                             } else if (applicant.status === 'Applied') {
@@ -221,7 +227,7 @@ export default function ApplicantKanban({
                           }}
                           className="p-1 px-2 rounded hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 text-[10px] font-bold flex items-center cursor-pointer transition-all"
                         >
-                          <span>{applicant.status === 'Active' ? 'Reject' : 'Next'}</span>
+                          <span>{applicant.status === 'Accepted' ? 'Reject' : 'Next'}</span>
                           <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                         </button>
                       </div>
@@ -371,6 +377,16 @@ export default function ApplicantKanban({
                         <span>{selectedApplicant.dateCreated}</span>
                       </p>
                     </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <button 
+                      onClick={() => setShowCVBuilder(true)}
+                      className="w-full flex items-center justify-center space-x-2 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-xs rounded-xl transition-colors"
+                    >
+                      <FileBadge className="w-4 h-4" />
+                      <span>Manage & Generate CV</span>
+                    </button>
                   </div>
 
                   {/* job description autolink section */}
@@ -652,6 +668,27 @@ export default function ApplicantKanban({
           </div>
         );
       })()}
+
+      {/* CV Builder Modal */}
+      {showCVBuilder && selectedApplicant && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex justify-center items-center p-4">
+          <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
+            <button 
+              onClick={() => setShowCVBuilder(false)} 
+              className="absolute top-4 right-4 z-10 text-slate-500 hover:text-slate-800 bg-white p-1 rounded-full shadow-sm"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="flex-1 overflow-y-auto">
+              <CVBuilder 
+                applicant={selectedApplicant} 
+                onSaveCVData={(id, data) => onSaveCVData && onSaveCVData(id, data)}
+                onGeneratePDF={(id, blob) => onGenerateCVPdf && onGenerateCVPdf(id, blob)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
