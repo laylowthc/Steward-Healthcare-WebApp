@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Document, DocumentCategory, Staff } from '../types';
-import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash, Eye, X } from 'lucide-react';
+import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash, Eye, X, Mail, RefreshCw, ExternalLink } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
+import { downloadFile } from '../lib/downloadFile';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -205,9 +206,11 @@ export default function DocumentVault({
                     <td className="px-4 py-3 text-slate-700">{doc.staffName || 'System Shared'}</td>
                     <td className="px-4 py-3">
                       <span className={`p-0.5 px-2 text-[9px] rounded-full border font-bold ${
-                        doc.status === 'Approved' || doc.status === 'Signed'
+                        doc.status === 'Approved' || doc.status === 'Signed' || doc.status === 'Completed'
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : doc.status === 'Awaiting Review' || doc.status === 'Pending Signature'
+                          : doc.status === 'Sent' || doc.status === 'Opened' || doc.status === 'Pending Signature'
+                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                          : doc.status === 'Awaiting Review'
                           ? 'bg-amber-50 text-amber-800 border-amber-250'
                           : 'bg-rose-50 text-rose-800 border-rose-200'
                       }`}>
@@ -289,93 +292,7 @@ export default function DocumentVault({
             </form>
           </div>
 
-          {/* Quick inspect document preview box */}
-          {previewDoc ? (
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm font-semibold">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-4 text-xs font-black">
-                <span className="text-[10px] text-slate-400 uppercase tracking-widest">Selected Document Properties</span>
-                <button onClick={() => setPreviewDoc(null)} className="text-slate-400 hover:text-slate-600">×</button>
-              </div>
-
-              <div className="flex flex-col items-center text-center p-3 border rounded-xl bg-slate-50/50">
-                <div className={`p-4 rounded-full border mb-3 ${getPreviewIconColor(previewDoc.status)}`}>
-                  <FileText className="w-8 h-8" />
-                </div>
-                <h4 className="text-slate-800 font-bold text-xs truncate max-w-full">{previewDoc.name}</h4>
-                <p className="text-[10px] text-slate-500 mt-1">Category type: {previewDoc.category}</p>
-                
-                <div className="w-full pt-4 mt-4 border-t border-slate-150 text-[11px] space-y-2 text-left text-slate-700">
-                  <p className="flex justify-between font-medium">
-                    <span className="text-slate-500">File owner:</span>
-                    <span className="font-bold">{previewDoc.staffName || 'System'}</span>
-                  </p>
-                  <p className="flex justify-between font-medium">
-                    <span className="text-slate-500">Stored date:</span>
-                    <span>{previewDoc.uploadDate}</span>
-                  </p>
-                  <p className="flex justify-between font-medium">
-                    <span className="text-slate-500">Certificate Status:</span>
-                    <span className="font-bold text-slate-800 uppercase">{previewDoc.status}</span>
-                  </p>
-                  {previewDoc.expiryDate && (
-                    <p className="flex justify-between font-medium">
-                      <span className="text-slate-500">Expiry date:</span>
-                      <span className="text-slate-800 font-mono font-bold">{previewDoc.expiryDate}</span>
-                    </p>
-                  )}
-                  {previewDoc.size && (
-                    <p className="flex justify-between font-medium">
-                      <span className="text-slate-500">File weight:</span>
-                      <span className="text-slate-400 font-mono">{previewDoc.size}</span>
-                    </p>
-                  )}
-                </div>
-
-                <div className="w-full mt-4 flex flex-col gap-2">
-                  {previewDoc.fileUrl && (
-                    <button
-                      onClick={() => setViewingFileUrl(previewDoc.fileUrl || null)}
-                      className="w-full inline-flex justify-center items-center py-2 bg-indigo-600 border border-indigo-700 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition-all"
-                    >
-                      <Eye className="w-4 h-4 mr-1 text-indigo-200" />
-                      <span>View File Contents</span>
-                    </button>
-                  )}
-                  {previewDoc.status === 'Signed' && (
-                    <button
-                      onClick={() => {
-                        setActiveInspectorDoc(previewDoc);
-                      }}
-                      className="w-full inline-flex justify-center items-center py-2 bg-purple-900 border border-purple-950 hover:bg-purple-950 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition-all"
-                    >
-                      <ShieldCheck className="w-4 h-4 mr-1 text-emerald-300" />
-                      <span>Inspect Filled Form & E-Signature</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { 
-                      if (previewDoc.fileUrl) {
-                        const a = document.createElement('a');
-                        a.href = previewDoc.fileUrl;
-                        a.download = previewDoc.name;
-                        a.click();
-                      } else {
-                        alert(`Downloading: ${previewDoc.name}`); 
-                      }
-                    }}
-                    className="w-full inline-flex justify-center items-center py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs rounded-lg shadow-sm font-semibold"
-                  >
-                    <Download className="w-4 h-4 mr-1 text-slate-400" />
-                    <span>Download Copy</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-slate-50 hover:bg-slate-100 p-5 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400 font-semibold p-10 leading-normal">
-              🔍 Select a document from the vault index table to preview properties, download file, or review signature timelines.
-            </div>
-          )}
+          {/* Document Properties removed from sidebar. Replaced by slide-over modal. */}
 
           {/* Form: Upload custom document file to Vault */}
           <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
@@ -440,28 +357,254 @@ export default function DocumentVault({
 
       </div>
 
+      {previewDoc && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end"
+          onClick={() => setPreviewDoc(null)}
+        >
+          <div 
+            className="bg-white w-full max-w-4xl h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center space-x-3">
+                <div className={`p-2 rounded-lg border ${getPreviewIconColor(previewDoc.status)}`}>
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">{previewDoc.name}</h3>
+                  <p className="text-[10px] text-slate-500 font-medium">Document Management</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPreviewDoc(null)}
+                className="p-1.5 px-3 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+              >
+                <span>Close</span>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {/* Body */}
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+              
+              {/* Left Side: Preview */}
+              <div className="flex-1 bg-slate-200/50 p-4 overflow-hidden flex flex-col relative">
+                {previewDoc.fileUrl && (
+                  <div className="absolute top-6 right-6 z-10">
+                    <a
+                      href={previewDoc.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-slate-900/80 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Open in New Tab
+                    </a>
+                  </div>
+                )}
+                {previewDoc.fileUrl && previewDoc.fileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                  <div className="w-full flex-1 rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                    <img 
+                      src={previewDoc.fileUrl} 
+                      alt="Document Preview"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <iframe 
+                    src={previewDoc.fileUrl || `data:text/html;charset=utf-8,%3Chtml%3E%3Cbody%20style%3D%22display%3Aflex%3Balign-items%3Acenter%3Bjustify-content%3Acenter%3Bfont-family%3Asans-serif%3Bcolor%3A%2364748b%3Bbackground%3A%23ffffff%3Bheight%3A100vh%3Bmargin%3A0%3B%22%3E%3Cdiv%20style%3D%22text-align%3Acenter%22%3E%3Ch2%3ENo%20Preview%20Available%3C%2Fh2%3E%3Cp%3EFile%20contents%20cannot%20be%20displayed.%3C%2Fp%3E%3C%2Fdiv%3E%3C%2Fbody%3E%3C%2Fhtml%3E`} 
+                    className="w-full flex-1 rounded-xl bg-white shadow-sm border border-slate-200"
+                    title="Document Viewer"
+                  />
+                )}
+              </div>
+
+              {/* Right Side: Details & Actions */}
+              <div className="w-full lg:w-80 bg-white border-l border-slate-100 p-6 flex flex-col overflow-y-auto">
+                <h4 className="text-xs font-black uppercase text-slate-800 mb-4 tracking-wider">Document Details</h4>
+                
+                <div className="space-y-4 text-xs mb-8">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Staff Owner</p>
+                    <p className="font-semibold text-slate-800 flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5 text-slate-400" />
+                      {previewDoc.staffName || 'System Shared'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Category</p>
+                    <p className="font-semibold text-slate-800">{previewDoc.category}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Upload Date</p>
+                    <p className="font-semibold text-slate-800">{previewDoc.uploadDate}</p>
+                  </div>
+                  {previewDoc.expiryDate && (
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Expiry Date</p>
+                      <p className="font-semibold text-rose-600">{previewDoc.expiryDate}</p>
+                    </div>
+                  )}
+                  {previewDoc.size && (
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">File Size</p>
+                      <p className="font-semibold text-slate-800">{previewDoc.size}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Status</p>
+                    <span className={`inline-block mt-1 p-1 px-2 text-[10px] rounded-md border font-bold ${getPreviewIconColor(previewDoc.status)}`}>
+                      {previewDoc.status}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[10px] font-black uppercase text-slate-800 mb-3 tracking-wider border-b border-slate-100 pb-2">Actions</h4>
+                  <div className="space-y-2">
+                    {previewDoc.status === 'Signed' && (
+                      <button
+                        onClick={() => {
+                          setActiveInspectorDoc(previewDoc);
+                          setPreviewDoc(null);
+                        }}
+                        className="w-full inline-flex justify-start items-center py-2 px-3 bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-bold rounded-lg transition-colors border border-purple-100"
+                      >
+                        <ShieldCheck className="w-4 h-4 mr-2" />
+                        Inspect E-Signature
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        if (previewDoc.fileUrl) {
+                          setViewingFileUrl(previewDoc.fileUrl);
+                        } else {
+                          alert('No viewable file available.');
+                        }
+                      }}
+                      className="w-full inline-flex justify-start items-center py-2 px-3 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold rounded-lg transition-colors border border-slate-200"
+                    >
+                      <Eye className="w-4 h-4 mr-2 text-slate-500" />
+                      View Full Screen
+                    </button>
+
+                    <button
+                      onClick={() => { 
+                        if (previewDoc.fileUrl) {
+                          downloadFile(previewDoc.fileUrl, previewDoc.name);
+                        } else {
+                          alert(`Downloading: ${previewDoc.name}`); 
+                        }
+                      }}
+                      className="w-full inline-flex justify-start items-center py-2 px-3 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold rounded-lg transition-colors border border-slate-200"
+                    >
+                      <Download className="w-4 h-4 mr-2 text-slate-500" />
+                      Download
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        alert('Your default email client will open. Note: Browsers cannot attach files to emails automatically for security reasons. Please download the file first and attach it manually to the drafted email.');
+                        window.location.href = `mailto:?subject=Document: ${previewDoc.name}&body=Please find the document attached. Note: The sender must manually attach the downloaded file.`;
+                      }}
+                      className="w-full inline-flex justify-start items-center py-2 px-3 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold rounded-lg transition-colors border border-slate-200"
+                    >
+                      <Mail className="w-4 h-4 mr-2 text-slate-500" />
+                      Send via Email
+                    </button>
+
+                    <div className="relative mt-2">
+                      <input 
+                        type="file" 
+                        title="Replace File"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            const newFile = e.target.files[0];
+                            const fileUrl = URL.createObjectURL(newFile);
+                            onUploadDocument({
+                              ...previewDoc,
+                              name: newFile.name,
+                              size: `${(newFile.size / 1024 / 1024).toFixed(2)} MB`,
+                              fileUrl: fileUrl,
+                            }, newFile);
+                            onDeleteDocument(previewDoc.id);
+                            setPreviewDoc(null);
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <button
+                        className="w-full inline-flex justify-start items-center py-2 px-3 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-bold rounded-lg transition-colors border border-slate-200"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2 text-slate-500" />
+                        Replace
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        onDeleteDocument(previewDoc.id);
+                        setPreviewDoc(null);
+                      }}
+                      className="w-full inline-flex justify-start items-center py-2 px-3 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold rounded-lg transition-colors border border-rose-100 mt-4"
+                    >
+                      <Trash className="w-4 h-4 mr-2" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewingFileUrl && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center space-x-2">
                 <FileText className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
               </div>
-              <button 
-                onClick={() => setViewingFileUrl(null)}
-                className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
-              >
-                <span>Close</span>
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={viewingFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Open in New Tab</span>
+                </a>
+                <button 
+                  onClick={() => setViewingFileUrl(null)}
+                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+                >
+                  <span>Close</span>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
-              <iframe 
-                src={viewingFileUrl} 
-                className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
-                title="Document Viewer"
-              />
+              {viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                  <img 
+                    src={viewingFileUrl} 
+                    alt="Document Preview"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <iframe 
+                  src={viewingFileUrl} 
+                  className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                  title="Document Viewer"
+                />
+              )}
             </div>
           </div>
         </div>

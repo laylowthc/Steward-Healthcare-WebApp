@@ -1,4 +1,4 @@
-export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Compliance' | 'Active' | 'Rejected';
+export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Compliance' | 'Accepted' | 'Rejected';
 
 export interface Applicant {
   id: string;
@@ -61,7 +61,7 @@ export type DocumentCategory =
   | 'Application Form'
   | 'Pre-employment Checklist';
 
-export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed';
+export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed' | 'Sent' | 'Opened' | 'Completed' | 'Declined';
 
 export interface Document {
   id: string;
@@ -83,10 +83,12 @@ export interface Timesheet {
   staffName: string;
   role: StaffRole;
   weekEnding: string;
+  client?: string;
   uploadDate: string;
-  approvalStatus: 'Pending' | 'Approved' | 'Rejected';
+  approvalStatus: 'Pending' | 'Approved' | 'Rejected' | 'Paid';
   hoursWorked: number;
   fileUrl: string;
+  reviewer?: string;
 }
 
 export interface RoleTemplate {

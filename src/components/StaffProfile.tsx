@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
-import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
+import { downloadFile } from '../lib/downloadFile';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -526,9 +527,11 @@ export default function StaffProfile({
                       <td className="px-4 py-3 text-slate-400 font-semibold">{doc.uploadDate}</td>
                       <td className="px-4 py-3">
                         <span className={`p-0.5 px-1.5 text-[9px] rounded-full font-bold border ${
-                          doc.status === 'Approved' || doc.status === 'Signed'
+                          doc.status === 'Approved' || doc.status === 'Signed' || doc.status === 'Completed'
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                            : doc.status === 'Awaiting Review' || doc.status === 'Pending Signature'
+                            : doc.status === 'Sent' || doc.status === 'Opened' || doc.status === 'Pending Signature'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : doc.status === 'Awaiting Review'
                             ? 'bg-amber-50 text-amber-800 border-amber-250'
                             : 'bg-rose-50 text-rose-800 border-rose-200'
                         }`}>
@@ -545,7 +548,7 @@ export default function StaffProfile({
                                 <Eye className="w-3 h-3 text-indigo-200" />
                                 <span>View File</span>
                               </button>
-                             {doc.status === 'Pending Signature' && (
+                             {(doc.status === 'Pending Signature' || doc.status === 'Sent' || doc.status === 'Opened') && (
                                 <button
                                   onClick={() => setActiveSigningDoc(doc)}
                                   className="p-1 px-2.5 bg-purple-900 border border-purple-950 text-white rounded-lg text-[10.5px] font-black tracking-wide uppercase hover:bg-purple-950 cursor-pointer transition-all flex items-center justify-end gap-1"
@@ -555,14 +558,14 @@ export default function StaffProfile({
                              )}
                           </div>
                         ) : ['Employment Contract', 'Job Description', 'Privacy Policy', 'Staff Handbook', 'Appendix D', 'New Starter Information', 'Pay 1 B', 'Weekly Timesheet', 'Supervision Record', 'Personnel File Checklist', 'Application Form', 'Pre-employment Checklist', 'Interview Assessment', 'Statement of Purpose'].some(tag => doc.category.toLowerCase().includes(tag.toLowerCase())) ? (
-                          doc.status === 'Pending Signature' ? (
+                          (doc.status === 'Pending Signature' || doc.status === 'Sent' || doc.status === 'Opened') ? (
                             <button
                               onClick={() => setActiveSigningDoc(doc)}
                               className="p-1 px-2.5 bg-purple-900 border border-purple-950 text-white rounded-lg text-[10.5px] font-black tracking-wide uppercase hover:bg-purple-950 cursor-pointer transition-all flex items-center justify-end gap-1 ml-auto"
                             >
                               <span>✏️ Sign & Complete</span>
                             </button>
-                          ) : doc.status === 'Signed' ? (
+                          ) : (doc.status === 'Signed' || doc.status === 'Completed') ? (
                             <button
                               onClick={() => setActiveSigningDoc(doc)}
                               className="p-1 px-2.5 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-lg text-[10.5px] font-bold hover:bg-emerald-100 cursor-pointer transition-all flex items-center justify-end gap-1 ml-auto"
@@ -570,22 +573,36 @@ export default function StaffProfile({
                               <span>🔍 View Signed Copy</span>
                             </button>
                           ) : (
-                            <a
-                              href="#"
-                              onClick={(e) => { e.preventDefault(); alert(`Downloading: ${doc.name}`); }}
-                              className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px]"
+                            <button
+                              onClick={(e) => { 
+                                e.preventDefault();
+                                if (doc.fileUrl) {
+                                  downloadFile(doc.fileUrl, doc.name);
+                                } else {
+                                  alert(`Downloading: ${doc.name}`);
+                                }
+                              }}
+                              className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px] flex items-center gap-1"
                             >
-                              Download Link
-                            </a>
+                              <Download className="w-3 h-3" />
+                              Download File
+                            </button>
                           )
                         ) : (
-                          <a
-                            href="#"
-                            onClick={(e) => { e.preventDefault(); alert(`Downloading: ${doc.name}`); }}
-                            className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px]"
+                          <button
+                            onClick={(e) => { 
+                              e.preventDefault(); 
+                              if (doc.fileUrl) {
+                                downloadFile(doc.fileUrl, doc.name);
+                              } else {
+                                alert(`Downloading: ${doc.name}`);
+                              }
+                            }}
+                            className="text-purple-800 hover:text-purple-600 hover:underline font-bold text-[11px] flex items-center gap-1"
                           >
-                            Download Link
-                          </a>
+                            <Download className="w-3 h-3" />
+                            Download File
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -614,20 +631,41 @@ export default function StaffProfile({
                 <FileText className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
               </div>
-              <button 
-                onClick={() => setViewingFileUrl(null)}
-                className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
-              >
-                <span>Close</span>
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={viewingFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Open in New Tab</span>
+                </a>
+                <button 
+                  onClick={() => setViewingFileUrl(null)}
+                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+                >
+                  <span>Close</span>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
-              <iframe 
-                src={viewingFileUrl} 
-                className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
-                title="Document Viewer"
-              />
+              {viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                  <img 
+                    src={viewingFileUrl} 
+                    alt="Document Preview"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <iframe 
+                  src={viewingFileUrl} 
+                  className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                  title="Document Viewer"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -638,7 +676,7 @@ export default function StaffProfile({
         <InteractiveDocumentFiller
           document={activeSigningDoc}
           staffMember={staffMember}
-          readOnly={activeSigningDoc.status === 'Signed'}
+          readOnly={activeSigningDoc.status === 'Signed' || activeSigningDoc.status === 'Completed'}
           onClose={() => setActiveSigningDoc(null)}
           onSaveSignature={(filledData) => {
             const updatedDoc: Document = {

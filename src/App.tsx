@@ -54,7 +54,7 @@ import {
 
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -101,7 +101,11 @@ export default function App() {
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
     const local = localStorage.getItem('shc_family_feedbacks_v2');
-    return local ? JSON.parse(local) : initialFamilyFeedbacks;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: FamilyFeedback) => [item.id, item])).values()) as FamilyFeedback[];
+    }
+    return initialFamilyFeedbacks;
   });
 
   // Listen for shareable hash modification links (e.g. #family)
@@ -130,7 +134,8 @@ export default function App() {
         fetchedApplicants.push(docSnap.data() as Applicant);
       });
       if (fetchedApplicants.length > 0) {
-        setApplicants(fetchedApplicants);
+        const uniqueApplicants = Array.from(new Map(fetchedApplicants.map(a => [a.id, a])).values());
+        setApplicants(uniqueApplicants);
       } else {
         // Seed initial data if empty
         initialApplicants.forEach(async (app) => {
@@ -145,27 +150,47 @@ export default function App() {
 
   const [staff, setStaff] = useState<Staff[]>(() => {
     const local = localStorage.getItem('shc_staff_v2');
-    return local ? JSON.parse(local) : initialStaff;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: Staff) => [item.id, item])).values()) as Staff[];
+    }
+    return initialStaff;
   });
 
   const [documents, setDocuments] = useState<Document[]>(() => {
     const local = localStorage.getItem('shc_documents_v2');
-    return local ? JSON.parse(local) : initialDocuments;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: Document) => [item.id, item])).values()) as Document[];
+    }
+    return initialDocuments;
   });
 
   const [timesheets, setTimesheets] = useState<Timesheet[]>(() => {
     const local = localStorage.getItem('shc_timesheets_v2');
-    return local ? JSON.parse(local) : initialTimesheets;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: Timesheet) => [item.id, item])).values()) as Timesheet[];
+    }
+    return initialTimesheets;
   });
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
     const local = localStorage.getItem('shc_logs_v2');
-    return local ? JSON.parse(local) : initialActivityLogs;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: ActivityLog) => [item.id, item])).values()) as ActivityLog[];
+    }
+    return initialActivityLogs;
   });
 
   const [templates, setTemplates] = useState<RoleTemplate[]>(() => {
     const local = localStorage.getItem('shc_templates_v2');
-    return local ? JSON.parse(local) : initialRoleTemplates;
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: RoleTemplate) => [item.role, item])).values()) as RoleTemplate[];
+    }
+    return initialRoleTemplates;
   });
 
   // Navigation State
@@ -280,63 +305,91 @@ export default function App() {
   };
 
   // State mutation callbacks passed to children components
-  const handleUpdateApplicantStatus = (id: string, newStatus: ApplicantStatus) => {
-    updateDoc(doc(db, 'applicants', id), { status: newStatus }).catch(e => console.error("Error updating doc", e));
-    setApplicants(prev => prev.map(a => {
-      if (a.id === id) {
-        const updated = { ...a, status: newStatus };
-        
-        // Dynamic Promotion: Shifting candidate to Active spawns corresponding Staff profile
-        if (newStatus === 'Active') {
-          const alreadyExists = staff.some(s => s.email.toLowerCase() === a.email.toLowerCase());
-          if (!alreadyExists) {
-            const newStaffMember: Staff = {
-              id: `staff_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-              name: a.name,
-              email: a.email,
-              phone: a.phone,
-              address: 'Registered Candidate Address, Manchester, UK',
-              role: a.position as StaffRole,
-              status: 'Active',
-              dbsStatus: 'Compliant',
-              dbsNumber: `001${Math.floor(10000000 + Math.random() * 90000000)}`,
-              dbsExpiry: new Date(Date.now() + 3 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-              rightToWork: 'Compliant',
-              rightToWorkExpiry: new Date(Date.now() + 4 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-              trainingStatus: 'Compliant',
-              trainingExpiry: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-              joinedDate: new Date().toISOString().split('T')[0]
-            };
-            setStaff(prevStaff => [...prevStaff, newStaffMember]);
+  const handleUpdateApplicantStatus = async (id: string, newStatus: ApplicantStatus) => {
+    const targetApplicant = applicants.find(a => a.id === id);
+    if (!targetApplicant) return;
 
-            // Auto spawn passport pdf as signed-off document
-            const placeholderDoc: Document = {
-              id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
-              name: `${a.name.replace(/\s+/g, '_')}_RTW_Passport.pdf`,
-              category: 'Passport',
-              staffId: newStaffMember.id,
-              staffName: a.name,
-              uploadDate: new Date().toISOString().split('T')[0],
-              status: 'Approved',
-              size: '1.5 MB'
-            };
-            setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
-            
-            // Add live Log Event
-            const log: ActivityLog = {
-              id: `act_${Date.now()}`,
-              action: `PROMOTION: Candidate ${a.name} promoted to deployable Approved Staff (${a.position})`,
-              timestamp: 'Just now',
-              user: 'Agency Automation',
-              type: 'status'
-            };
-            setActivityLogs(prevLogs => [log, ...prevLogs]);
-          }
-        }
-        return updated;
+    if (newStatus === 'Accepted') {
+      // 1. Automatically remove them from the Recruitment Pipeline
+      try {
+        await deleteDoc(doc(db, 'applicants', id));
+      } catch (e) {
+        console.error("Error deleting applicant doc", e);
       }
-      return a;
-    }));
+      setApplicants(prev => prev.filter(a => a.id !== id));
+
+      // 2. Automatically create an Active Staff record
+      const alreadyExists = staff.some(s => s.email.toLowerCase() === targetApplicant.email.toLowerCase());
+      if (!alreadyExists) {
+        // Automatically assign: Staff ID, Compliance Profile, Document Folder, Employment Status = Active
+        const newStaffId = `staff_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        const newStaffMember: Staff = {
+          id: newStaffId,
+          name: targetApplicant.name,
+          email: targetApplicant.email,
+          phone: targetApplicant.phone,
+          address: 'Registered Candidate Address',
+          role: targetApplicant.position as StaffRole,
+          status: 'Active',
+          dbsStatus: 'Compliant',
+          dbsNumber: `001${Math.floor(10000000 + Math.random() * 90000000)}`,
+          dbsExpiry: new Date(Date.now() + 3 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          rightToWork: 'Compliant',
+          rightToWorkExpiry: new Date(Date.now() + 4 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          trainingStatus: 'Compliant',
+          trainingExpiry: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          joinedDate: new Date().toISOString().split('T')[0]
+        };
+        setStaff(prevStaff => [...prevStaff, newStaffMember]);
+
+        // Automatically assign Document Folder
+        const placeholderDoc: Document = {
+          id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
+          name: `${targetApplicant.name.replace(/\s+/g, '_')}_Compliance_Profile.pdf`,
+          category: 'Passport',
+          staffId: newStaffMember.id,
+          staffName: targetApplicant.name,
+          uploadDate: new Date().toISOString().split('T')[0],
+          status: 'Approved',
+          size: '1.5 MB'
+        };
+        setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
+        
+        // Log every action inside Recent Activity
+        const logs: ActivityLog[] = [
+          {
+            id: `act_${Date.now()}_1`,
+            action: `RECRUITMENT: Candidate ${targetApplicant.name} reached Accepted stage and was removed from the Recruitment Pipeline.`,
+            timestamp: 'Just now',
+            user: 'Agency Automation',
+            type: 'applicant'
+          },
+          {
+            id: `act_${Date.now()}_2`,
+            action: `STAFFING: Automatically created Active Staff record for ${targetApplicant.name} (Staff ID: ${newStaffId}).`,
+            timestamp: 'Just now',
+            user: 'Agency Automation',
+            type: 'status'
+          },
+          {
+            id: `act_${Date.now()}_3`,
+            action: `COMPLIANCE: Automatically assigned Compliance Profile and Document Folder to ${targetApplicant.name}.`,
+            timestamp: 'Just now',
+            user: 'Agency Automation',
+            type: 'compliance'
+          }
+        ];
+        setActivityLogs(prevLogs => [...logs, ...prevLogs]);
+      }
+    } else {
+      updateDoc(doc(db, 'applicants', id), { status: newStatus }).catch(e => console.error("Error updating doc", e));
+      setApplicants(prev => prev.map(a => {
+        if (a.id === id) {
+          return { ...a, status: newStatus };
+        }
+        return a;
+      }));
+    }
   };
 
   const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
@@ -447,36 +500,73 @@ export default function App() {
   };
 
   const handleAssignDocument = (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
-    const staffMemberName = staff.find(s => s.id === targetStaffId)?.name || 'Unknown';
+    const targetStaff = staff.find(s => s.id === targetStaffId);
+    const staffMemberName = targetStaff?.name || 'Unknown';
+    const staffEmail = targetStaff?.email || 'staff@example.com';
+    const docId = `doc_assigned_${Date.now()}`;
+    const secureLink = `https://shc.test/sign/${docId}`;
+
     const newAssigned: Document = {
-      id: `doc_assigned_${Date.now()}`,
+      id: docId,
       name: docName,
       category: docCategory,
       staffId: targetStaffId,
       staffName: staffMemberName,
       uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Pending Signature',
+      status: 'Sent',
       assignedByAdmin: true,
       size: '420 KB'
     };
     setDocuments(prev => [newAssigned, ...prev]);
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `SLA ASSIGNED: E-Signature contract template dispatched to caregiver ${staffMemberName}`,
+    // Open email client
+    const subject = encodeURIComponent(`Action Required: E-Signature Request for ${docName}`);
+    const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease review and sign your document here:\n${secureLink}\n\nThank you.`);
+    window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
+
+    const logSent: ActivityLog = {
+      id: `act_${Date.now()}_sent`,
+      action: `E-SIGNATURE SENT: Secure link emailed to ${staffMemberName} (${staffEmail}) for ${docName}`,
       timestamp: 'Just now',
-      user: 'Agency Admin (Blessing)',
+      user: 'System Workflow',
       type: 'document'
     };
-    setActivityLogs(prev => [log, ...prev]);
+    setActivityLogs(prev => [logSent, ...prev]);
+
+    // Simulate lifecycle automatically
+    const simulateStatus = (status: DocumentStatus, actionMsg: string, delayMs: number) => {
+      setTimeout(() => {
+        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status } : d));
+        setActivityLogs(prev => [{
+          id: `act_${Date.now()}_${status.toLowerCase()}`,
+          action: actionMsg,
+          timestamp: 'Just now',
+          user: 'System Workflow',
+          type: 'document'
+        }, ...prev]);
+      }, delayMs);
+    };
+
+    simulateStatus('Opened', `E-SIGNATURE OPENED: ${staffMemberName} viewed ${docName}`, 4000);
+    simulateStatus('Signed', `E-SIGNATURE SIGNED: ${staffMemberName} electronically signed ${docName}`, 8000);
+    simulateStatus('Completed', `E-SIGNATURE COMPLETED: Workflow finished for ${docName}. Locked & encrypted.`, 12000);
   };
 
   const handleDeleteDocument = (docId: string) => {
     setDocuments(prev => prev.filter(d => d.id !== docId));
   };
 
-  const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected') => {
-    setTimesheets(prev => prev.map(t => t.id === timesheetId ? { ...t, approvalStatus: status } : t));
+  const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
+    setTimesheets(prev => prev.map(t => {
+      if (t.id === timesheetId) {
+        return { 
+          ...t, 
+          approvalStatus: status,
+          reviewer: status !== 'Pending' ? 'Admin' : t.reviewer // Hardcoded to Admin for now, as we only have one admin user in this MVP context
+        };
+      }
+      return t;
+    }));
 
     const target = timesheets.find(t => t.id === timesheetId);
     if (target) {
@@ -1104,6 +1194,7 @@ export default function App() {
                               staff={staff.filter(s => s.id === currentUserId)}
                               onUpdateTimesheetStatus={() => {}} // Disabled for caregiver
                               onAddTimesheet={handleAddTimesheet}
+                              isAdmin={false}
                             />
                           </div>
 

@@ -32,7 +32,7 @@ export default function ApplicantKanban({
   const [newNotes, setNewNotes] = useState('');
 
   // Define Kanban status list order
-  const statuses: ApplicantStatus[] = ['Applied', 'Screening', 'Interview', 'Compliance', 'Active', 'Rejected'];
+  const statuses: ApplicantStatus[] = ['Applied', 'Screening', 'Interview', 'Compliance', 'Accepted', 'Rejected'];
 
   const handleCreateApplicant = (e: React.FormEvent) => {
     e.preventDefault();

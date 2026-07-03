@@ -1,27 +1,76 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Timesheet, Staff } from '../types';
-import { FileText, CheckCircle, XCircle, Plus, Clipboard, Landmark, CalendarDays } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, Plus, Clipboard, Landmark, CalendarDays, Upload, Bot, Download, Eye } from 'lucide-react';
+import { downloadFile } from '../lib/downloadFile';
 
 interface TimesheetManagerProps {
   timesheets: Timesheet[];
   staff: Staff[];
-  onUpdateTimesheetStatus: (id: string, status: 'Approved' | 'Rejected') => void;
+  onUpdateTimesheetStatus: (id: string, status: 'Approved' | 'Rejected' | 'Paid') => void;
   onAddTimesheet: (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => void;
+  isAdmin?: boolean;
 }
 
 export default function TimesheetManager({
   timesheets,
   staff,
   onUpdateTimesheetStatus,
-  onAddTimesheet
+  onAddTimesheet,
+  isAdmin = true
 }: TimesheetManagerProps) {
   const [showForm, setShowForm] = useState(false);
   
   // Submission Form State
   const [submitStaffName, setSubmitStaffName] = useState('');
   const [submitWeekEnding, setSubmitWeekEnding] = useState('');
-  const [submitHours, setSubmitHours] = useState<number>(37.5);
+  const [submitHours, setSubmitHours] = useState<number | ''>('');
+  const [submitClient, setSubmitClient] = useState('');
+  const [submitFileUrl, setSubmitFileUrl] = useState<string>('');
+  
   const [successBanner, setSuccessBanner] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('/api/extract-timesheet', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) throw new Error('Extraction failed');
+      const data = await res.json();
+      
+      // Attempt to map extracted staff name to existing staff, or just use extracted text
+      const matchedStaff = staff.find(s => s.name.toLowerCase() === data.staffName?.toLowerCase());
+      if (matchedStaff) {
+        setSubmitStaffName(matchedStaff.name);
+      } else if (data.staffName) {
+        setSubmitStaffName(data.staffName);
+      }
+
+      if (data.weekEnding) setSubmitWeekEnding(data.weekEnding);
+      if (data.hoursWorked) setSubmitHours(data.hoursWorked);
+      if (data.client) setSubmitClient(data.client);
+      
+      // We fake a file url since we didn't actually upload it to a bucket in this MVP
+      setSubmitFileUrl(URL.createObjectURL(file));
+      
+    } catch (err) {
+      console.error(err);
+      alert('AI Extraction failed or timed out. Please enter details manually.');
+    } finally {
+      setIsExtracting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleCreateTimesheetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,9 +83,10 @@ export default function TimesheetManager({
       staffName: submitStaffName,
       role: resolvedRole,
       weekEnding: submitWeekEnding,
+      client: submitClient || undefined,
       approvalStatus: 'Pending',
-      hoursWorked: Number(submitHours),
-      fileUrl: `timesheet_${submitStaffName.replace(' ', '_')}_${submitWeekEnding}.pdf`
+      hoursWorked: Number(submitHours) || 0,
+      fileUrl: submitFileUrl || `timesheet_${submitStaffName.replace(' ', '_')}_${submitWeekEnding}.pdf`
     });
 
     setSuccessBanner('Timesheet successfully submitted! Available for administrative audit review.');
@@ -45,7 +95,9 @@ export default function TimesheetManager({
     // Reset Form
     setSubmitStaffName('');
     setSubmitWeekEnding('');
-    setSubmitHours(37.5);
+    setSubmitHours('');
+    setSubmitClient('');
+    setSubmitFileUrl('');
     setShowForm(false);
   };
 
@@ -63,10 +115,10 @@ export default function TimesheetManager({
   };
 
   // Sum total approved hours and total outstanding hours
-  const totalApprovedHours = timesheets.filter(t => t.approvalStatus === 'Approved').reduce((acc, curr) => acc + curr.hoursWorked, 0);
+  const totalApprovedHours = timesheets.filter(t => t.approvalStatus === 'Approved' || t.approvalStatus === 'Paid').reduce((acc, curr) => acc + curr.hoursWorked, 0);
   const totalOutstandingHours = timesheets.filter(t => t.approvalStatus === 'Pending').reduce((acc, curr) => acc + curr.hoursWorked, 0);
   
-  const estimateApprovedPayout = timesheets.filter(t => t.approvalStatus === 'Approved').reduce((acc, curr) => acc + getPayout(curr), 0);
+  const estimateApprovedPayout = timesheets.filter(t => t.approvalStatus === 'Approved' || t.approvalStatus === 'Paid').reduce((acc, curr) => acc + getPayout(curr), 0);
   const estimateOutstandingPayout = timesheets.filter(t => t.approvalStatus === 'Pending').reduce((acc, curr) => acc + getPayout(curr), 0);
 
   return (
@@ -125,7 +177,30 @@ export default function TimesheetManager({
         <form onSubmit={handleCreateTimesheetSubmit} className="bg-white p-5 rounded-2xl border border-slate-205 shadow-sm space-y-4 max-w-lg">
           <div className="border-b border-slate-100 pb-2 flex justify-between items-center bg-slate-50 p-2.5 rounded-lg mb-2">
             <h4 className="text-xs font-black uppercase text-slate-805 tracking-wide">Timesheet Submission form</h4>
-            <button type="button" onClick={() => setShowForm(false)} className="text-slate-400 text-lg hover:text-slate-600">×</button>
+            <div className="flex items-center space-x-2">
+              <label className="cursor-pointer text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 flex items-center gap-1 hover:bg-indigo-100 transition-colors">
+                {isExtracting ? (
+                  <>
+                    <Bot className="w-3 h-3 animate-spin" />
+                    Extracting...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3 h-3" />
+                    AI Auto-Fill
+                  </>
+                )}
+                <input 
+                  type="file" 
+                  accept=".pdf,image/*"
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  disabled={isExtracting}
+                />
+              </label>
+              <button type="button" onClick={() => setShowForm(false)} className="text-slate-400 text-lg hover:text-slate-600">×</button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -156,18 +231,37 @@ export default function TimesheetManager({
             </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-600 uppercase">Total Logged Shift Hours</label>
-            <input
-              type="number"
-              step="0.5"
-              required
-              value={submitHours}
-              onChange={(e) => setSubmitHours(Number(e.target.value))}
-              className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
-              placeholder="37.5"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-600 uppercase">Total Logged Shift Hours</label>
+              <input
+                type="number"
+                step="0.5"
+                required
+                value={submitHours}
+                onChange={(e) => setSubmitHours(Number(e.target.value))}
+                className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                placeholder="37.5"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-600 uppercase">Client / Location</label>
+              <input
+                type="text"
+                value={submitClient}
+                onChange={(e) => setSubmitClient(e.target.value)}
+                className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                placeholder="Hospital/Care Home"
+              />
+            </div>
           </div>
+
+          {submitFileUrl && (
+            <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-100 flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" />
+              Document Attached
+            </div>
+          )}
 
           <div className="flex gap-2">
             <button
@@ -194,13 +288,14 @@ export default function TimesheetManager({
             <thead className="bg-slate-50">
               <tr className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 select-none">
                 <th scope="col" className="px-6 py-3">Caregiver Name</th>
-                <th scope="col" className="px-6 py-3">Category Role</th>
+                <th scope="col" className="px-6 py-3">Client</th>
                 <th scope="col" className="px-6 py-3">Week Ending</th>
-                <th scope="col" className="px-6 py-3">Submited Date</th>
+                <th scope="col" className="px-6 py-3">Submitted Date</th>
                 <th scope="col" className="px-6 py-3">Claimed Log</th>
                 <th scope="col" className="px-6 py-3">Estimated Cost</th>
+                <th scope="col" className="px-6 py-3">Reviewer</th>
                 <th scope="col" className="px-6 py-3">Approval Tracker</th>
-                <th scope="col" className="px-6 py-3 text-right pr-6">Action Actions</th>
+                <th scope="col" className="px-6 py-3 text-right pr-6">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100 text-xs text-slate-800">
@@ -213,15 +308,18 @@ export default function TimesheetManager({
                     <td className="px-6 py-3">
                       <div className="font-bold text-slate-800">{timesheet.staffName}</div>
                     </td>
-                    <td className="px-6 py-3 text-slate-600 font-semibold">{timesheet.role}</td>
+                    <td className="px-6 py-3 text-slate-600 font-semibold">{timesheet.client || '-'}</td>
                     <td className="px-6 py-3 font-medium text-slate-700">{timesheet.weekEnding}</td>
                     <td className="px-6 py-3 text-slate-400 font-semibold">{timesheet.uploadDate}</td>
                     <td className="px-6 py-3 font-black text-slate-850 font-mono">{timesheet.hoursWorked} hrs</td>
                     <td className="px-6 py-3 font-semibold text-slate-900 font-mono">£{estAmount.toFixed(2)}</td>
+                    <td className="px-6 py-3 font-medium text-slate-500">{timesheet.reviewer || '-'}</td>
                     <td className="px-6 py-3">
                       <span className={`p-0.5 px-2.5 rounded-full text-[10px] font-bold border ${
                         timesheet.approvalStatus === 'Approved'
                           ? 'bg-emerald-50 text-emerald-805 border-emerald-250 font-extrabold'
+                          : timesheet.approvalStatus === 'Paid'
+                          ? 'bg-blue-50 text-blue-805 border-blue-250 font-extrabold'
                           : timesheet.approvalStatus === 'Pending'
                           ? 'bg-amber-50 text-amber-805 border-amber-250 font-extrabold'
                           : 'bg-rose-50 text-rose-805 border-rose-250'
@@ -230,29 +328,66 @@ export default function TimesheetManager({
                       </span>
                     </td>
                     <td className="px-6 py-3 text-right pr-6" onClick={(e) => e.stopPropagation()}>
-                      {timesheet.approvalStatus === 'Pending' ? (
-                        <div className="flex justify-end space-x-1.5">
-                          <button
-                            onClick={() => onUpdateTimesheetStatus(timesheet.id, 'Approved')}
-                            className="p-1 px-2.5 bg-emerald-500 text-white rounded font-bold hover:bg-emerald-600 transition-colors text-[10px] shadow-sm cursor-pointer"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => onUpdateTimesheetStatus(timesheet.id, 'Rejected')}
-                            className="p-1 px-2.5 bg-rose-500 text-white rounded font-bold hover:bg-rose-600 transition-colors text-[10px] shadow-sm cursor-pointer"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      ) : (
+                      <div className="flex justify-end space-x-1.5 items-center">
                         <button
-                          disabled
-                          className="text-[10px] font-black text-slate-400 cursor-not-allowed uppercase"
+                          onClick={() => window.open(timesheet.fileUrl, '_blank')}
+                          className="p-1 text-slate-500 hover:text-indigo-600 transition-colors"
+                          title="View Timesheet"
                         >
-                          Processed ✓
+                          <Eye className="w-4 h-4" />
                         </button>
-                      )}
+                        <button
+                          onClick={() => downloadFile(timesheet.fileUrl, `timesheet_${timesheet.staffName}_${timesheet.weekEnding}.pdf`)}
+                          className="p-1 text-slate-500 hover:text-indigo-600 transition-colors"
+                          title="Export Timesheet"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+
+                        {isAdmin && (
+                          <>
+                            {timesheet.approvalStatus === 'Pending' && (
+                              <>
+                                <button
+                                  onClick={() => onUpdateTimesheetStatus(timesheet.id, 'Approved')}
+                                  className="p-1 px-2.5 bg-emerald-500 text-white rounded font-bold hover:bg-emerald-600 transition-colors text-[10px] shadow-sm cursor-pointer ml-2"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => onUpdateTimesheetStatus(timesheet.id, 'Rejected')}
+                                  className="p-1 px-2.5 bg-rose-500 text-white rounded font-bold hover:bg-rose-600 transition-colors text-[10px] shadow-sm cursor-pointer"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            {timesheet.approvalStatus === 'Approved' && (
+                              <button
+                                onClick={() => onUpdateTimesheetStatus(timesheet.id, 'Paid')}
+                                className="p-1 px-2.5 bg-blue-500 text-white rounded font-bold hover:bg-blue-600 transition-colors text-[10px] shadow-sm cursor-pointer ml-2"
+                              >
+                                Mark Paid
+                              </button>
+                            )}
+                            {(timesheet.approvalStatus === 'Paid' || timesheet.approvalStatus === 'Rejected') && (
+                              <span className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                                Processed ✓
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {!isAdmin && timesheet.approvalStatus !== 'Pending' && (
+                          <span className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                            Processed ✓
+                          </span>
+                        )}
+                        {!isAdmin && timesheet.approvalStatus === 'Pending' && (
+                          <span className="text-[10px] font-black text-slate-400 uppercase ml-2">
+                            Pending ⏳
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
