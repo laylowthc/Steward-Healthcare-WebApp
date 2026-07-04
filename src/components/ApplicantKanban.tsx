@@ -13,6 +13,7 @@ interface ApplicantKanbanProps {
   onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
   onSaveCVData?: (applicantId: string, cvData: CVData) => void;
   onGenerateCVPdf?: (applicantId: string, pdfBlob: Blob) => void;
+  onDeleteApplicant?: (id: string) => void;
 }
 
 export default function ApplicantKanban({
@@ -24,11 +25,13 @@ export default function ApplicantKanban({
   onUpdateApplicantDetails,
   onUploadDocument,
   onSaveCVData,
-  onGenerateCVPdf
+  onGenerateCVPdf,
+  onDeleteApplicant
 }: ApplicantKanbanProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [showCVBuilder, setShowCVBuilder] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // New applicant form state
   const [newName, setNewName] = useState('');
@@ -656,13 +659,57 @@ export default function ApplicantKanban({
                 </div>
               </div>
 
-              <div className="p-6 border-t border-slate-100 bg-slate-50 flex space-x-2">
-                <button
-                  onClick={() => setSelectedApplicant(null)}
-                  className="w-full text-center py-2.5 border border-slate-350 text-slate-705 bg-white hover:bg-slate-50 text-xs font-bold rounded-lg cursor-pointer"
-                >
-                  Close Profile
-                </button>
+              <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col space-y-3">
+                {showDeleteConfirm ? (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-2 text-left">
+                    <p className="text-[11px] font-black text-rose-900 uppercase">⚠️ Warning: Ultimate Deletion</p>
+                    <p className="text-[10px] text-rose-800 leading-normal font-semibold">
+                      This will permanently purge this applicant's entire profile, document vault files, timesheet claims, and historical logs from the system database. This action is irreversible.
+                    </p>
+                    <div className="flex space-x-2 pt-1.5">
+                      <button
+                        onClick={async () => {
+                          if (onDeleteApplicant) {
+                            await onDeleteApplicant(selectedApplicant.id);
+                          }
+                          setShowDeleteConfirm(false);
+                          setSelectedApplicant(null);
+                        }}
+                        className="flex-1 py-1.5 bg-rose-700 hover:bg-rose-800 text-white text-[10px] font-bold rounded-lg shadow-sm"
+                      >
+                        Yes, Delete Everything
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-3 py-1.5 border border-slate-350 bg-white text-slate-700 text-[10px] font-bold rounded-lg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex space-x-2">
+                    {onDeleteApplicant && (
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="px-4 py-2.5 border border-rose-200 hover:bg-rose-50 text-rose-750 hover:text-rose-800 text-xs font-bold rounded-lg cursor-pointer flex items-center justify-center space-x-1 shrink-0"
+                        title="Delete Applicant Permanently"
+                      >
+                        <Trash className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedApplicant(null);
+                        setShowDeleteConfirm(false);
+                      }}
+                      className="w-full text-center py-2.5 border border-slate-350 text-slate-705 bg-white hover:bg-slate-50 text-xs font-bold rounded-lg cursor-pointer"
+                    >
+                      Close Profile
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

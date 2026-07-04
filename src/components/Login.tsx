@@ -9,9 +9,10 @@ import { doc, setDoc, getDoc, query, collection, where, getDocs } from 'firebase
 interface LoginProps {
   onLoginSuccess: (userRole: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => void;
   onAddApplicant?: (applicant: Omit<Applicant, 'id' | 'dateCreated'>, id?: string) => string;
+  onSystemReset?: () => Promise<void>;
 }
 
-export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
+export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -90,6 +91,19 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
     }
   };
 
+  const handleLoginReset = async () => {
+    if (window.confirm("This will clear your local storage, session storage, and sign you out of all accounts to give you a pristine starting screen. To completely delete the remote cloud Firestore database, log in as an Admin and use the Database Reset button in the console. Proceed?")) {
+      localStorage.clear();
+      sessionStorage.clear();
+      try {
+        await auth.signOut();
+      } catch (e) {
+        console.error(e);
+      }
+      window.location.reload();
+    }
+  };
+
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotEmail) return;
@@ -146,6 +160,48 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
         onLoginSuccess(regRole, userId);
       }, 1500);
     } catch (err: any) {
+      if (err.code === 'auth/email-already-in-use' || (err.message && err.message.includes('email-already-in-use'))) {
+        try {
+          // Attempt to automatically sign in with the password provided
+          const userCredential = await signInWithEmailAndPassword(auth, regEmail, regPassword);
+          const userId = userCredential.user.uid;
+          
+          // Check if their Firestore profile is missing (e.g., after database factory reset)
+          const userDoc = await getDoc(doc(db, 'users', userId));
+          let finalRole = regRole;
+          if (!userDoc.exists()) {
+            await setDoc(doc(db, 'users', userId), {
+              name: regName,
+              email: regEmail.toLowerCase(),
+              role: regRole,
+              uid: userId
+            });
+          } else {
+            finalRole = userDoc.data().role || regRole;
+          }
+
+          setRegSuccess(true);
+          setTimeout(() => {
+            if (finalRole === 'applicant' && onAddApplicant) {
+              onAddApplicant({
+                name: regName,
+                email: regEmail,
+                phone: '',
+                position: 'Care Assistant',
+                status: 'Applied',
+                notes: 'Self-registered applicant via portal.'
+              }, userId);
+            }
+            onLoginSuccess(finalRole, userId);
+          }, 1500);
+          return;
+        } catch (signInErr: any) {
+          console.error("Auto sign-in failed on already-in-use email:", signInErr);
+          setError("This email is already registered. If this is your account, please enter the correct password to sign in, or click 'Sign in here' below.");
+          return;
+        }
+      }
+
       if (err.message && (err.message.includes('operation-not-allowed') || err.message.includes('admin-restricted-operation'))) {
         // Fallback to anonymous auth (Demo Environment limits support)
         try {
@@ -521,6 +577,18 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-rose-700 font-bold transform group-hover:translate-x-1 transition-transform shrink-0" />
+              </button>
+            </div>
+
+            {/* Dev Purge & Fresh Start Option */}
+            <div className="mt-5 pt-4 border-t border-slate-100 text-center">
+              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Developer Sandbox Control</p>
+              <button
+                type="button"
+                onClick={handleLoginReset}
+                className="mt-2 inline-flex items-center space-x-1.5 text-[10px] font-black text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 px-3 py-1.5 rounded-lg transition"
+              >
+                <span>⚠️ PURGE LOCAL CACHE & RESTART FRESH</span>
               </button>
             </div>
           </div>

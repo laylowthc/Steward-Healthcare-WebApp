@@ -56,7 +56,7 @@ import {
 
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -82,26 +82,9 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
+  const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          setCurrentRole(userData.role);
-          setCurrentUserId(userData.uid);
-          setIsLoggedIn(true);
-        }
-      } else {
-        setIsLoggedIn(false);
-      }
-      setIsAuthRestoring(false);
-    });
-    return () => unsub();
-  }, []);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
     const local = localStorage.getItem('shc_family_feedbacks_v2');
@@ -148,6 +131,28 @@ export default function App() {
       }
     }, (error) => {
       console.error('Firestore Error sync applicants: ', error);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Listen to Firebase staff collection for real-time cloud persistence
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'staff'), (snapshot) => {
+      const fetchedStaff: Staff[] = [];
+      snapshot.forEach(docSnap => {
+        fetchedStaff.push(docSnap.data() as Staff);
+      });
+      if (fetchedStaff.length > 0) {
+        const uniqueStaff = Array.from(new Map(fetchedStaff.map(s => [s.id, s])).values());
+        setStaff(uniqueStaff);
+      } else {
+        // Seed initial staff data if empty
+        initialStaff.forEach(async (member) => {
+          await setDoc(doc(db, 'staff', member.id), member);
+        });
+      }
+    }, (error) => {
+      console.error('Firestore Error sync staff: ', error);
     });
     return () => unsubscribe();
   }, []);
@@ -253,6 +258,59 @@ export default function App() {
     localStorage.setItem('shc_visible_cards', JSON.stringify(visibleCards));
   }, [visibleCards]);
 
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setCurrentRole(userData.role);
+          setCurrentUserId(userData.uid);
+          setUserAccountRole(userData.role);
+          setIsLoggedIn(true);
+
+          if (userData.role === 'staff') {
+            setStaff(prevStaff => {
+              const exists = prevStaff.some(s => s.email.toLowerCase() === userData.email.toLowerCase() || s.id === userData.uid);
+              if (!exists) {
+                const newStaffMember: Staff = {
+                  id: userData.uid,
+                  name: userData.name || 'Staff Member',
+                  email: userData.email,
+                  phone: userData.phone || 'N/A',
+                  address: 'Registered Caregiver Address',
+                  role: 'Care Assistant',
+                  status: 'Active',
+                  dbsStatus: 'Compliant',
+                  rightToWork: 'Compliant',
+                  trainingStatus: 'Compliant',
+                  joinedDate: new Date().toISOString().split('T')[0]
+                };
+                return [...prevStaff, newStaffMember];
+              }
+              return prevStaff;
+            });
+          }
+        }
+      } else {
+        setIsLoggedIn(false);
+        setUserAccountRole(null);
+      }
+      setIsAuthRestoring(false);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      if (currentRole === 'staff' && activeTab === 'dashboard') {
+        setActiveTab('staff_dashboard');
+      } else if (currentRole === 'admin' && activeTab === 'staff_dashboard') {
+        setActiveTab('dashboard');
+      }
+    }
+  }, [currentRole, isLoggedIn, activeTab]);
+
   const handleToggleCard = (cardId: string, visible?: boolean) => {
     setVisibleCards(prev => {
       const isCurrentlyVisible = prev.includes(cardId);
@@ -284,10 +342,50 @@ export default function App() {
   }, []);
 
   // Auth Operations
-  const handleLoginSuccess = (role: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => {
+  const handleLoginSuccess = async (role: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => {
     setCurrentRole(role);
+    setUserAccountRole(role);
     if (userId) {
       setCurrentUserId(userId);
+
+      // Fetch details from users collection if exists to auto-seed staff if missing
+      try {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (role === 'staff') {
+            setStaff(prevStaff => {
+              const exists = prevStaff.some(s => s.email.toLowerCase() === userData.email.toLowerCase() || s.id === userId);
+              if (!exists) {
+                const newStaff: Staff = {
+                  id: userId,
+                  name: userData.name || 'Staff Member',
+                  email: userData.email,
+                  phone: userData.phone || 'N/A',
+                  address: 'Registered Caregiver Address',
+                  role: 'Care Assistant',
+                  status: 'Active',
+                  dbsStatus: 'Compliant',
+                  rightToWork: 'Compliant',
+                  trainingStatus: 'Compliant',
+                  joinedDate: new Date().toISOString().split('T')[0]
+                };
+                return [...prevStaff, newStaff];
+              }
+              return prevStaff;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error in login success staff check:", err);
+      }
+    } else {
+      // Demo accounts or fallback login without userId
+      if (role === 'admin') {
+        setCurrentUserId('admin_demo');
+      } else if (role === 'staff') {
+        setCurrentUserId('staff_1');
+      }
     }
     setIsLoggedIn(true);
     setSelectedStaffId(null);
@@ -471,8 +569,109 @@ export default function App() {
     }, file);
   };
 
-  const handleUpdateStaffDetails = (updatedStaff: Staff) => {
+  const handleSystemReset = async () => {
+    if (!window.confirm("CRITICAL WARNING:\n\nThis will permanently delete all records from Firestore (users, applicants, staff profiles, feedback) and clear your browser's local storage/cache. The system will start from a 100% clean state and sign you out so you can test registration from scratch.\n\nAre you sure you want to proceed?")) {
+      return;
+    }
+    try {
+      // 1. Purge 'users' Firestore collection
+      const usersSnap = await getDocs(collection(db, 'users'));
+      for (const d of usersSnap.docs) {
+        await deleteDoc(doc(db, 'users', d.id));
+      }
+
+      // 2. Purge 'applicants' Firestore collection
+      const applicantsSnap = await getDocs(collection(db, 'applicants'));
+      for (const d of applicantsSnap.docs) {
+        await deleteDoc(doc(db, 'applicants', d.id));
+      }
+
+      // 3. Purge 'staff' Firestore collection if exists
+      try {
+        const staffSnap = await getDocs(collection(db, 'staff'));
+        for (const d of staffSnap.docs) {
+          await deleteDoc(doc(db, 'staff', d.id));
+        }
+      } catch (e) {
+        console.error("No staff collection to purge:", e);
+      }
+
+      // 4. Reset React states
+      setApplicants([]);
+      setStaff([]);
+      setDocuments([]);
+      setTimesheets([]);
+      setActivityLogs([]);
+      setFamilyFeedbacks([]);
+
+      // 5. Clear client caches
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // 6. Sign out
+      await auth.signOut();
+      setIsLoggedIn(false);
+      setUserAccountRole(null);
+      setCurrentRole('applicant');
+
+      alert("SUCCESS!\n\nAll remote Firestore documents, local caches, and active user sessions have been purged.\n\nPlease complete registration of your new Administrator or Staff account on the next screen.");
+      window.location.reload();
+    } catch (error: any) {
+      console.error("Critical error during full system reset:", error);
+      alert("System reset failed. Security rules may prevent unauthenticated deletions, or database is busy. Details: " + (error.message || error));
+    }
+  };
+
+  const handleDeleteApplicant = async (id: string) => {
+    try {
+      const targetApplicant = applicants.find(a => a.id === id);
+      if (!targetApplicant) return;
+
+      // 1. Delete applicant from Firestore 'applicants' collection
+      await deleteDoc(doc(db, 'applicants', id));
+
+      // 2. Delete from local applicants state
+      setApplicants(prev => prev.filter(a => a.id !== id));
+
+      // 3. Delete any documents where staffId is the applicant id
+      setDocuments(prev => prev.filter(d => d.staffId !== id));
+
+      // 4. Delete any timesheets associated with this applicant's name
+      setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
+
+      // 5. Look for any associated user record in Firestore 'users' collection and delete it
+      const q = query(collection(db, 'users'), where('email', '==', targetApplicant.email.toLowerCase()));
+      try {
+        const snap = await getDocs(q);
+        snap.forEach(async (uDoc) => {
+          await deleteDoc(doc(db, 'users', uDoc.id));
+        });
+      } catch (err) {
+        console.error("Error deleting matching user account:", err);
+      }
+
+      // 6. Push an activity log
+      const log: ActivityLog = {
+        id: `act_${Date.now()}`,
+        action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
+        timestamp: 'Just now',
+        user: 'Blessing (Super-Admin)',
+        type: 'applicant'
+      };
+      setActivityLogs(prev => [log, ...prev]);
+
+    } catch (err) {
+      console.error("Error during comprehensive applicant deletion:", err);
+    }
+  };
+
+  const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+    try {
+      await setDoc(doc(db, 'staff', updatedStaff.id), updatedStaff);
+    } catch (err) {
+      console.error("Error updating staff in Firestore: ", err);
+    }
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
@@ -482,6 +681,64 @@ export default function App() {
       type: 'compliance'
     };
     setActivityLogs(prev => [log, ...prev]);
+  };
+
+  const handleAddStaff = async (newStaff: Staff) => {
+    try {
+      // 1. Save to local React State (triggers localStorage sync automatically)
+      setStaff(prev => [...prev, newStaff]);
+
+      // 2. Save to Firestore 'staff' collection for persistent cloud backup
+      await setDoc(doc(db, 'staff', newStaff.id), newStaff);
+
+      // 3. Push an activity log
+      const log: ActivityLog = {
+        id: `act_${Date.now()}`,
+        action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
+        timestamp: 'Just now',
+        user: 'Blessing (Super-Admin)',
+        type: 'compliance'
+      };
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (err) {
+      console.error("Error manual registering staff:", err);
+    }
+  };
+
+  const handleDeleteStaff = async (staffId: string) => {
+    try {
+      const target = staff.find(s => s.id === staffId);
+      if (!target) return;
+
+      // 1. Remove from local state
+      setStaff(prev => prev.filter(s => s.id !== staffId));
+
+      // 2. Clear selectedStaffId if it was this staff
+      if (selectedStaffId === staffId) {
+        setSelectedStaffId(null);
+      }
+
+      // 3. Delete from Firestore 'staff' collection
+      await deleteDoc(doc(db, 'staff', staffId));
+
+      // 4. Delete documents assigned to this staff member
+      setDocuments(prev => prev.filter(d => d.staffId !== staffId));
+
+      // 5. Delete timesheets assigned to this staff member
+      setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
+
+      // 6. Push Activity Log
+      const log: ActivityLog = {
+        id: `act_${Date.now()}`,
+        action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
+        timestamp: 'Just now',
+        user: 'Blessing (Super-Admin)',
+        type: 'compliance'
+      };
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (err) {
+      console.error("Error deleting staff member:", err);
+    }
   };
 
   const handleUpdateDocument = (updatedDoc: Document) => {
@@ -653,7 +910,7 @@ export default function App() {
   }
   
   if (!isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} />;
+    return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} onSystemReset={handleSystemReset} />;
   }
 
   // Family & Client Feedback Portal: Clean Isolated Perspective
@@ -753,19 +1010,21 @@ export default function App() {
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
             <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Blessing (Super-Admin)' : activeStaffMember?.name}</span>
-            <button 
-              onClick={() => {
-                // Instantly swap perspective for satisfied evaluation
-                const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                setCurrentRole(nextRole);
-                setSelectedStaffId(null);
-                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-              }}
-              className="text-[9px] text-indigo-700 font-bold hover:underline"
-              title="Switch role perspective"
-            >
-              [Swap]
-            </button>
+            {userAccountRole === 'admin' && (
+              <button 
+                onClick={() => {
+                  // Instantly swap perspective for satisfied evaluation
+                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
+                  setCurrentRole(nextRole);
+                  setSelectedStaffId(null);
+                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
+                }}
+                className="text-[9px] text-indigo-700 font-bold hover:underline"
+                title="Switch role perspective"
+              >
+                [Swap]
+              </button>
+            )}
           </div>
         </div>
 
@@ -978,18 +1237,20 @@ export default function App() {
           <div className="flex items-center space-x-4">
             
             {/* Quick swap button directly in the main header for satisfied exploration */}
-            <button
-              onClick={() => {
-                const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                setCurrentRole(nextRole);
-                setSelectedStaffId(null);
-                setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-              }}
-              className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
-            >
-              <span>SWAP ROLE:</span>
-              <span className="text-[#9C1F60] font-black">{currentRole === 'admin' ? 'STAFF' : 'ADMIN'}</span>
-            </button>
+            {userAccountRole === 'admin' && (
+              <button
+                onClick={() => {
+                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
+                  setCurrentRole(nextRole);
+                  setSelectedStaffId(null);
+                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
+                }}
+                className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
+              >
+                <span>SWAP ROLE:</span>
+                <span className="text-[#9C1F60] font-black">{currentRole === 'admin' ? 'STAFF' : 'ADMIN'}</span>
+              </button>
+            )}
 
             {/* Profile badge with popup settings */}
             <div className="relative">
@@ -1050,6 +1311,8 @@ export default function App() {
               onUpdateStaffDetails={handleUpdateStaffDetails}
               onUploadDocument={handleUploadDocument}
               onUpdateDocument={handleUpdateDocument}
+              onDeleteStaff={handleDeleteStaff}
+              currentRole={currentRole}
             />
           ) : (
             // --- TABBED WORKSPACE CONTENT FOR ACTIVE SELECTIONS ---
@@ -1087,6 +1350,7 @@ export default function App() {
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
                       onSaveCVData={handleSaveCVData}
                       onGenerateCVPdf={handleGenerateCVPdf}
+                      onDeleteApplicant={handleDeleteApplicant}
                       onUploadDocument={(file, category, staffId, staffName) => {
                         handleUploadDocument({
                           name: file.name,
@@ -1104,6 +1368,9 @@ export default function App() {
                     <StaffDirectory
                       staff={staff}
                       onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
+                      currentRole={currentRole}
+                      onAddStaff={handleAddStaff}
+                      onDeleteStaff={handleDeleteStaff}
                     />
                   )}
 
@@ -1152,11 +1419,12 @@ export default function App() {
                       applicants={applicants}
                       documents={documents}
                       timesheets={timesheets}
+                      onSystemReset={handleSystemReset}
                     />
                   )}
 
                   {activeTab === 'administration' && (
-                    <UserAdministration />
+                    <UserAdministration onSystemReset={handleSystemReset} />
                   )}
 
                   {/* Google Workspace operations center */}
@@ -1238,6 +1506,7 @@ export default function App() {
                         onUpdateStaffDetails={handleUpdateStaffDetails}
                         onUploadDocument={handleUploadDocument}
                         onUpdateDocument={handleUpdateDocument}
+                        currentRole={currentRole}
                       />
                     </div>
                   )}

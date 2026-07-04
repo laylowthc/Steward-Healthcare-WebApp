@@ -69,18 +69,18 @@ export default function Dashboard({
 
   // Compliance percentage widget
   const compliantStaffCount = staff.filter(s => s.status === 'Active' && s.dbsStatus === 'Compliant' && s.rightToWork === 'Compliant' && s.trainingStatus === 'Compliant').length;
-  const compliancePercentage = Math.round((compliantStaffCount / staff.length) * 100);
+  const compliancePercentage = staff.length > 0 ? Math.round((compliantStaffCount / staff.length) * 100) : 100;
 
   const [isCardFlipped, setIsCardFlipped] = useState(false);
 
   // Calculates Family feedback metrics
   const avgCareQuality = familyFeedbacks.length > 0 
     ? (familyFeedbacks.reduce((sum, f) => sum + f.ratingCareQuality, 0) / familyFeedbacks.length).toFixed(1) 
-    : '4.8';
+    : '0.0';
 
   const satisfactionRate = familyFeedbacks.length > 0 
     ? Math.round((familyFeedbacks.filter(f => f.ratingCareQuality >= 4).length / familyFeedbacks.length) * 100) 
-    : 96;
+    : 0;
 
   // Helper variables to assess column layout content empty states
   const hasLeftCards = visibleCards.includes('health_index') || 
@@ -351,7 +351,7 @@ export default function Dashboard({
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-purple-800 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(staff.filter(s => s.dbsStatus === 'Compliant').length / staff.length) * 100}%` }}
+                          style={{ width: `${staff.length > 0 ? (staff.filter(s => s.dbsStatus === 'Compliant').length / staff.length) * 100 : 100}%` }}
                         ></div>
                       </div>
                     </div>
@@ -381,7 +381,7 @@ export default function Dashboard({
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(staff.filter(s => s.trainingStatus === 'Compliant').length / staff.length) * 100}%` }}
+                          style={{ width: `${staff.length > 0 ? (staff.filter(s => s.trainingStatus === 'Compliant').length / staff.length) * 100 : 100}%` }}
                         ></div>
                       </div>
                     </div>

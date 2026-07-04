@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
-import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
 
@@ -11,6 +11,8 @@ interface StaffProfileProps {
   onUpdateStaffDetails: (updatedStaff: Staff) => void;
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => void;
   onUpdateDocument?: (doc: Document) => void;
+  onDeleteStaff?: (staffId: string) => void;
+  currentRole?: 'admin' | 'staff' | 'family' | 'applicant';
 }
 
 export default function StaffProfile({
@@ -19,7 +21,9 @@ export default function StaffProfile({
   onBack,
   onUpdateStaffDetails,
   onUploadDocument,
-  onUpdateDocument
+  onUpdateDocument,
+  onDeleteStaff,
+  currentRole
 }: StaffProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
@@ -157,7 +161,20 @@ export default function StaffProfile({
           <ArrowLeft className="w-4 h-4" />
           <span>Back to staff directory</span>
         </button>
-        <div className="space-x-2">
+        <div className="space-x-2 flex items-center">
+          {currentRole === 'admin' && onDeleteStaff && (
+            <button
+              onClick={() => {
+                if (window.confirm(`CRITICAL WARNING:\n\nAre you sure you want to permanently delete ${staffMember.name} and remove them from the staff directory? This action cannot be undone.`)) {
+                  onDeleteStaff(staffMember.id);
+                }
+              }}
+              className="inline-flex items-center px-3 py-1.5 border border-rose-200 hover:border-rose-350 bg-rose-50 text-rose-700 rounded-xl text-xs font-semibold transition"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              <span>Delete Staff Member</span>
+            </button>
+          )}
           <button
             onClick={() => setIsEditing(!isEditing)}
             className="px-3 py-1.5 border border-slate-205 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition bg-white"

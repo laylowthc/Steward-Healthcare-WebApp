@@ -7,9 +7,10 @@ interface DeveloperConsoleProps {
   applicants: Applicant[];
   documents: Document[];
   timesheets: Timesheet[];
+  onSystemReset?: () => Promise<void>;
 }
 
-export default function DeveloperConsole({ staff, applicants, documents, timesheets }: DeveloperConsoleProps) {
+export default function DeveloperConsole({ staff, applicants, documents, timesheets, onSystemReset }: DeveloperConsoleProps) {
   const [activeConsoleTab, setActiveConsoleTab] = useState<'erd' | 'components' | 'apis'>('erd');
   const [selectedEndpoint, setSelectedEndpoint] = useState<string>('GET_STAFF');
   const [apiResponse, setApiResponse] = useState<string>('');
@@ -418,6 +419,29 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
                   <span>Payload Encoding: UTF-8</span>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {onSystemReset && (
+          <div className="mt-6 bg-rose-50/50 border border-rose-200 p-5 rounded-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+              <div>
+                <h4 className="text-xs font-black text-rose-950 uppercase tracking-wide flex items-center">
+                  <AlertCircle className="w-4 h-4 mr-1 text-rose-700 shrink-0" /> Full System & Database Purge
+                </h4>
+                <p className="text-[11px] text-slate-600 mt-1 max-w-xl">
+                  Want to clear all candidate history, staff registers, and user databases to test registration flows from zero? 
+                  This will wipe all documents and users from your Firestore cloud project, delete local caches, and reload the browser.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onSystemReset}
+                className="inline-flex items-center justify-center space-x-1.5 bg-rose-700 hover:bg-rose-800 text-white font-extrabold text-[11px] px-3.5 py-2 rounded-xl shadow cursor-pointer transition"
+              >
+                <span>⚠️ Factory Reset Database</span>
+              </button>
             </div>
           </div>
         )}

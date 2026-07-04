@@ -1,33 +1,26 @@
-// Polyfill/Patch for environment-specific read-only window.fetch getter
-try {
-  const originalFetch = window.fetch;
-  let customFetch = originalFetch;
-  
-  Object.defineProperty(window, 'fetch', {
-    get() {
-      return customFetch;
-    },
-    set(val) {
-      customFetch = val;
-    },
-    configurable: true,
-    enumerable: true,
-  });
+import './patch';
 
-  if (typeof globalThis !== 'undefined') {
-    Object.defineProperty(globalThis, 'fetch', {
-      get() {
-        return customFetch;
-      },
-      set(val) {
-        customFetch = val;
-      },
-      configurable: true,
-      enumerable: true,
-    });
+// Prevent formdata-polyfill from attempting to monkey-patch the read-only window.fetch
+if (typeof window !== 'undefined') {
+  if (typeof window.FormData === 'undefined') {
+    (window as any).FormData = class FormData {
+      append() {}
+      delete() {}
+      get() { return null; }
+      getAll() { return []; }
+      has() { return false; }
+      set() {}
+      forEach() {}
+      *keys() { yield* []; }
+      *values() { yield* []; }
+      *entries() { yield* []; }
+      [Symbol.iterator]() { return this.entries(); }
+    };
+  } else if (!window.FormData.prototype.keys) {
+    window.FormData.prototype.keys = function* (this: any) {
+      yield* [];
+    };
   }
-} catch (e) {
-  console.warn('Failed to define fetch property setter:', e);
 }
 
 import {StrictMode} from 'react';
@@ -40,4 +33,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
 

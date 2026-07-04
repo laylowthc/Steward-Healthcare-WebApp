@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, getDocs, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, query, getDocs, doc, updateDoc, deleteDoc, setDoc, where } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { Shield, User, UserPlus, UserMinus, ShieldAlert, Key, CheckCircle, Search, Mail } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -14,7 +14,11 @@ interface SystemUser {
   permissions?: string[];
 }
 
-export default function UserAdministration() {
+interface UserAdministrationProps {
+  onSystemReset?: () => Promise<void>;
+}
+
+export default function UserAdministration({ onSystemReset }: UserAdministrationProps) {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +30,7 @@ export default function UserAdministration() {
   const [inviteRole, setInviteRole] = useState<'admin' | 'staff' | 'applicant' | 'family'>('applicant');
   
   const [isManagingPermissions, setIsManagingPermissions] = useState<SystemUser | null>(null);
+  const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<string | null>(null);
   
   const availablePermissions = ['View Reports', 'Manage Documents', 'Approve Timesheets', 'Manage Roster'];
 
@@ -131,12 +136,39 @@ export default function UserAdministration() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm("Are you sure you want to permanently delete this user record? This action cannot be undone.")) return;
+  const executeDeleteUser = async (user: SystemUser) => {
     try {
-      await deleteDoc(doc(db, 'users', userId));
-      setUsers(prev => prev.filter(u => u.id !== userId));
-      showMessage("User successfully deleted.", 'success');
+      // 1. Delete user record from Firestore 'users'
+      await deleteDoc(doc(db, 'users', user.id));
+      
+      // 2. Also delete any corresponding documents in 'applicants' collection with same email or id
+      try {
+        const applicantsRef = collection(db, 'applicants');
+        const qApp = query(applicantsRef, where('email', '==', user.email.toLowerCase()));
+        const snapApp = await getDocs(qApp);
+        snapApp.forEach(async (d) => {
+          await deleteDoc(doc(db, 'applicants', d.id));
+        });
+      } catch (e) {
+        console.error("Error purging matching applicant records:", e);
+      }
+
+      // 3. Also delete any corresponding documents in 'staff' collection with same email
+      try {
+        const staffRef = collection(db, 'staff');
+        const qStaff = query(staffRef, where('email', '==', user.email.toLowerCase()));
+        const snapStaff = await getDocs(qStaff);
+        snapStaff.forEach(async (d) => {
+          await deleteDoc(doc(db, 'staff', d.id));
+        });
+      } catch (e) {
+        console.error("Error purging matching staff records:", e);
+      }
+
+      // 4. Update the UI state
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+      setDeleteConfirmUserId(null);
+      showMessage("User and associated profiles successfully purged.", 'success');
     } catch (error) {
       console.error("Error deleting user:", error);
       showMessage("Failed to delete user.", 'error');
@@ -318,40 +350,60 @@ export default function UserAdministration() {
                         {user.status || 'Active'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end space-x-2">
-                        <button
-                          onClick={() => setIsManagingPermissions(user)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                          title="Manage Permissions"
-                        >
-                          <Shield className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleResetPassword(user.email)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                          title="Send Password Reset"
-                        >
-                          <Key className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleToggleStatus(user)}
-                          className={`p-1.5 rounded transition-colors ${
-                            user.status === 'Deactivated' 
-                              ? 'text-emerald-500 hover:bg-emerald-50' 
-                              : 'text-amber-500 hover:bg-amber-50'
-                          }`}
-                          title={user.status === 'Deactivated' ? 'Reactivate Account' : 'Deactivate Account'}
-                        >
-                          {user.status === 'Deactivated' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                          title="Delete User"
-                        >
-                          <UserMinus className="w-4 h-4" />
-                        </button>
+                        {deleteConfirmUserId === user.id ? (
+                          <div className="flex items-center space-x-1.5 bg-rose-50 border border-rose-100 rounded-lg p-1">
+                            <span className="text-[10px] font-bold text-rose-800 animate-pulse uppercase">Purge Account?</span>
+                            <button
+                              onClick={() => executeDeleteUser(user)}
+                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmUserId(null)}
+                              className="px-2 py-0.5 border border-slate-300 text-slate-600 text-[10px] font-semibold rounded bg-white"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => setIsManagingPermissions(user)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                              title="Manage Permissions"
+                            >
+                              <Shield className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleResetPassword(user.email)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                              title="Send Password Reset"
+                            >
+                              <Key className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleStatus(user)}
+                              className={`p-1.5 rounded transition-colors ${
+                                user.status === 'Deactivated' 
+                                  ? 'text-emerald-500 hover:bg-emerald-50' 
+                                  : 'text-amber-500 hover:bg-amber-50'
+                              }`}
+                              title={user.status === 'Deactivated' ? 'Reactivate Account' : 'Deactivate Account'}
+                            >
+                              {user.status === 'Deactivated' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmUserId(user.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                              title="Delete User"
+                            >
+                              <UserMinus className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -396,6 +448,32 @@ export default function UserAdministration() {
                   </label>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {onSystemReset && (
+        <div className="mt-8 bg-rose-50/50 border border-rose-200 p-6 rounded-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+            <div>
+              <h4 className="text-sm font-extrabold text-rose-950 flex items-center">
+                <ShieldAlert className="w-4 h-4 text-rose-700 mr-2" />
+                <span>System Administration Maintenance Controls</span>
+              </h4>
+              <p className="text-xs text-slate-550 mt-1 max-w-xl">
+                Ready to clear mock data and start your testing cycle with a completely empty database? 
+                This action will permanently delete all cloud Firestore document records (users, applicants, staff profiles) and clear all cached client-side states.
+              </p>
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={onSystemReset}
+                className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow transition cursor-pointer"
+              >
+                <span>⚠️ Factory Reset Database</span>
+              </button>
             </div>
           </div>
         </div>
