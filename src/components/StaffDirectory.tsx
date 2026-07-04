@@ -76,8 +76,10 @@ export default function StaffDirectory({
       address: newStaffAddress,
       role: newStaffRole,
       status: (newStaffDbsStatus === 'Non-Compliant' || newStaffRightToWork === 'Non-Compliant' || newStaffTrainingStatus === 'Non-Compliant') ? 'Non-Compliant' : 'Active',
-      nmcPin: newStaffRole === 'Nurse' ? newStaffNmcPin : undefined,
-      nmcExpiry: newStaffRole === 'Nurse' ? (newStaffNmcExpiry || new Date(Date.now() + 365*24*3600*1000).toISOString().split('T')[0]) : undefined,
+      ...(newStaffRole === 'Nurse' ? {
+        nmcPin: newStaffNmcPin,
+        nmcExpiry: newStaffNmcExpiry || new Date(Date.now() + 365*24*3600*1000).toISOString().split('T')[0]
+      } : {}),
       dbsStatus: newStaffDbsStatus,
       dbsNumber: newStaffDbsNumber || `001${Math.floor(10000000 + Math.random() * 90000000)}`,
       dbsExpiry: newStaffDbsExpiry || new Date(Date.now() + 3*365*24*3600*1000).toISOString().split('T')[0],
