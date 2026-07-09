@@ -5,7 +5,7 @@ const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
 
-// Google Drive & Forms requested scopes
+// Google Drive, Forms & Gmail requested scopes
 const SCOPES = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.activity',
@@ -22,7 +22,12 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.scripts',
   'https://www.googleapis.com/auth/forms.body',
   'https://www.googleapis.com/auth/forms.body.readonly',
-  'https://www.googleapis.com/auth/forms.responses.readonly'
+  'https://www.googleapis.com/auth/forms.responses.readonly',
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.compose'
 ];
 
 SCOPES.forEach(scope => provider.addScope(scope));
