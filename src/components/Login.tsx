@@ -196,7 +196,6 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
           }, 1500);
           return;
         } catch (signInErr: any) {
-          console.error("Auto sign-in failed on already-in-use email:", signInErr);
           setError("This email is already registered. If this is your account, please enter the correct password to sign in, or click 'Sign in here' below.");
           return;
         }

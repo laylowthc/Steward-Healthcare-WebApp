@@ -57,6 +57,7 @@ import {
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
+import { supabase, syncUserWithSupabase } from './lib/supabase';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -83,6 +84,7 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
   const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
+  const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
 
@@ -261,6 +263,16 @@ export default function App() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // Sync with Supabase
+        const supabaseUser = await syncUserWithSupabase(
+          user.uid,
+          user.email || '',
+          user.displayName || user.email?.split('@')[0] || 'Unknown User'
+        );
+        if (supabaseUser) {
+          setSupabaseUserId(supabaseUser.id);
+        }
+
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
@@ -759,13 +771,64 @@ export default function App() {
     
     if (file) {
       try {
-        const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-        const storage = getStorage();
-        const fileRef = ref(storage, `documents/${Date.now()}_${file.name}`);
-        const snapshot = await uploadBytes(fileRef, file);
-        finalFileUrl = await getDownloadURL(snapshot.ref);
-      } catch (e) {
-        console.error("Failed to upload to Firebase Storage:", e);
+        const filePath = `${Date.now()}_${file.name}`;
+        
+        // 1. Upload the file into the private Supabase Storage bucket named: documents
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        // 2. Generate/fetch the public URL for local state preview in Vault
+        const { data: urlData } = supabase.storage
+          .from('documents')
+          .getPublicUrl(filePath);
+          
+        finalFileUrl = urlData?.publicUrl || '';
+
+        // Determine target user's Supabase UUID
+        let targetSupabaseId = null;
+        const targetFirebaseUid = doc.staffId || currentUserId;
+        
+        if (targetFirebaseUid === currentUserId && supabaseUserId) {
+          targetSupabaseId = supabaseUserId;
+        } else if (targetFirebaseUid) {
+          const targetApplicant = applicants.find(a => a.id === targetFirebaseUid);
+          const targetStaff = staff.find(s => s.id === targetFirebaseUid);
+          const email = targetApplicant?.email || targetStaff?.email || 'unknown@example.com';
+          const name = targetApplicant?.name || targetStaff?.name || 'Unknown User';
+          
+          const supabaseUser = await syncUserWithSupabase(targetFirebaseUid, email, name);
+          if (supabaseUser) {
+            targetSupabaseId = supabaseUser.id;
+          }
+        }
+
+        // 3. Create a row in the existing documents PostgreSQL table
+        const { data: dbData, error: dbError } = await supabase
+          .from('documents')
+          .insert({
+            user_id: targetSupabaseId,
+            document_name: file.name,
+            category: doc.category,
+            file_path: filePath,
+            file_size: file.size,
+            file_type: file.type,
+            upload_date: new Date().toISOString().split('T')[0],
+            verification_status: 'Pending'
+          });
+
+        if (dbError) {
+          console.error("Failed to insert document row into PostgreSQL table:", dbError);
+        }
+      } catch (e: any) {
+        console.error("Failed to upload/register with Supabase:", e);
       }
     }
 
