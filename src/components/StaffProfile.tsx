@@ -466,14 +466,14 @@ export default function StaffProfile({
                   className="p-1 px-2 border border-slate-300 rounded text-[11px] bg-slate-50 focus:outline-none"
                 >
                   <option value="Passport">Passport File</option>
-                  <option value="DBS">DBS Check</option>
+                  <option value="DBS Certificate">DBS Check Certificate</option>
                   <option value="Right To Work">Right To Work</option>
                   <option value="Driving Licence">Drivers Licence</option>
-                  <option value="Utility Bill">Utility Invoice Address</option>
                   <option value="CV">Curriculum Vitae</option>
                   <option value="Employment Contract">Signed Contract</option>
-                  <option value="Training Certificates">Accreditation Cert</option>
-                  <option value="References">References</option>
+                  <option value="Training Certificate">Accreditation Cert</option>
+                  <option value="Reference">References</option>
+                  <option value="Other">Other Documents</option>
                 </select>
               </div>
             </div>

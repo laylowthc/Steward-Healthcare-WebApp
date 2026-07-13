@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Applicant, RoleTemplate, Document, CVData } from '../types';
+import { Applicant, RoleTemplate, Document, CVData, mapCredentialToCategory } from '../types';
 import { Upload, FileText, CheckCircle, Clock, FileBadge } from 'lucide-react';
 import CVBuilder from './CVBuilder';
 
@@ -31,30 +31,38 @@ export default function ApplicantPortal({
 
   const jobTemplate = templates.find(t => t.role.toLowerCase() === applicant.position.toLowerCase()) || templates[0];
   const reqs = jobTemplate?.requiredCredentials || [];
-  const statusChecklist = applicant.complianceChecked || {};
+
+  // Derive statusChecklist dynamically and exclusively from actual documents!
+  const statusChecklist: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'> = {};
+  reqs.forEach(req => {
+    const dbCategory = mapCredentialToCategory(req);
+    const applicantDocs = documents.filter(d => d.staffId === applicant.id);
+    const doc = applicantDocs.find(d => d.category === dbCategory);
+    if (doc) {
+      if (doc.status === 'Approved') {
+        statusChecklist[req] = 'Compliant';
+      } else {
+        statusChecklist[req] = 'Awaiting Review';
+      }
+    } else {
+      statusChecklist[req] = 'Missing';
+    }
+  });
 
   const handleUpload = async () => {
     if (!uploadFile) return;
     
-    // Assign category based on filename or user selection if we had one. Wait, we can set category from UI.
     if (!uploadCategory) {
       alert("Please select a document category.");
       return;
     }
 
     setIsUploading(true);
-    // Simulate upload delay
+    // Map to database-compliant category to prevent database constraint violations
+    const mappedCategory = mapCredentialToCategory(uploadCategory);
+    
     setTimeout(() => {
-      onUploadDocument(uploadFile, uploadCategory);
-      
-      // Auto-update compliance checklist mapping
-      if (reqs.includes(uploadCategory)) {
-        onUpdateApplicantCompliance(applicant.id, {
-          ...statusChecklist,
-          [uploadCategory]: 'Awaiting Review'
-        });
-      }
-      
+      onUploadDocument(uploadFile, mappedCategory);
       setUploadFile(null);
       setUploadCategory('');
       setIsUploading(false);

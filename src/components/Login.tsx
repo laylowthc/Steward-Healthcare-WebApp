@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import { Shield, Clock, Mail, Lock, AlertCircle, ArrowRight, Heart } from 'lucide-react';
 import BrandedLogo from './BrandedLogo';
 import { Applicant } from '../types';
-import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInAnonymously } from 'firebase/auth';
-import { doc, setDoc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 
 interface LoginProps {
   onLoginSuccess: (userRole: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => void;
@@ -39,48 +37,16 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
     }
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        onLoginSuccess(userData.role, userCredential.user.uid);
-      } else {
-        // Fallback or demo fallback
-        if (email.toLowerCase().includes('admin')) {
-          onLoginSuccess('admin', userCredential.user.uid);
-        } else {
-          onLoginSuccess('applicant', userCredential.user.uid);
-        }
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      if (signInError) {
+        throw signInError;
       }
+      // Successful auth triggers onAuthStateChange in App.tsx
     } catch (err: any) {
-      if (err.message && (err.message.includes('operation-not-allowed') || err.message.includes('admin-restricted-operation'))) {
-        // Fallback to anonymous auth (Demo Environment limits support)
-        try {
-          const authResult = await signInAnonymously(auth);
-          const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase()));
-          const userSnapshot = await getDocs(q);
-          if (!userSnapshot.empty) {
-            const oldUserId = userSnapshot.docs[0].id;
-            const userData = userSnapshot.docs[0].data();
-            
-            // Migrate session pointer to new anonymous ID
-            const newUserId = authResult.user.uid;
-            if (oldUserId !== newUserId) {
-              await setDoc(doc(db, 'users', newUserId), {
-                ...userData,
-                uid: newUserId
-              });
-            }
-
-            onLoginSuccess(userData.role, newUserId);
-            return;
-          }
-        } catch (anonErr) {
-          console.error("Anonymous fallback failed: ", anonErr);
-        }
-      }
-
-      // Fallback for demo users that aren't registered yet
+      // Fallback for demo users that aren't registered yet in Supabase Auth
       if (email.toLowerCase() === 'admin@shc247.co.uk' || email.toLowerCase() === 'admin') {
         onLoginSuccess('admin');
       } else if (email.toLowerCase() === 'clara.oswald@shc247.co.uk' || email.toLowerCase() === 'clara' || email.toLowerCase() === 'staff') {
@@ -96,7 +62,7 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
       localStorage.clear();
       sessionStorage.clear();
       try {
-        await auth.signOut();
+        await supabase.auth.signOut();
       } catch (e) {
         console.error(e);
       }
@@ -108,7 +74,10 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
     e.preventDefault();
     if (!forgotEmail) return;
     try {
-      await sendPasswordResetEmail(auth, forgotEmail);
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+        redirectTo: `${window.location.origin}/#reset-password`,
+      });
+      if (resetError) throw resetError;
       setForgotSent(true);
       setTimeout(() => {
         setForgotSent(false);
@@ -135,15 +104,41 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
-      const userId = userCredential.user.uid;
-      
-      await setDoc(doc(db, 'users', userId), {
-        name: regName,
-        email: regEmail.toLowerCase(),
-        role: regRole,
-        uid: userId
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: regEmail,
+        password: regPassword,
+        options: {
+          data: {
+            full_name: regName
+          }
+        }
       });
+
+      if (signUpError) {
+        throw signUpError;
+      }
+
+      const user = data.user;
+      if (!user) {
+        throw new Error('Registration failed, user object is empty.');
+      }
+      
+      const userId = user.id;
+      
+      const { error: insertError } = await supabase.from('users').insert({
+        id: userId,
+        firebase_uid: userId,
+        full_name: regName,
+        email: regEmail.toLowerCase(),
+        role: regRole === 'admin' ? 'Admin' : (regRole === 'staff' ? 'Staff' : 'Applicant'),
+        status: 'Pending'
+      });
+
+      if (insertError) {
+        console.error("Error creating Supabase user during registration:", insertError);
+        setError(`Failed to create database profile: ${insertError.message}`);
+        return;
+      }
 
       setRegSuccess(true);
       setTimeout(() => {
@@ -155,29 +150,49 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
             position: 'Care Assistant', // Default target role
             status: 'Applied',
             notes: 'Self-registered applicant via portal.'
-          }, userId); // Pass userId if onAddApplicant accepts it
+          }, userId);
         }
         onLoginSuccess(regRole, userId);
       }, 1500);
     } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use' || (err.message && err.message.includes('email-already-in-use'))) {
+      if (err.code === 'auth/email-already-in-use' || (err.message && (err.message.includes('already registered') || err.message.includes('already exists') || err.message.includes('already in use')))) {
         try {
           // Attempt to automatically sign in with the password provided
-          const userCredential = await signInWithEmailAndPassword(auth, regEmail, regPassword);
-          const userId = userCredential.user.uid;
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: regEmail,
+            password: regPassword
+          });
+          if (signInError) {
+            throw signInError;
+          }
+          const user = signInData.user;
+          if (!user) {
+            throw new Error('User object is empty.');
+          }
+          const userId = user.id;
           
-          // Check if their Firestore profile is missing (e.g., after database factory reset)
-          const userDoc = await getDoc(doc(db, 'users', userId));
+          // Check if their Supabase profile is missing
+          const { data: existingUsers, error: selectError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', regEmail.toLowerCase());
+
           let finalRole = regRole;
-          if (!userDoc.exists()) {
-            await setDoc(doc(db, 'users', userId), {
-              name: regName,
+          if (selectError) {
+            console.error("Supabase profile check failed during registration fallback:", selectError);
+          } else if (!existingUsers || existingUsers.length === 0) {
+            // Profile is missing in Supabase, create it
+            await supabase.from('users').insert({
+              id: userId,
+              firebase_uid: userId,
+              full_name: regName,
               email: regEmail.toLowerCase(),
-              role: regRole,
-              uid: userId
+              role: regRole === 'admin' ? 'Admin' : (regRole === 'staff' ? 'Staff' : 'Applicant'),
+              status: 'Pending'
             });
           } else {
-            finalRole = userDoc.data().role || regRole;
+            const sUser = existingUsers[0];
+            finalRole = (sUser.role || regRole).toLowerCase() as 'admin' | 'staff' | 'family' | 'applicant';
           }
 
           setRegSuccess(true);
@@ -198,39 +213,6 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
         } catch (signInErr: any) {
           setError("This email is already registered. If this is your account, please enter the correct password to sign in, or click 'Sign in here' below.");
           return;
-        }
-      }
-
-      if (err.message && (err.message.includes('operation-not-allowed') || err.message.includes('admin-restricted-operation'))) {
-        // Fallback to anonymous auth (Demo Environment limits support)
-        try {
-          const authResult = await signInAnonymously(auth);
-          const userId = authResult.user.uid;
-          
-          await setDoc(doc(db, 'users', userId), {
-            name: regName,
-            email: regEmail.toLowerCase(),
-            role: regRole,
-            uid: userId
-          });
-
-          setRegSuccess(true);
-          setTimeout(() => {
-            if (regRole === 'applicant' && onAddApplicant) {
-              onAddApplicant({
-                name: regName,
-                email: regEmail,
-                phone: '',
-                position: 'Care Assistant',
-                status: 'Applied',
-                notes: 'Self-registered applicant via portal.'
-              }, userId);
-            }
-            onLoginSuccess(regRole, userId);
-          }, 1500);
-          return;
-        } catch (anonErr) {
-          console.error("Anonymous fallback failed: ", anonErr);
         }
       }
 

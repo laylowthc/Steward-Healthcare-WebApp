@@ -58,9 +58,19 @@ export default function DocumentVault({
   });
 
   const categories: DocumentCategory[] = [
-    'Passport', 'DBS', 'Right To Work', 'Driving Licence', 'Utility Bill', 
-    'CV', 'Employment Contract', 'Training Certificates', 'References', 
-    'Job Description', 'Privacy Policy', 'Staff Handbook'
+    'Passport',
+    'Right To Work',
+    'DBS Certificate',
+    'Driving Licence',
+    'CV',
+    'Employment Contract',
+    'Job Description',
+    'Nurse Profile',
+    'Care Worker Profile',
+    'Training Certificate',
+    'Reference',
+    'Timesheet',
+    'Other'
   ];
 
   const handleAssignSubmit = (e: React.FormEvent) => {
@@ -297,8 +307,7 @@ export default function DocumentVault({
                 >
                   <option value="Employment Contract">Employment Contract (SHC SLA)</option>
                   <option value="Job Description">Associated Duties Job Description</option>
-                  <option value="Privacy Policy">GDPR & Medical Privacy Policy</option>
-                  <option value="Staff Handbook">Steward Health Staff Handbook</option>
+                  <option value="Other">Privacy Policy & Handbook (Other)</option>
                 </select>
               </div>
 

@@ -49,27 +49,18 @@ export interface Staff {
 
 export type DocumentCategory = 
   | 'Passport'
-  | 'DBS'
   | 'Right To Work'
+  | 'DBS Certificate'
   | 'Driving Licence'
-  | 'Utility Bill'
   | 'CV'
   | 'Employment Contract'
-  | 'Training Certificates'
-  | 'References'
   | 'Job Description'
-  | 'Privacy Policy'
-  | 'Staff Handbook'
-  | 'Appendix D'
-  | 'Pay 1 B'
-  | 'New Starter Information'
-  | 'Statement of Purpose'
-  | 'Weekly Timesheet'
-  | 'Supervision Record'
-  | 'Personnel File Checklist'
-  | 'Interview Assessment'
-  | 'Application Form'
-  | 'Pre-employment Checklist';
+  | 'Nurse Profile'
+  | 'Care Worker Profile'
+  | 'Training Certificate'
+  | 'Reference'
+  | 'Timesheet'
+  | 'Other';
 
 export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed' | 'Sent' | 'Opened' | 'Completed' | 'Declined';
 
@@ -134,3 +125,21 @@ export interface ActivityLog {
   user: string;
   type: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status';
 }
+
+export const mapCredentialToCategory = (cred: string): DocumentCategory => {
+  const norm = cred.trim().toLowerCase();
+  if (norm.includes('dbs')) return 'DBS Certificate';
+  if (norm.includes('right to work')) return 'Right To Work';
+  if (norm.includes('reference 1') || norm.includes('reference 2') || norm.includes('reference')) return 'Reference';
+  if (norm.includes('nmc pin') || norm.includes('nmc') || norm.includes('nurse')) return 'Nurse Profile';
+  if (norm.includes('care assistant') || norm.includes('care worker') || norm.includes('caregiver') || norm.includes('carer')) return 'Care Worker Profile';
+  if (norm.includes('cv') || norm.includes('resume')) return 'CV';
+  if (norm.includes('passport')) return 'Passport';
+  if (norm.includes('driving')) return 'Driving Licence';
+  if (norm.includes('contract')) return 'Employment Contract';
+  if (norm.includes('training') || norm.includes('certificate')) return 'Training Certificate';
+  if (norm.includes('job description') || norm.includes('associated duties')) return 'Job Description';
+  if (norm.includes('timesheet')) return 'Timesheet';
+  
+  return 'Other';
+};

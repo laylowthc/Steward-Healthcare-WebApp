@@ -262,7 +262,7 @@ export default function WorkspaceSync({
       // Register in system Document Vault
       onUploadDocument({
         name: rawFile.name,
-        category: 'Training Certificates',
+        category: 'Training Certificate',
         status: 'Approved',
         staffName: 'Google Upload (Drive Linked)',
         expiryDate: new Date(Date.now() + 31536000000).toISOString().split('T')[0], // 1 year

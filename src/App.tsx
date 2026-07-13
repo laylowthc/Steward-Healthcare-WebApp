@@ -41,7 +41,8 @@ import {
   DocumentCategory,
   RoleTemplate,
   FamilyFeedback,
-  DocumentStatus
+  DocumentStatus,
+  mapCredentialToCategory
 } from './types';
 
 import { 
@@ -54,10 +55,7 @@ import {
   initialFamilyFeedbacks
 } from './mockData';
 
-import { auth, db } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, doc, setDoc, updateDoc, getDoc, deleteDoc, query, where, getDocs } from 'firebase/firestore';
-import { supabase, syncUserWithSupabase } from './lib/supabase';
+import { supabase } from './lib/supabase';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -85,8 +83,10 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
   const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
+  const [supabaseUser, setSupabaseUser] = useState<any | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
+  const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
     const local = localStorage.getItem('shc_family_feedbacks_v2');
@@ -113,51 +113,18 @@ export default function App() {
   }, []);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
+  const [applicants, setApplicants] = useState<Applicant[]>(() => {
+    const local = localStorage.getItem('shc_applicants_v2');
+    if (local) {
+      const parsed = JSON.parse(local);
+      return Array.from(new Map(parsed.map((item: Applicant) => [item.id, item])).values()) as Applicant[];
+    }
+    return initialApplicants;
+  });
 
   useEffect(() => {
-    // Listen to Firebase applicants collection
-    const unsubscribe = onSnapshot(collection(db, 'applicants'), (snapshot) => {
-      const fetchedApplicants: Applicant[] = [];
-      snapshot.forEach(docSnap => {
-        fetchedApplicants.push(docSnap.data() as Applicant);
-      });
-      if (fetchedApplicants.length > 0) {
-        const uniqueApplicants = Array.from(new Map(fetchedApplicants.map(a => [a.id, a])).values());
-        setApplicants(uniqueApplicants);
-      } else {
-        // Seed initial data if empty
-        initialApplicants.forEach(async (app) => {
-          await setDoc(doc(db, 'applicants', app.id), app);
-        });
-      }
-    }, (error) => {
-      console.error('Firestore Error sync applicants: ', error);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Listen to Firebase staff collection for real-time cloud persistence
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'staff'), (snapshot) => {
-      const fetchedStaff: Staff[] = [];
-      snapshot.forEach(docSnap => {
-        fetchedStaff.push(docSnap.data() as Staff);
-      });
-      if (fetchedStaff.length > 0) {
-        const uniqueStaff = Array.from(new Map(fetchedStaff.map(s => [s.id, s])).values());
-        setStaff(uniqueStaff);
-      } else {
-        // Seed initial staff data if empty
-        initialStaff.forEach(async (member) => {
-          await setDoc(doc(db, 'staff', member.id), member);
-        });
-      }
-    }, (error) => {
-      console.error('Firestore Error sync staff: ', error);
-    });
-    return () => unsubscribe();
-  }, []);
+    localStorage.setItem('shc_applicants_v2', JSON.stringify(applicants));
+  }, [applicants]);
 
   const [staff, setStaff] = useState<Staff[]>(() => {
     const local = localStorage.getItem('shc_staff_v2');
@@ -169,11 +136,6 @@ export default function App() {
   });
 
   const [documents, setDocuments] = useState<Document[]>(() => {
-    const local = localStorage.getItem('shc_documents_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Document) => [item.id, item])).values()) as Document[];
-    }
     return initialDocuments;
   });
 
@@ -232,10 +194,6 @@ export default function App() {
   }, [staff]);
 
   useEffect(() => {
-    localStorage.setItem('shc_documents_v2', JSON.stringify(documents));
-  }, [documents]);
-
-  useEffect(() => {
     localStorage.setItem('shc_timesheets_v2', JSON.stringify(timesheets));
   }, [timesheets]);
 
@@ -260,36 +218,140 @@ export default function App() {
     localStorage.setItem('shc_visible_cards', JSON.stringify(visibleCards));
   }, [visibleCards]);
 
+  // Synchronous session listener flow - sets state only, avoiding async DB calls here
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // Sync with Supabase
-        const supabaseUser = await syncUserWithSupabase(
-          user.uid,
-          user.email || '',
-          user.displayName || user.email?.split('@')[0] || 'Unknown User'
-        );
-        if (supabaseUser) {
-          setSupabaseUserId(supabaseUser.id);
+    let active = true;
+    const restoreSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (active) {
+          setSupabaseUser(session?.user ?? null);
+          setIsAuthRestoring(false);
+        }
+      } catch (err) {
+        console.error("Error checking initial Supabase session:", err);
+        if (active) {
+          setIsAuthRestoring(false);
+        }
+      }
+    };
+    restoreSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) {
+        setSupabaseUser(session?.user ?? null);
+        setIsAuthRestoring(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Separate session profile synchronization flow (handles async Supabase database queries)
+  useEffect(() => {
+    let active = true;
+
+    const syncProfile = async () => {
+      if (!supabaseUser) {
+        setIsLoggedIn(false);
+        setUserAccountRole(null);
+        setSupabaseUserId(null);
+        return;
+      }
+
+      try {
+        const userEmail = supabaseUser.email?.toLowerCase();
+        if (!userEmail) {
+          throw new Error("No email associated with authenticated Supabase user.");
         }
 
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          setCurrentRole(userData.role);
-          setCurrentUserId(userData.uid);
-          setUserAccountRole(userData.role);
-          setIsLoggedIn(true);
+        // Try querying public.users by UUID id first
+        const { data: existingUsers, error: selectError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', supabaseUser.id);
 
-          if (userData.role === 'staff') {
+        if (selectError) {
+          throw selectError;
+        }
+
+        let sUser = existingUsers && existingUsers.length > 0 ? existingUsers[0] : null;
+
+        // Fallback: If no user found by ID, query by email
+        if (!sUser) {
+          const { data: usersByEmail, error: emailError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', userEmail);
+
+          if (emailError) {
+            throw emailError;
+          }
+
+          if (usersByEmail && usersByEmail.length > 0) {
+            sUser = usersByEmail[0];
+            // Sync user details to map to the new ID mapping standard
+            await supabase
+              .from('users')
+              .update({ firebase_uid: supabaseUser.id })
+              .eq('id', sUser.id);
+          }
+        }
+
+        if (!active) return;
+
+        if (sUser) {
+          console.log("Successfully matched Supabase user profile during session restoration:", sUser);
+          
+          setSupabaseUserId(sUser.id);
+          
+          // Map the role from DB to React state
+          const dbRole = (sUser.role || 'Applicant').toLowerCase() as 'admin' | 'staff' | 'family' | 'applicant';
+          setCurrentRole(dbRole);
+          setCurrentUserId(supabaseUser.id); // Map to Supabase UUID
+          setUserAccountRole(dbRole);
+          setIsLoggedIn(true);
+          setProfileSyncError(null);
+
+          // Fetch documents from Supabase public.documents for the user
+          try {
+            let query = supabase.from('documents').select('*');
+            if (dbRole !== 'admin') {
+              query = query.eq('user_id', sUser.id);
+            }
+            const { data: dbDocs, error: docsError } = await query;
+            if (!docsError && dbDocs && active) {
+              const mappedDbDocs: Document[] = dbDocs.map(d => ({
+                id: d.id.toString(),
+                name: d.document_name,
+                category: d.category as DocumentCategory,
+                staffId: d.user_id,
+                staffName: sUser.full_name || 'System User',
+                fileUrl: d.file_path,
+                uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
+              }));
+              setDocuments(mappedDbDocs);
+            } else if (docsError) {
+              console.error("Error fetching documents from Supabase:", docsError);
+            }
+          } catch (docFetchErr) {
+            console.error("Error during document query:", docFetchErr);
+          }
+
+          // If they are a staff member, sync with the local staff state if missing
+          if (dbRole === 'staff') {
             setStaff(prevStaff => {
-              const exists = prevStaff.some(s => s.email.toLowerCase() === userData.email.toLowerCase() || s.id === userData.uid);
+              const exists = prevStaff.some(s => s.email.toLowerCase() === userEmail || s.id === supabaseUser.id);
               if (!exists) {
                 const newStaffMember: Staff = {
-                  id: userData.uid,
-                  name: userData.name || 'Staff Member',
-                  email: userData.email,
-                  phone: userData.phone || 'N/A',
+                  id: supabaseUser.id,
+                  name: sUser.full_name || 'Staff Member',
+                  email: sUser.email,
+                  phone: 'N/A',
                   address: 'Registered Caregiver Address',
                   role: 'Care Assistant',
                   status: 'Active',
@@ -303,15 +365,27 @@ export default function App() {
               return prevStaff;
             });
           }
+        } else {
+          // No matching Supabase user profile exists!
+          const diagnosticMsg = `No matching Supabase application profile exists in the 'public.users' table for email '${supabaseUser.email}' (UID: ${supabaseUser.id}).`;
+          console.error(diagnosticMsg);
+          setProfileSyncError(diagnosticMsg);
+          setIsLoggedIn(false);
         }
-      } else {
+      } catch (err: any) {
+        if (!active) return;
+        console.error("Critical error restoring user session with Supabase:", err);
+        setProfileSyncError(`Failed to restore session. Error: ${err.message || err}`);
         setIsLoggedIn(false);
-        setUserAccountRole(null);
       }
-      setIsAuthRestoring(false);
-    });
-    return () => unsub();
-  }, []);
+    };
+
+    syncProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [supabaseUser]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -359,38 +433,6 @@ export default function App() {
     setUserAccountRole(role);
     if (userId) {
       setCurrentUserId(userId);
-
-      // Fetch details from users collection if exists to auto-seed staff if missing
-      try {
-        const userDoc = await getDoc(doc(db, 'users', userId));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          if (role === 'staff') {
-            setStaff(prevStaff => {
-              const exists = prevStaff.some(s => s.email.toLowerCase() === userData.email.toLowerCase() || s.id === userId);
-              if (!exists) {
-                const newStaff: Staff = {
-                  id: userId,
-                  name: userData.name || 'Staff Member',
-                  email: userData.email,
-                  phone: userData.phone || 'N/A',
-                  address: 'Registered Caregiver Address',
-                  role: 'Care Assistant',
-                  status: 'Active',
-                  dbsStatus: 'Compliant',
-                  rightToWork: 'Compliant',
-                  trainingStatus: 'Compliant',
-                  joinedDate: new Date().toISOString().split('T')[0]
-                };
-                return [...prevStaff, newStaff];
-              }
-              return prevStaff;
-            });
-          }
-        }
-      } catch (err) {
-        console.error("Error in login success staff check:", err);
-      }
     } else {
       // Demo accounts or fallback login without userId
       if (role === 'admin') {
@@ -412,10 +454,11 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    import('firebase/auth').then(({ signOut }) => signOut(auth));
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
+    setProfileSyncError(null);
   };
 
   // State mutation callbacks passed to children components
@@ -425,11 +468,6 @@ export default function App() {
 
     if (newStatus === 'Accepted') {
       // 1. Automatically remove them from the Recruitment Pipeline
-      try {
-        await deleteDoc(doc(db, 'applicants', id));
-      } catch (e) {
-        console.error("Error deleting applicant doc", e);
-      }
       setApplicants(prev => prev.filter(a => a.id !== id));
 
       // 2. Automatically create an Active Staff record
@@ -496,7 +534,6 @@ export default function App() {
         setActivityLogs(prevLogs => [...logs, ...prevLogs]);
       }
     } else {
-      updateDoc(doc(db, 'applicants', id), { status: newStatus }).catch(e => console.error("Error updating doc", e));
       setApplicants(prev => prev.map(a => {
         if (a.id === id) {
           return { ...a, status: newStatus };
@@ -513,8 +550,6 @@ export default function App() {
       id: newId,
       dateCreated: new Date().toISOString().split('T')[0]
     };
-    // Sync to Firestore
-    setDoc(doc(db, 'applicants', newId), newApp).catch(e => console.error("Error setting doc", e));
 
     setApplicants(prev => [newApp, ...prev]);
 
@@ -531,7 +566,6 @@ export default function App() {
   };
 
   const handleUpdateApplicantCompliance = (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
-    updateDoc(doc(db, 'applicants', applicantId), { complianceChecked }).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === applicantId) {
         return {
@@ -544,8 +578,6 @@ export default function App() {
   };
 
   const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
-    const cleanFields = Object.fromEntries(Object.entries(fields).filter(([_, v]) => v !== undefined));
-    updateDoc(doc(db, 'applicants', id), cleanFields).catch(e => console.error("Error updating doc", e));
     setApplicants(prev => prev.map(a => {
       if (a.id === id) {
         return { ...a, ...fields };
@@ -582,33 +614,11 @@ export default function App() {
   };
 
   const handleSystemReset = async () => {
-    if (!window.confirm("CRITICAL WARNING:\n\nThis will permanently delete all records from Firestore (users, applicants, staff profiles, feedback) and clear your browser's local storage/cache. The system will start from a 100% clean state and sign you out so you can test registration from scratch.\n\nAre you sure you want to proceed?")) {
+    if (!window.confirm("CRITICAL WARNING:\n\nThis will permanently delete all local cache, user sessions, activity logs, documents, and sign you out to start from a 100% clean state.\n\nAre you sure you want to proceed?")) {
       return;
     }
     try {
-      // 1. Purge 'users' Firestore collection
-      const usersSnap = await getDocs(collection(db, 'users'));
-      for (const d of usersSnap.docs) {
-        await deleteDoc(doc(db, 'users', d.id));
-      }
-
-      // 2. Purge 'applicants' Firestore collection
-      const applicantsSnap = await getDocs(collection(db, 'applicants'));
-      for (const d of applicantsSnap.docs) {
-        await deleteDoc(doc(db, 'applicants', d.id));
-      }
-
-      // 3. Purge 'staff' Firestore collection if exists
-      try {
-        const staffSnap = await getDocs(collection(db, 'staff'));
-        for (const d of staffSnap.docs) {
-          await deleteDoc(doc(db, 'staff', d.id));
-        }
-      } catch (e) {
-        console.error("No staff collection to purge:", e);
-      }
-
-      // 4. Reset React states
+      // 1. Reset React states
       setApplicants([]);
       setStaff([]);
       setDocuments([]);
@@ -616,21 +626,21 @@ export default function App() {
       setActivityLogs([]);
       setFamilyFeedbacks([]);
 
-      // 5. Clear client caches
+      // 2. Clear client caches
       localStorage.clear();
       sessionStorage.clear();
 
-      // 6. Sign out
-      await auth.signOut();
+      // 3. Sign out
+      await supabase.auth.signOut();
       setIsLoggedIn(false);
       setUserAccountRole(null);
       setCurrentRole('applicant');
 
-      alert("SUCCESS!\n\nAll remote Firestore documents, local caches, and active user sessions have been purged.\n\nPlease complete registration of your new Administrator or Staff account on the next screen.");
+      alert("SUCCESS!\n\nAll local caches and active user sessions have been purged.\n\nPlease complete registration of your new account on the next screen.");
       window.location.reload();
     } catch (error: any) {
       console.error("Critical error during full system reset:", error);
-      alert("System reset failed. Security rules may prevent unauthenticated deletions, or database is busy. Details: " + (error.message || error));
+      alert("System reset failed. Details: " + (error.message || error));
     }
   };
 
@@ -639,30 +649,26 @@ export default function App() {
       const targetApplicant = applicants.find(a => a.id === id);
       if (!targetApplicant) return;
 
-      // 1. Delete applicant from Firestore 'applicants' collection
-      await deleteDoc(doc(db, 'applicants', id));
-
-      // 2. Delete from local applicants state
+      // 1. Delete from local applicants state
       setApplicants(prev => prev.filter(a => a.id !== id));
 
-      // 3. Delete any documents where staffId is the applicant id
+      // 2. Delete any documents where staffId is the applicant id
       setDocuments(prev => prev.filter(d => d.staffId !== id));
 
-      // 4. Delete any timesheets associated with this applicant's name
+      // 3. Delete any timesheets associated with this applicant's name
       setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
 
-      // 5. Look for any associated user record in Firestore 'users' collection and delete it
-      const q = query(collection(db, 'users'), where('email', '==', targetApplicant.email.toLowerCase()));
+      // 4. Look for any associated user record in Supabase 'users' table and delete it
       try {
-        const snap = await getDocs(q);
-        snap.forEach(async (uDoc) => {
-          await deleteDoc(doc(db, 'users', uDoc.id));
-        });
+        await supabase
+          .from('users')
+          .delete()
+          .eq('email', targetApplicant.email.toLowerCase());
       } catch (err) {
-        console.error("Error deleting matching user account:", err);
+        console.error("Error deleting matching Supabase user account:", err);
       }
 
-      // 6. Push an activity log
+      // 5. Push an activity log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
@@ -679,11 +685,6 @@ export default function App() {
 
   const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
-    try {
-      await setDoc(doc(db, 'staff', updatedStaff.id), updatedStaff);
-    } catch (err) {
-      console.error("Error updating staff in Firestore: ", err);
-    }
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
@@ -697,13 +698,10 @@ export default function App() {
 
   const handleAddStaff = async (newStaff: Staff) => {
     try {
-      // 1. Save to local React State (triggers localStorage sync automatically)
+      // Save to local React State (triggers localStorage sync automatically)
       setStaff(prev => [...prev, newStaff]);
 
-      // 2. Save to Firestore 'staff' collection for persistent cloud backup
-      await setDoc(doc(db, 'staff', newStaff.id), newStaff);
-
-      // 3. Push an activity log
+      // Push an activity log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
@@ -730,14 +728,21 @@ export default function App() {
         setSelectedStaffId(null);
       }
 
-      // 3. Delete from Firestore 'staff' collection
-      await deleteDoc(doc(db, 'staff', staffId));
-
-      // 4. Delete documents assigned to this staff member
+      // 3. Delete documents assigned to this staff member
       setDocuments(prev => prev.filter(d => d.staffId !== staffId));
 
-      // 5. Delete timesheets assigned to this staff member
+      // 4. Delete timesheets assigned to this staff member
       setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
+
+      // 5. Delete associated Supabase profile
+      try {
+        await supabase
+          .from('users')
+          .delete()
+          .eq('email', target.email.toLowerCase());
+      } catch (err) {
+        console.error("Error deleting matching Supabase user account for staff:", err);
+      }
 
       // 6. Push Activity Log
       const log: ActivityLog = {
@@ -770,9 +775,10 @@ export default function App() {
     let finalFileUrl = doc.fileUrl;
     
     if (file) {
+      const filePath = `${Date.now()}_${file.name}`;
+      let uploadedToStorage = false;
+
       try {
-        const filePath = `${Date.now()}_${file.name}`;
-        
         // 1. Upload the file into the private Supabase Storage bucket named: documents
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('documents')
@@ -782,8 +788,10 @@ export default function App() {
           });
 
         if (uploadError) {
-          throw uploadError;
+          throw new Error(`Storage upload failed: ${uploadError.message}`);
         }
+
+        uploadedToStorage = true;
 
         // 2. Generate/fetch the public URL for local state preview in Vault
         const { data: urlData } = supabase.storage
@@ -804,36 +812,105 @@ export default function App() {
           const email = targetApplicant?.email || targetStaff?.email || 'unknown@example.com';
           const name = targetApplicant?.name || targetStaff?.name || 'Unknown User';
           
-          const supabaseUser = await syncUserWithSupabase(targetFirebaseUid, email, name);
-          if (supabaseUser) {
-            targetSupabaseId = supabaseUser.id;
+          try {
+            // Check if user exists by firebase_uid
+            let { data: uData, error: uError } = await supabase
+              .from('users')
+              .select('id')
+              .eq('firebase_uid', targetFirebaseUid)
+              .maybeSingle();
+
+            if (!uData) {
+              // Also try checking by email
+              const { data: eData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('email', email.toLowerCase())
+                .maybeSingle();
+              uData = eData;
+            }
+
+            if (uData) {
+              targetSupabaseId = uData.id;
+            } else {
+              // Create new user row
+              const { data: newUData, error: insError } = await supabase
+                .from('users')
+                .insert({
+                  firebase_uid: targetFirebaseUid,
+                  full_name: name,
+                  email: email.toLowerCase(),
+                  role: 'Applicant',
+                  status: 'Pending'
+                })
+                .select('id')
+                .single();
+              if (newUData) {
+                targetSupabaseId = newUData.id;
+              } else {
+                console.error("Failed to create new Supabase user on-the-fly for upload sync:", insError);
+              }
+            }
+          } catch (userErr) {
+            console.error("Error looking up/syncing user in Supabase for upload:", userErr);
           }
         }
+
+        // Map category to a database check-constraint-compliant value
+        const mappedCategory = mapCredentialToCategory(doc.category);
+
+        // Prepare the payload for exact verification logging
+        const insertPayload = {
+          user_id: targetSupabaseId,
+          document_name: file.name,
+          category: mappedCategory,
+          file_path: filePath,
+          file_size: file.size,
+          file_type: file.type,
+          upload_date: new Date().toISOString().split('T')[0],
+          verification_status: 'Pending'
+        };
+
+        // Verbose verification logging immediately before insertion
+        console.log("=== SUPABASE PRE-INSERT VERIFICATION ===");
+        console.log("Table: public.documents");
+        console.log("Payload:", JSON.stringify(insertPayload, null, 2));
+        console.log("Category Value Checked:", insertPayload.category);
+        console.log("========================================");
 
         // 3. Create a row in the existing documents PostgreSQL table
         const { data: dbData, error: dbError } = await supabase
           .from('documents')
-          .insert({
-            user_id: targetSupabaseId,
-            document_name: file.name,
-            category: doc.category,
-            file_path: filePath,
-            file_size: file.size,
-            file_type: file.type,
-            upload_date: new Date().toISOString().split('T')[0],
-            verification_status: 'Pending'
-          });
+          .insert(insertPayload);
 
         if (dbError) {
-          console.error("Failed to insert document row into PostgreSQL table:", dbError);
+          throw new Error(`Database registration failed: ${dbError.message}`);
         }
       } catch (e: any) {
         console.error("Failed to upload/register with Supabase:", e);
+        
+        // Rollback uploaded storage file if metadata creation failed
+        if (uploadedToStorage) {
+          try {
+            await supabase.storage
+              .from('documents')
+              .remove([filePath]);
+            console.log("Successfully rolled back storage file due to subsequent metadata insertion error.");
+          } catch (rollbackErr) {
+            console.error("Failed to rollback storage file:", rollbackErr);
+          }
+        }
+
+        // Display the real error to the user
+        alert(e.message || e);
+        return; // Halt execution and do not add to local application state/UI
       }
     }
 
+    const mappedCategory = mapCredentialToCategory(doc.category);
     const newDocItem: Document = {
       ...doc,
+      category: mappedCategory as DocumentCategory,
       fileUrl: finalFileUrl,
       id: `doc_${Date.now()}`,
       uploadDate: new Date().toISOString().split('T')[0]
@@ -842,7 +919,7 @@ export default function App() {
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
-      action: `FILE CABINET: ${doc.category} credential file uploaded to vault: '${doc.name}'`,
+      action: `FILE CABINET: ${mappedCategory} credential file uploaded to vault: '${doc.name}'`,
       timestamp: 'Just now',
       user: doc.staffName || 'Caregiver Oswald',
       type: 'document'
@@ -970,6 +1047,47 @@ export default function App() {
   // Auth Guard
   if (isAuthRestoring) {
     return <div className="flex h-screen items-center justify-center font-sans"><span className="text-slate-500 font-bold">Restoring user session...</span></div>;
+  }
+
+  if (profileSyncError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-sync-error-view">
+        {/* Visual background accents */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-rose-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-amber-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
+        
+        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-rose-100 text-rose-600 mb-4">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Profile Synchronization Error</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              Your authenticated account has no matching Supabase application profile.
+            </p>
+
+            <div className="bg-rose-50/50 rounded-xl p-4 mb-6 border border-rose-100/50 text-left">
+              <p className="text-[11px] font-black uppercase text-rose-800 tracking-wider mb-1 font-sans">Diagnostic Details:</p>
+              <p className="text-[11px] font-mono text-slate-700 leading-relaxed break-all">
+                {profileSyncError}
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 mb-6 font-medium leading-relaxed">
+              Please contact your Steward Health Care administrator to register your email in the system database.
+            </p>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#9C1F60]"
+            >
+              Logout and Return
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
   
   if (!isLoggedIn) {

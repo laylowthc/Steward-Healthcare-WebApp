@@ -12,12 +12,12 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-export async function syncUserWithSupabase(firebaseUid: string, email: string, displayName: string) {
+export async function syncUserWithSupabase(userId: string, email: string, displayName: string) {
   try {
     const { data: existingUsers, error: selectError } = await supabase
       .from('users')
       .select('*')
-      .eq('firebase_uid', firebaseUid);
+      .eq('id', userId);
 
     if (selectError) {
       console.error('Error fetching Supabase user:', JSON.stringify(selectError, null, 2));
@@ -31,7 +31,8 @@ export async function syncUserWithSupabase(firebaseUid: string, email: string, d
     const { data: newUser, error: insertError } = await supabase
       .from('users')
       .insert({
-        firebase_uid: firebaseUid,
+        id: userId,
+        firebase_uid: userId,
         email: email,
         full_name: displayName,
         role: 'Applicant',

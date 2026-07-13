@@ -1,6 +1,4 @@
 // Client-side lightweight Gmail API service using REST fetch and OAuth2 Bearer tokens.
-import { addDoc, collection } from 'firebase/firestore';
-import { db } from './firebase';
 
 export interface GmailContact {
   id: string;

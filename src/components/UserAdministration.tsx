@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, getDocs, doc, updateDoc, deleteDoc, setDoc, where } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { Shield, User, UserPlus, UserMinus, ShieldAlert, Key, CheckCircle, Search, Mail, RefreshCw, Cloud, CloudOff, Send, Check } from 'lucide-react';
-import { sendPasswordResetEmail } from 'firebase/auth';
 import { 
   syncGmailContacts, 
   sendGmailOutreach, 
@@ -160,14 +158,20 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`,
         complianceChecked: {
           'Passport': 'Missing' as const,
-          'DBS': 'Missing' as const,
-          'Right To Work': 'Missing' as const,
-          'Training Certificates': 'Missing' as const
+          'DBS Certificate': 'Missing' as const,
+          'Right to Work': 'Missing' as const,
+          'Training Certificate': 'Missing' as const
         }
       };
 
-      // Set in Firestore
-      await setDoc(doc(db, 'applicants', newAppId), newApp);
+      // Set in local storage 'shc_applicants_v2' for local state integration
+      try {
+        const storedApps = localStorage.getItem('shc_applicants_v2');
+        const apps = storedApps ? JSON.parse(storedApps) : [];
+        localStorage.setItem('shc_applicants_v2', JSON.stringify([newApp, ...apps]));
+      } catch (err) {
+        console.error("Failed to save applicant in localStorage:", err);
+      }
 
       // Update contact status in UI and local storage
       updateLocalContactStatus(contact.id, 'Imported');
@@ -242,12 +246,23 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const q = query(collection(db, 'users'));
-      const snapshot = await getDocs(q);
-      const fetchedUsers: SystemUser[] = [];
-      snapshot.forEach(doc => {
-        fetchedUsers.push({ id: doc.id, ...doc.data() } as SystemUser);
-      });
+      const { data, error } = await supabase
+        .from('users')
+        .select('*');
+
+      if (error) {
+        throw error;
+      }
+
+      const fetchedUsers: SystemUser[] = (data || []).map(row => ({
+        id: row.id,
+        uid: row.firebase_uid || row.id,
+        name: row.full_name || 'No Name',
+        email: row.email,
+        role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
+        status: row.status || 'Active',
+        permissions: row.permissions || []
+      }));
       setUsers(fetchedUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -265,54 +280,93 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     e.preventDefault();
     if (!inviteEmail || !inviteName) return;
     try {
-      const newUserId = `usr_${Date.now()}`;
-      const newUser = {
-        name: inviteName,
-        email: inviteEmail.toLowerCase(),
-        role: inviteRole,
-        uid: newUserId,
-        status: 'Active' as const,
-        permissions: []
-      };
-      await setDoc(doc(db, 'users', newUserId), newUser);
-      setUsers(prev => [newUser as any, ...prev]);
+      const dbRole = inviteRole === 'admin' ? 'Admin' : (inviteRole === 'staff' ? 'Staff' : 'Applicant');
+      const { data, error } = await supabase
+        .from('users')
+        .insert({
+          full_name: inviteName,
+          email: inviteEmail.toLowerCase(),
+          role: dbRole,
+          status: 'Active',
+          permissions: []
+        })
+        .select();
+
+      if (error) {
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        const created = data[0];
+        const newUser: SystemUser = {
+          id: created.id,
+          uid: created.firebase_uid || created.id,
+          name: created.full_name || inviteName,
+          email: created.email,
+          role: (created.role || inviteRole).toLowerCase() as SystemUser['role'],
+          status: created.status || 'Active',
+          permissions: created.permissions || []
+        };
+        setUsers(prev => [newUser, ...prev]);
+      }
+
       showMessage(`Invitation sent to ${inviteEmail}.`, 'success');
       setIsInviting(false);
       setInviteEmail('');
       setInviteName('');
       setInviteRole('applicant');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error inviting user:", error);
-      showMessage("Failed to send invitation.", 'error');
+      showMessage(`Failed to send invitation: ${error.message || error}`, 'error');
     }
   };
 
   const handleUpdateRole = async (userId: string, newRole: SystemUser['role']) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      const dbRole = newRole === 'admin' ? 'Admin' : (newRole === 'staff' ? 'Staff' : 'Applicant');
+      const { error } = await supabase
+        .from('users')
+        .update({ role: dbRole })
+        .eq('id', userId);
+
+      if (error) {
+        throw error;
+      }
+
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
       showMessage(`User role successfully updated to ${newRole}.`, 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating role:", error);
-      showMessage("Failed to update user role.", 'error');
+      showMessage(`Failed to update user role: ${error.message || error}`, 'error');
     }
   };
 
   const handleToggleStatus = async (user: SystemUser) => {
     const newStatus = user.status === 'Deactivated' ? 'Active' : 'Deactivated';
     try {
-      await updateDoc(doc(db, 'users', user.id), { status: newStatus });
+      const { error } = await supabase
+        .from('users')
+        .update({ status: newStatus })
+        .eq('id', user.id);
+
+      if (error) {
+        throw error;
+      }
+
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
       showMessage(`User account ${newStatus.toLowerCase()}.`, 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error toggling status:", error);
-      showMessage("Failed to update account status.", 'error');
+      showMessage(`Failed to update account status: ${error.message || error}`, 'error');
     }
   };
 
   const handleResetPassword = async (email: string) => {
     try {
-      await sendPasswordResetEmail(auth, email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/#reset-password`,
+      });
+      if (error) throw error;
       showMessage(`Password reset email sent to ${email}.`, 'success');
     } catch (error) {
       console.error("Error sending reset email:", error);
@@ -327,52 +381,54 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       : [...currentPerms, permission];
       
     try {
-      await updateDoc(doc(db, 'users', user.id), { permissions: newPerms });
+      const { error } = await supabase
+        .from('users')
+        .update({ permissions: newPerms })
+        .eq('id', user.id);
+
+      if (error) {
+        throw error;
+      }
+
       const updatedUser = { ...user, permissions: newPerms };
       setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
       setIsManagingPermissions(updatedUser);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating permissions:", error);
-      showMessage("Failed to update permissions.", 'error');
+      showMessage(`Failed to update permissions: ${error.message || error}`, 'error');
     }
   };
 
   const executeDeleteUser = async (user: SystemUser) => {
     try {
-      // 1. Delete user record from Firestore 'users'
-      await deleteDoc(doc(db, 'users', user.id));
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', user.id);
+
+      if (error) {
+        throw error;
+      }
       
-      // 2. Also delete any corresponding documents in 'applicants' collection with same email or id
+      // Delete any corresponding applicants in local storage
       try {
-        const applicantsRef = collection(db, 'applicants');
-        const qApp = query(applicantsRef, where('email', '==', user.email.toLowerCase()));
-        const snapApp = await getDocs(qApp);
-        snapApp.forEach(async (d) => {
-          await deleteDoc(doc(db, 'applicants', d.id));
-        });
+        const storedApps = localStorage.getItem('shc_applicants_v2');
+        if (storedApps) {
+          const apps = JSON.parse(storedApps);
+          const filtered = apps.filter((a: any) => a.email.toLowerCase() !== user.email.toLowerCase());
+          localStorage.setItem('shc_applicants_v2', JSON.stringify(filtered));
+        }
       } catch (e) {
         console.error("Error purging matching applicant records:", e);
       }
 
-      // 3. Also delete any corresponding documents in 'staff' collection with same email
-      try {
-        const staffRef = collection(db, 'staff');
-        const qStaff = query(staffRef, where('email', '==', user.email.toLowerCase()));
-        const snapStaff = await getDocs(qStaff);
-        snapStaff.forEach(async (d) => {
-          await deleteDoc(doc(db, 'staff', d.id));
-        });
-      } catch (e) {
-        console.error("Error purging matching staff records:", e);
-      }
-
-      // 4. Update the UI state
+      // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setDeleteConfirmUserId(null);
       showMessage("User and associated profiles successfully purged.", 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting user:", error);
-      showMessage("Failed to delete user.", 'error');
+      showMessage(`Failed to delete user: ${error.message || error}`, 'error');
     }
   };
 
