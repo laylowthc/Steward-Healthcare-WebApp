@@ -695,59 +695,47 @@ export default function App() {
       }
       
       const dbUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
+      const targetUserId = dbUser ? dbUser.id : (id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) ? id : null);
 
-      // 1. Delete associated documents from public.documents table first
-      if (dbUser) {
-        console.log(`[handleDeleteApplicant] Found database user: "${dbUser.id}". Purging associated database documents first.`);
-        const { error: docDeleteError } = await supabase
-          .from('documents')
-          .delete()
-          .eq('user_id', dbUser.id);
+      if (targetUserId) {
+        console.log(`[handleDeleteApplicant] Found persistent database user: "${targetUserId}". Calling secure backend deletion API.`);
         
-        if (docDeleteError) {
-          console.error("[handleDeleteApplicant] Error purging user documents from database:", JSON.stringify(docDeleteError, null, 2));
-          alert(`Failed to delete associated documents from the persistent database. Deletion aborted.\n\nDetails: ${docDeleteError.message || JSON.stringify(docDeleteError)}`);
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        if (!token) {
+          alert("CRITICAL ERROR: Authorization session token not found. Please log in again to delete this persistent record.");
           return;
         }
-      }
 
-      // 2. Delete user profile from public.users table
-      if (dbUser) {
-        console.log(`[handleDeleteApplicant] Purging database user profile from 'users' table: "${dbUser.id}"`);
-        const { data, error: profileDeleteError } = await supabase
-          .from('users')
-          .delete()
-          .eq('id', dbUser.id);
+        const response = await fetch('/api/admin/delete-user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ targetUserId })
+        });
 
-        console.log("[handleDeleteApplicant] Supabase user profile delete response:", { data, error: profileDeleteError });
+        const result = await response.json();
 
-        if (profileDeleteError) {
-          console.error("[handleDeleteApplicant] RLS policy or database error blocked profile deletion:", JSON.stringify(profileDeleteError, null, 2));
-          alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease verify RLS policies.`);
-          return; // Abort local state changes
+        if (!response.ok) {
+          console.error("[handleDeleteApplicant] Backend user deletion failed:", result);
+          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
+          return; // STOP! Do not update React state
         }
+
+        console.log("[handleDeleteApplicant] Backend user deletion successful:", result);
       } else {
-        console.log(`[handleDeleteApplicant] No active database profile was found for ID/Email. Attempting email-based direct delete just in case.`);
-        const { data, error: directDeleteError } = await supabase
-          .from('users')
-          .delete()
-          .eq('email', targetApplicant.email.toLowerCase());
-
-        console.log("[handleDeleteApplicant] Supabase direct email delete response:", { data, error: directDeleteError });
-
-        if (directDeleteError) {
-          console.error("[handleDeleteApplicant] Direct direct-delete failed:", JSON.stringify(directDeleteError, null, 2));
-          alert(`CRITICAL ERROR: Direct database deletion failed.\n\nMessage: ${directDeleteError.message}`);
-          return; // Abort
-        }
+        console.log(`[handleDeleteApplicant] No active database profile was found for ID/Email. This is a local-only candidate record.`);
       }
 
-      // 3. Database deletion verified successful -> now safely update React local state
+      // Database deletion verified successful -> now safely update React local state
       setApplicants(prev => prev.filter(a => a.id !== id));
       setDocuments(prev => prev.filter(d => d.staffId !== id));
       setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
 
-      // 4. Activity Log
+      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
@@ -757,8 +745,8 @@ export default function App() {
       };
       setActivityLogs(prev => [log, ...prev]);
 
-      if (dbUser) {
-        alert(`SUCCESS:\nCandidate "${targetApplicant.name}" has been successfully deleted from the persistent database.\n\nNOTE: The underlying Supabase Auth user credentials cannot be deleted from the client side due to security restrictions. If they have an active login account, it must be removed via the Supabase Auth Dashboard.`);
+      if (targetUserId) {
+        alert(`SUCCESS:\nCandidate "${targetApplicant.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
       } else {
         alert(`SUCCESS:\nLocal candidate "${targetApplicant.name}" has been removed.`);
       }
@@ -819,54 +807,42 @@ export default function App() {
       }
       
       const dbUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
+      const targetUserId = dbUser ? dbUser.id : (staffId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) ? staffId : null);
 
-      // 1. Delete associated documents from public.documents table first
-      if (dbUser) {
-        console.log(`[handleDeleteStaff] Found database user: "${dbUser.id}". Purging associated database documents first.`);
-        const { error: docDeleteError } = await supabase
-          .from('documents')
-          .delete()
-          .eq('user_id', dbUser.id);
+      if (targetUserId) {
+        console.log(`[handleDeleteStaff] Found persistent database user: "${targetUserId}". Calling secure backend deletion API.`);
         
-        if (docDeleteError) {
-          console.error("[handleDeleteStaff] Error purging user documents from database:", JSON.stringify(docDeleteError, null, 2));
-          alert(`Failed to delete associated documents from the persistent database. Deletion aborted.\n\nDetails: ${docDeleteError.message || JSON.stringify(docDeleteError)}`);
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        if (!token) {
+          alert("CRITICAL ERROR: Authorization session token not found. Please log in again to delete this persistent record.");
           return;
         }
-      }
 
-      // 2. Delete user profile from public.users table
-      if (dbUser) {
-        console.log(`[handleDeleteStaff] Purging database user profile from 'users' table: "${dbUser.id}"`);
-        const { data, error: profileDeleteError } = await supabase
-          .from('users')
-          .delete()
-          .eq('id', dbUser.id);
+        const response = await fetch('/api/admin/delete-user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ targetUserId })
+        });
 
-        console.log("[handleDeleteStaff] Supabase user profile delete response:", { data, error: profileDeleteError });
+        const result = await response.json();
 
-        if (profileDeleteError) {
-          console.error("[handleDeleteStaff] RLS policy or database error blocked profile deletion:", JSON.stringify(profileDeleteError, null, 2));
-          alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease verify RLS policies.`);
-          return; // Abort local state changes
+        if (!response.ok) {
+          console.error("[handleDeleteStaff] Backend user deletion failed:", result);
+          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
+          return; // STOP! Do not update React state
         }
+
+        console.log("[handleDeleteStaff] Backend user deletion successful:", result);
       } else {
-        console.log(`[handleDeleteStaff] No active database profile was found for ID/Email. Attempting email-based direct delete just in case.`);
-        const { data, error: directDeleteError } = await supabase
-          .from('users')
-          .delete()
-          .eq('email', target.email.toLowerCase());
-
-        console.log("[handleDeleteStaff] Supabase direct email delete response:", { data, error: directDeleteError });
-
-        if (directDeleteError) {
-          console.error("[handleDeleteStaff] Direct direct-delete failed:", JSON.stringify(directDeleteError, null, 2));
-          alert(`CRITICAL ERROR: Direct database deletion failed.\n\nMessage: ${directDeleteError.message}`);
-          return; // Abort
-        }
+        console.log(`[handleDeleteStaff] No active database profile was found for ID/Email. This is a local-only staff record.`);
       }
 
-      // 3. Database deletion verified successful -> now safely update React local state
+      // Database deletion verified successful -> now safely update React local state
       setStaff(prev => prev.filter(s => s.id !== staffId));
       if (selectedStaffId === staffId) {
         setSelectedStaffId(null);
@@ -874,7 +850,7 @@ export default function App() {
       setDocuments(prev => prev.filter(d => d.staffId !== staffId));
       setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
 
-      // 4. Activity Log
+      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
@@ -884,8 +860,8 @@ export default function App() {
       };
       setActivityLogs(prev => [log, ...prev]);
 
-      if (dbUser) {
-        alert(`SUCCESS:\nStaff member "${target.name}" has been successfully deleted from the persistent database.\n\nNOTE: The underlying Supabase Auth user credentials cannot be deleted from the client side due to security restrictions. If they have an active login account, it must be removed via the Supabase Auth Dashboard.`);
+      if (targetUserId) {
+        alert(`SUCCESS:\nStaff member "${target.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
       } else {
         alert(`SUCCESS:\nLocal staff member "${target.name}" has been removed.`);
       }
@@ -1126,8 +1102,8 @@ export default function App() {
       
       const numericId = parseInt(docId, 10);
       const query = isNaN(numericId)
-        ? supabase.from('documents').delete().eq('id', docId)
-        : supabase.from('documents').delete().eq('id', numericId);
+        ? supabase.from('documents').delete().eq('id', docId).select()
+        : supabase.from('documents').delete().eq('id', numericId).select();
 
       const { data, error } = await query;
       console.log("[handleDeleteDocument] Supabase response:", { data, error });

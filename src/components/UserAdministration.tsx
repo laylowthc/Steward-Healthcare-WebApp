@@ -401,33 +401,34 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
   const executeDeleteUser = async (user: SystemUser) => {
     try {
-      console.log(`[UserAdministration] Deleting user with ID: "${user.id}"`);
+      console.log(`[UserAdministration] Beginning backend administrative delete for user ID: "${user.id}"`);
       
-      // 1. Delete associated documents from database first
-      const { error: docDeleteError } = await supabase
-        .from('documents')
-        .delete()
-        .eq('user_id', user.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
 
-      if (docDeleteError) {
-        console.error("[UserAdministration] Error deleting user documents:", JSON.stringify(docDeleteError, null, 2));
-        showMessage(`Failed to delete associated documents: ${docDeleteError.message}`, 'error');
+      if (!token) {
+        alert("CRITICAL ERROR: Access token not found. Please log out and sign in again to re-authenticate.");
         return;
       }
 
-      // 2. Delete the user profile from the database
-      const { data, error: profileDeleteError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', user.id);
+      const response = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ targetUserId: user.id })
+      });
 
-      console.log("[UserAdministration] Supabase delete user response:", { data, error: profileDeleteError });
+      const result = await response.json();
 
-      if (profileDeleteError) {
-        console.error("[UserAdministration] RLS/Database delete blocked or failed:", JSON.stringify(profileDeleteError, null, 2));
-        alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease check RLS policies.`);
+      if (!response.ok) {
+        console.error("[UserAdministration] Backend administrative deletion failed:", result);
+        alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
         return; // STOP!
       }
+
+      console.log("[UserAdministration] Backend administrative deletion successful:", result);
       
       // Delete any corresponding applicants in local storage
       try {
@@ -438,16 +439,19 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
           localStorage.setItem('shc_applicants_v2', JSON.stringify(filtered));
         }
       } catch (e) {
-        console.error("Error purging matching applicant records:", e);
+        console.error("Error purging matching applicant records from localStorage:", e);
       }
 
       // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setDeleteConfirmUserId(null);
-      showMessage("User profile and documents successfully purged. Note: Supabase Auth credentials cannot be deleted from the client side.", 'success');
+
+      const details = result.details || {};
+      alert(`SUCCESS:\nUser profile, all associated documents (${details.documentsDeletedCount || 0} file(s)), and active Supabase Auth credentials have been successfully purged from the database and storage backend.`);
+      
     } catch (error: any) {
-      console.error("Error deleting user:", error);
-      showMessage(`Failed to delete user: ${error.message || error}`, 'error');
+      console.error("Error during secure backend user deletion:", error);
+      alert(`An error occurred during secure deletion: ${error.message || error}`);
     }
   };
 
