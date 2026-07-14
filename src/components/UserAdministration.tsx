@@ -401,13 +401,32 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
   const executeDeleteUser = async (user: SystemUser) => {
     try {
-      const { error } = await supabase
+      console.log(`[UserAdministration] Deleting user with ID: "${user.id}"`);
+      
+      // 1. Delete associated documents from database first
+      const { error: docDeleteError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (docDeleteError) {
+        console.error("[UserAdministration] Error deleting user documents:", JSON.stringify(docDeleteError, null, 2));
+        showMessage(`Failed to delete associated documents: ${docDeleteError.message}`, 'error');
+        return;
+      }
+
+      // 2. Delete the user profile from the database
+      const { data, error: profileDeleteError } = await supabase
         .from('users')
         .delete()
         .eq('id', user.id);
 
-      if (error) {
-        throw error;
+      console.log("[UserAdministration] Supabase delete user response:", { data, error: profileDeleteError });
+
+      if (profileDeleteError) {
+        console.error("[UserAdministration] RLS/Database delete blocked or failed:", JSON.stringify(profileDeleteError, null, 2));
+        alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease check RLS policies.`);
+        return; // STOP!
       }
       
       // Delete any corresponding applicants in local storage
@@ -425,7 +444,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setDeleteConfirmUserId(null);
-      showMessage("User and associated profiles successfully purged.", 'success');
+      showMessage("User profile and documents successfully purged. Note: Supabase Auth credentials cannot be deleted from the client side.", 'success');
     } catch (error: any) {
       console.error("Error deleting user:", error);
       showMessage(`Failed to delete user: ${error.message || error}`, 'error');

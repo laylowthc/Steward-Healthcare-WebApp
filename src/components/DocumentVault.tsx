@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Document, DocumentCategory, Staff } from '../types';
 import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, Check, Trash, Eye, X, Mail, RefreshCw, ExternalLink } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
+import { getSignedUrlForDocument } from '../lib/supabase';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -26,6 +27,53 @@ export default function DocumentVault({
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [activeInspectorDoc, setActiveInspectorDoc] = useState<Document | null>(null);
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
+
+  const [resolvedPreviewUrl, setResolvedPreviewUrl] = useState<string | null>(null);
+  const [resolvedViewingUrl, setResolvedViewingUrl] = useState<string | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isLoadingViewing, setIsLoadingViewing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (previewDoc?.fileUrl) {
+      setIsLoadingPreview(true);
+      getSignedUrlForDocument(previewDoc.fileUrl).then(url => {
+        if (active) {
+          setResolvedPreviewUrl(url);
+          setIsLoadingPreview(false);
+        }
+      }).catch(err => {
+        console.error("Error resolving preview URL:", err);
+        if (active) setIsLoadingPreview(false);
+      });
+    } else {
+      setResolvedPreviewUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [previewDoc]);
+
+  useEffect(() => {
+    let active = true;
+    if (viewingFileUrl) {
+      setIsLoadingViewing(true);
+      getSignedUrlForDocument(viewingFileUrl).then(url => {
+        if (active) {
+          setResolvedViewingUrl(url);
+          setIsLoadingViewing(false);
+        }
+      }).catch(err => {
+        console.error("Error resolving viewing URL:", err);
+        if (active) setIsLoadingViewing(false);
+      });
+    } else {
+      setResolvedViewingUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [viewingFileUrl]);
 
   // Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -419,34 +467,46 @@ export default function DocumentVault({
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
               
               {/* Left Side: Preview */}
-              <div className="flex-1 bg-slate-200/50 p-4 overflow-hidden flex flex-col relative">
-                {previewDoc.fileUrl && (
-                  <div className="absolute top-6 right-6 z-10">
-                    <a
-                      href={previewDoc.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-slate-900/80 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Open in New Tab
-                    </a>
+              <div className="flex-1 bg-slate-200/50 p-4 overflow-hidden flex flex-col relative justify-center items-center">
+                {isLoadingPreview ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                    <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
                   </div>
-                )}
-                {previewDoc.fileUrl && previewDoc.fileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
-                  <div className="w-full flex-1 rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
-                    <img 
-                      src={previewDoc.fileUrl} 
-                      alt="Document Preview"
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  </div>
+                ) : resolvedPreviewUrl ? (
+                  <>
+                    <div className="absolute top-6 right-6 z-10">
+                      <a
+                        href={resolvedPreviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-slate-900/80 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open in New Tab
+                      </a>
+                    </div>
+                    {previewDoc.fileUrl && previewDoc.fileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                      <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                        <img 
+                          src={resolvedPreviewUrl} 
+                          alt="Document Preview"
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <iframe 
+                        src={resolvedPreviewUrl} 
+                        className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                        title="Document Viewer"
+                      />
+                    )}
+                  </>
                 ) : (
-                  <iframe 
-                    src={previewDoc.fileUrl || `data:text/html;charset=utf-8,%3Chtml%3E%3Cbody%20style%3D%22display%3Aflex%3Balign-items%3Acenter%3Bjustify-content%3Acenter%3Bfont-family%3Asans-serif%3Bcolor%3A%2364748b%3Bbackground%3A%23ffffff%3Bheight%3A100vh%3Bmargin%3A0%3B%22%3E%3Cdiv%20style%3D%22text-align%3Acenter%22%3E%3Ch2%3ENo%20Preview%20Available%3C%2Fh2%3E%3Cp%3EFile%20contents%20cannot%20be%20displayed.%3C%2Fp%3E%3C%2Fdiv%3E%3C%2Fbody%3E%3C%2Fhtml%3E`} 
-                    className="w-full flex-1 rounded-xl bg-white shadow-sm border border-slate-200"
-                    title="Document Viewer"
-                  />
+                  <div className="text-center p-4">
+                    <h2 className="text-sm font-bold text-slate-500">No Preview Available</h2>
+                    <p className="text-xs text-slate-400 mt-1">This document has no file upload or the URL has expired.</p>
+                  </div>
                 )}
               </div>
 
@@ -522,8 +582,8 @@ export default function DocumentVault({
 
                     <button
                       onClick={() => { 
-                        if (previewDoc.fileUrl) {
-                          downloadFile(previewDoc.fileUrl, previewDoc.name);
+                        if (resolvedPreviewUrl) {
+                          downloadFile(resolvedPreviewUrl, previewDoc.name);
                         } else {
                           alert(`Downloading: ${previewDoc.name}`); 
                         }
@@ -600,15 +660,17 @@ export default function DocumentVault({
                 <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <a
-                  href={viewingFileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Open in New Tab</span>
-                </a>
+                {resolvedViewingUrl && (
+                  <a
+                    href={resolvedViewingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Open in New Tab</span>
+                  </a>
+                )}
                 <button 
                   onClick={() => setViewingFileUrl(null)}
                   className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
@@ -619,20 +681,31 @@ export default function DocumentVault({
               </div>
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
-              {viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
-                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
-                  <img 
-                    src={viewingFileUrl} 
-                    alt="Document Preview"
-                    className="max-w-full max-h-full object-contain"
-                  />
+              {isLoadingViewing ? (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
                 </div>
+              ) : resolvedViewingUrl ? (
+                viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                  <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                    <img 
+                      src={resolvedViewingUrl} 
+                      alt="Document Preview"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <iframe 
+                    src={resolvedViewingUrl} 
+                    className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                    title="Document Viewer"
+                  />
+                )
               ) : (
-                <iframe 
-                  src={viewingFileUrl} 
-                  className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
-                  title="Document Viewer"
-                />
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex items-center justify-center p-4 text-slate-500 font-semibold text-xs">
+                  Failed to generate secure viewing URL.
+                </div>
               )}
             </div>
           </div>

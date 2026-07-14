@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Applicant, RoleTemplate, Document, CVData, mapCredentialToCategory } from '../types';
-import { Upload, FileText, CheckCircle, Clock, FileBadge } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Clock, FileBadge, Eye, ExternalLink, X, RefreshCw } from 'lucide-react';
 import CVBuilder from './CVBuilder';
+import { getSignedUrlForDocument } from '../lib/supabase';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -28,6 +29,31 @@ export default function ApplicantPortal({
   const [uploadCategory, setUploadCategory] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'cv'>('overview');
+
+  const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
+  const [resolvedViewingUrl, setResolvedViewingUrl] = useState<string | null>(null);
+  const [isLoadingViewing, setIsLoadingViewing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (viewingFileUrl) {
+      setIsLoadingViewing(true);
+      getSignedUrlForDocument(viewingFileUrl).then(url => {
+        if (active) {
+          setResolvedViewingUrl(url);
+          setIsLoadingViewing(false);
+        }
+      }).catch(err => {
+        console.error("Error resolving viewing URL in applicant portal:", err);
+        if (active) setIsLoadingViewing(false);
+      });
+    } else {
+      setResolvedViewingUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [viewingFileUrl]);
 
   const jobTemplate = templates.find(t => t.role.toLowerCase() === applicant.position.toLowerCase()) || templates[0];
   const reqs = jobTemplate?.requiredCredentials || [];
@@ -231,13 +257,24 @@ export default function ApplicantPortal({
                   </div>
                   <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-center text-[10px]">
                     <span className="text-slate-500">{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                    <span className={`px-1.5 py-0.5 rounded-full font-bold ${
-                      doc.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' :
-                      doc.status === 'Awaiting Review' ? 'bg-amber-50 text-amber-700' :
-                      'bg-rose-50 text-rose-700'
-                    }`}>
-                      {doc.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {doc.fileUrl && (
+                        <button
+                          onClick={() => setViewingFileUrl(doc.fileUrl)}
+                          className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-bold border border-indigo-100 cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Eye className="w-2.5 h-2.5" />
+                          View
+                        </button>
+                      )}
+                      <span className={`px-1.5 py-0.5 rounded-full font-bold ${
+                        doc.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' :
+                        doc.status === 'Awaiting Review' ? 'bg-amber-50 text-amber-700' :
+                        'bg-rose-50 text-rose-700'
+                      }`}>
+                        {doc.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -253,6 +290,67 @@ export default function ApplicantPortal({
           />
         )}
       </main>
+
+      {viewingFileUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
+              </div>
+              <div className="flex items-center space-x-2">
+                {resolvedViewingUrl && (
+                  <a
+                    href={resolvedViewingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Open in New Tab</span>
+                  </a>
+                )}
+                <button 
+                  onClick={() => setViewingFileUrl(null)}
+                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
+                >
+                  <span>Close</span>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-200/50 p-4">
+              {isLoadingViewing ? (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
+                </div>
+              ) : resolvedViewingUrl ? (
+                viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                  <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                    <img 
+                      src={resolvedViewingUrl} 
+                      alt="Document Preview"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <iframe 
+                    src={resolvedViewingUrl} 
+                    className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                    title="Document Viewer"
+                  />
+                )
+              ) : (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex items-center justify-center p-4 text-slate-500 font-semibold text-xs">
+                  Failed to generate secure viewing URL.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

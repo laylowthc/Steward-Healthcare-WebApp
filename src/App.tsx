@@ -269,35 +269,47 @@ export default function App() {
         }
 
         // Try querying public.users by UUID id first
+        console.log(`[Supabase Auth Profile Query] Checking for user ID: "${supabaseUser.id}" in public.users`);
         const { data: existingUsers, error: selectError } = await supabase
           .from('users')
           .select('*')
           .eq('id', supabaseUser.id);
 
         if (selectError) {
+          console.error('[Supabase Auth Profile Query] Error querying by ID:', JSON.stringify(selectError, null, 2));
           throw selectError;
         }
+
+        console.log(`[Supabase Auth Profile Query] Found users by ID:`, JSON.stringify(existingUsers, null, 2));
 
         let sUser = existingUsers && existingUsers.length > 0 ? existingUsers[0] : null;
 
         // Fallback: If no user found by ID, query by email
         if (!sUser) {
+          console.log(`[Supabase Auth Profile Query] No user found by ID. Trying email fallback: "${userEmail}"`);
           const { data: usersByEmail, error: emailError } = await supabase
             .from('users')
             .select('*')
             .eq('email', userEmail);
 
           if (emailError) {
+            console.error('[Supabase Auth Profile Query] Error querying by email:', JSON.stringify(emailError, null, 2));
             throw emailError;
           }
+
+          console.log(`[Supabase Auth Profile Query] Found users by email:`, JSON.stringify(usersByEmail, null, 2));
 
           if (usersByEmail && usersByEmail.length > 0) {
             sUser = usersByEmail[0];
             // Sync user details to map to the new ID mapping standard
-            await supabase
+            console.log(`[Supabase Auth Profile Query] Mapping email-matched user "${sUser.id}" with firebase_uid: "${supabaseUser.id}"`);
+            const { error: updateError } = await supabase
               .from('users')
               .update({ firebase_uid: supabaseUser.id })
               .eq('id', sUser.id);
+            if (updateError) {
+              console.error('[Supabase Auth Profile Query] Error updating firebase_uid:', JSON.stringify(updateError, null, 2));
+            }
           }
         }
 
@@ -363,6 +375,27 @@ export default function App() {
                 return [...prevStaff, newStaffMember];
               }
               return prevStaff;
+            });
+          }
+
+          // If they are an applicant, sync with local applicants state if missing
+          if (dbRole === 'applicant') {
+            setApplicants(prevApps => {
+              const exists = prevApps.some(a => a.email.toLowerCase() === userEmail || a.id === supabaseUser.id);
+              if (!exists) {
+                const newApplicant: Applicant = {
+                  id: supabaseUser.id,
+                  name: sUser.full_name || 'Applicant User',
+                  email: sUser.email,
+                  phone: 'N/A',
+                  position: 'Care Assistant', // Default target role
+                  status: 'Applied',
+                  dateCreated: new Date().toISOString().split('T')[0],
+                  notes: 'Self-registered applicant via portal.'
+                };
+                return [...prevApps, newApplicant];
+              }
+              return prevApps;
             });
           }
         } else {
@@ -649,26 +682,72 @@ export default function App() {
       const targetApplicant = applicants.find(a => a.id === id);
       if (!targetApplicant) return;
 
-      // 1. Delete from local applicants state
-      setApplicants(prev => prev.filter(a => a.id !== id));
+      console.log(`[handleDeleteApplicant] Beginning persistent delete workflow for applicant: "${targetApplicant.name}" (${id})`);
 
-      // 2. Delete any documents where staffId is the applicant id
-      setDocuments(prev => prev.filter(d => d.staffId !== id));
+      // Find user profile in Supabase 'users' table
+      const { data: matchedUsers, error: findError } = await supabase
+        .from('users')
+        .select('id, email')
+        .or(`id.eq."${id}",firebase_uid.eq."${id}",email.eq."${targetApplicant.email.toLowerCase()}"`);
 
-      // 3. Delete any timesheets associated with this applicant's name
-      setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
+      if (findError) {
+        console.error("[handleDeleteApplicant] Error searching matching user in database:", findError);
+      }
+      
+      const dbUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
 
-      // 4. Look for any associated user record in Supabase 'users' table and delete it
-      try {
-        await supabase
+      // 1. Delete associated documents from public.documents table first
+      if (dbUser) {
+        console.log(`[handleDeleteApplicant] Found database user: "${dbUser.id}". Purging associated database documents first.`);
+        const { error: docDeleteError } = await supabase
+          .from('documents')
+          .delete()
+          .eq('user_id', dbUser.id);
+        
+        if (docDeleteError) {
+          console.error("[handleDeleteApplicant] Error purging user documents from database:", JSON.stringify(docDeleteError, null, 2));
+          alert(`Failed to delete associated documents from the persistent database. Deletion aborted.\n\nDetails: ${docDeleteError.message || JSON.stringify(docDeleteError)}`);
+          return;
+        }
+      }
+
+      // 2. Delete user profile from public.users table
+      if (dbUser) {
+        console.log(`[handleDeleteApplicant] Purging database user profile from 'users' table: "${dbUser.id}"`);
+        const { data, error: profileDeleteError } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', dbUser.id);
+
+        console.log("[handleDeleteApplicant] Supabase user profile delete response:", { data, error: profileDeleteError });
+
+        if (profileDeleteError) {
+          console.error("[handleDeleteApplicant] RLS policy or database error blocked profile deletion:", JSON.stringify(profileDeleteError, null, 2));
+          alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease verify RLS policies.`);
+          return; // Abort local state changes
+        }
+      } else {
+        console.log(`[handleDeleteApplicant] No active database profile was found for ID/Email. Attempting email-based direct delete just in case.`);
+        const { data, error: directDeleteError } = await supabase
           .from('users')
           .delete()
           .eq('email', targetApplicant.email.toLowerCase());
-      } catch (err) {
-        console.error("Error deleting matching Supabase user account:", err);
+
+        console.log("[handleDeleteApplicant] Supabase direct email delete response:", { data, error: directDeleteError });
+
+        if (directDeleteError) {
+          console.error("[handleDeleteApplicant] Direct direct-delete failed:", JSON.stringify(directDeleteError, null, 2));
+          alert(`CRITICAL ERROR: Direct database deletion failed.\n\nMessage: ${directDeleteError.message}`);
+          return; // Abort
+        }
       }
 
-      // 5. Push an activity log
+      // 3. Database deletion verified successful -> now safely update React local state
+      setApplicants(prev => prev.filter(a => a.id !== id));
+      setDocuments(prev => prev.filter(d => d.staffId !== id));
+      setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
+
+      // 4. Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
@@ -678,8 +757,15 @@ export default function App() {
       };
       setActivityLogs(prev => [log, ...prev]);
 
-    } catch (err) {
+      if (dbUser) {
+        alert(`SUCCESS:\nCandidate "${targetApplicant.name}" has been successfully deleted from the persistent database.\n\nNOTE: The underlying Supabase Auth user credentials cannot be deleted from the client side due to security restrictions. If they have an active login account, it must be removed via the Supabase Auth Dashboard.`);
+      } else {
+        alert(`SUCCESS:\nLocal candidate "${targetApplicant.name}" has been removed.`);
+      }
+
+    } catch (err: any) {
       console.error("Error during comprehensive applicant deletion:", err);
+      alert(`An error occurred during deletion: ${err.message || err}`);
     }
   };
 
@@ -720,31 +806,75 @@ export default function App() {
       const target = staff.find(s => s.id === staffId);
       if (!target) return;
 
-      // 1. Remove from local state
-      setStaff(prev => prev.filter(s => s.id !== staffId));
+      console.log(`[handleDeleteStaff] Beginning persistent delete workflow for staff member: "${target.name}" (${staffId})`);
 
-      // 2. Clear selectedStaffId if it was this staff
-      if (selectedStaffId === staffId) {
-        setSelectedStaffId(null);
+      // Find user profile in Supabase 'users' table
+      const { data: matchedUsers, error: findError } = await supabase
+        .from('users')
+        .select('id, email')
+        .or(`id.eq."${staffId}",firebase_uid.eq."${staffId}",email.eq."${target.email.toLowerCase()}"`);
+
+      if (findError) {
+        console.error("[handleDeleteStaff] Error searching matching user in database:", findError);
+      }
+      
+      const dbUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
+
+      // 1. Delete associated documents from public.documents table first
+      if (dbUser) {
+        console.log(`[handleDeleteStaff] Found database user: "${dbUser.id}". Purging associated database documents first.`);
+        const { error: docDeleteError } = await supabase
+          .from('documents')
+          .delete()
+          .eq('user_id', dbUser.id);
+        
+        if (docDeleteError) {
+          console.error("[handleDeleteStaff] Error purging user documents from database:", JSON.stringify(docDeleteError, null, 2));
+          alert(`Failed to delete associated documents from the persistent database. Deletion aborted.\n\nDetails: ${docDeleteError.message || JSON.stringify(docDeleteError)}`);
+          return;
+        }
       }
 
-      // 3. Delete documents assigned to this staff member
-      setDocuments(prev => prev.filter(d => d.staffId !== staffId));
+      // 2. Delete user profile from public.users table
+      if (dbUser) {
+        console.log(`[handleDeleteStaff] Purging database user profile from 'users' table: "${dbUser.id}"`);
+        const { data, error: profileDeleteError } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', dbUser.id);
 
-      // 4. Delete timesheets assigned to this staff member
-      setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
+        console.log("[handleDeleteStaff] Supabase user profile delete response:", { data, error: profileDeleteError });
 
-      // 5. Delete associated Supabase profile
-      try {
-        await supabase
+        if (profileDeleteError) {
+          console.error("[handleDeleteStaff] RLS policy or database error blocked profile deletion:", JSON.stringify(profileDeleteError, null, 2));
+          alert(`CRITICAL ERROR: Supabase database deletion was blocked or failed.\n\nCode: ${profileDeleteError.code}\nMessage: ${profileDeleteError.message}\nDetails: ${profileDeleteError.details || 'None'}\n\nPlease verify RLS policies.`);
+          return; // Abort local state changes
+        }
+      } else {
+        console.log(`[handleDeleteStaff] No active database profile was found for ID/Email. Attempting email-based direct delete just in case.`);
+        const { data, error: directDeleteError } = await supabase
           .from('users')
           .delete()
           .eq('email', target.email.toLowerCase());
-      } catch (err) {
-        console.error("Error deleting matching Supabase user account for staff:", err);
+
+        console.log("[handleDeleteStaff] Supabase direct email delete response:", { data, error: directDeleteError });
+
+        if (directDeleteError) {
+          console.error("[handleDeleteStaff] Direct direct-delete failed:", JSON.stringify(directDeleteError, null, 2));
+          alert(`CRITICAL ERROR: Direct database deletion failed.\n\nMessage: ${directDeleteError.message}`);
+          return; // Abort
+        }
       }
 
-      // 6. Push Activity Log
+      // 3. Database deletion verified successful -> now safely update React local state
+      setStaff(prev => prev.filter(s => s.id !== staffId));
+      if (selectedStaffId === staffId) {
+        setSelectedStaffId(null);
+      }
+      setDocuments(prev => prev.filter(d => d.staffId !== staffId));
+      setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
+
+      // 4. Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
@@ -753,8 +883,16 @@ export default function App() {
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
-    } catch (err) {
+
+      if (dbUser) {
+        alert(`SUCCESS:\nStaff member "${target.name}" has been successfully deleted from the persistent database.\n\nNOTE: The underlying Supabase Auth user credentials cannot be deleted from the client side due to security restrictions. If they have an active login account, it must be removed via the Supabase Auth Dashboard.`);
+      } else {
+        alert(`SUCCESS:\nLocal staff member "${target.name}" has been removed.`);
+      }
+
+    } catch (err: any) {
       console.error("Error deleting staff member:", err);
+      alert(`An error occurred during deletion: ${err.message || err}`);
     }
   };
 
@@ -780,6 +918,12 @@ export default function App() {
 
       try {
         // 1. Upload the file into the private Supabase Storage bucket named: documents
+        console.log("=== SUPABASE UPLOAD VERIFICATION ===");
+        console.log("Uploaded Storage bucket name: 'documents'");
+        console.log("Exact upload path:", filePath);
+        console.log("Exact saved file_path:", filePath);
+        console.log("====================================");
+
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('documents')
           .upload(filePath, file, {
@@ -793,12 +937,8 @@ export default function App() {
 
         uploadedToStorage = true;
 
-        // 2. Generate/fetch the public URL for local state preview in Vault
-        const { data: urlData } = supabase.storage
-          .from('documents')
-          .getPublicUrl(filePath);
-          
-        finalFileUrl = urlData?.publicUrl || '';
+        // 2. Use relative storage path for local state consistency
+        finalFileUrl = filePath;
 
         // Determine target user's Supabase UUID
         let targetSupabaseId = null;
@@ -980,8 +1120,29 @@ export default function App() {
     simulateStatus('Completed', `E-SIGNATURE COMPLETED: Workflow finished for ${docName}. Locked & encrypted.`, 12000);
   };
 
-  const handleDeleteDocument = (docId: string) => {
-    setDocuments(prev => prev.filter(d => d.id !== docId));
+  const handleDeleteDocument = async (docId: string) => {
+    try {
+      console.log(`[handleDeleteDocument] Deleting document ID: "${docId}"`);
+      
+      const numericId = parseInt(docId, 10);
+      const query = isNaN(numericId)
+        ? supabase.from('documents').delete().eq('id', docId)
+        : supabase.from('documents').delete().eq('id', numericId);
+
+      const { data, error } = await query;
+      console.log("[handleDeleteDocument] Supabase response:", { data, error });
+
+      if (error) {
+        console.error("[handleDeleteDocument] Failed to delete from Supabase:", JSON.stringify(error, null, 2));
+        alert(`Failed to delete document from database: ${error.message}`);
+        return; // Abort
+      }
+
+      setDocuments(prev => prev.filter(d => d.id !== docId));
+    } catch (err: any) {
+      console.error("[handleDeleteDocument] Critical Error:", err);
+      alert(`Critical error during document deletion: ${err.message || err}`);
+    }
   };
 
   const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
@@ -1126,10 +1287,58 @@ export default function App() {
 
   // Applicant Portal Navigation Guard
   if (currentRole === 'applicant') {
-    const activeApplicant = applicants.find(a => a.id === currentUserId);
+    const activeApplicant = applicants.find(a => 
+      a.id === currentUserId || 
+      (supabaseUser?.email && a.email.toLowerCase() === supabaseUser.email.toLowerCase())
+    );
     if (!activeApplicant) {
-      // Fallback if they were somehow deleted
-      return <div>Profile not found. <button onClick={handleLogout}>Logout</button></div>;
+      console.error("=== DIAGNOSTIC: APPLICANT PROFILE NOT FOUND ===");
+      console.error("currentUserId:", currentUserId);
+      console.error("supabaseUser:", supabaseUser);
+      console.error("applicants:", applicants);
+      
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-profile-not-found-view">
+          {/* Visual background accents */}
+          <div className="absolute top-0 right-0 w-96 h-96 bg-amber-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
+          <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
+          
+          <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+            <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100 text-amber-600 mb-4">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Applicant Profile Not Found</h2>
+              <p className="text-sm text-slate-500 mb-6">
+                Your session is authenticated, but your local applicant portal profile could not be resolved.
+              </p>
+
+              <div className="bg-slate-50 rounded-xl p-4 mb-6 border border-slate-200/60 text-left">
+                <p className="text-[11px] font-black uppercase text-slate-600 tracking-wider mb-1 font-sans">Diagnostic Details:</p>
+                <div className="text-[11px] font-mono text-slate-700 leading-relaxed break-all space-y-1">
+                  <div><strong>Supabase User ID (UUID):</strong> {supabaseUser?.id || 'None'}</div>
+                  <div><strong>Email:</strong> {supabaseUser?.email || 'None'}</div>
+                  <div><strong>Current User ID (State):</strong> {currentUserId}</div>
+                  <div><strong>Role:</strong> {currentRole}</div>
+                  <div><strong>Local Candidates Array:</strong> {applicants.length} available ({applicants.map(a => `${a.name} [id:${a.id}, email:${a.email}]`).join(', ') || 'none'})</div>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-400 mb-6 font-medium leading-relaxed">
+                Try logging out and logging back in, or contact support if the issue persists.
+              </p>
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors focus:outline-none"
+              >
+                Logout and Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      );
     }
     return (
       <ApplicantPortal 

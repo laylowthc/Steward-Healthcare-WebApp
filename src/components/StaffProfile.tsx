@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
 import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
+import { getSignedUrlForDocument } from '../lib/supabase';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -28,6 +29,30 @@ export default function StaffProfile({
   const [isEditing, setIsEditing] = useState(false);
   const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
+
+  const [resolvedViewingUrl, setResolvedViewingUrl] = useState<string | null>(null);
+  const [isLoadingViewing, setIsLoadingViewing] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (viewingFileUrl) {
+      setIsLoadingViewing(true);
+      getSignedUrlForDocument(viewingFileUrl).then(url => {
+        if (active) {
+          setResolvedViewingUrl(url);
+          setIsLoadingViewing(false);
+        }
+      }).catch(err => {
+        console.error("Error resolving viewing URL in profile:", err);
+        if (active) setIsLoadingViewing(false);
+      });
+    } else {
+      setResolvedViewingUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [viewingFileUrl]);
 
   const [dragActive, setDragActive] = useState(false);
   const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('Passport');
@@ -594,7 +619,12 @@ export default function StaffProfile({
                               onClick={(e) => { 
                                 e.preventDefault();
                                 if (doc.fileUrl) {
-                                  downloadFile(doc.fileUrl, doc.name);
+                                  getSignedUrlForDocument(doc.fileUrl).then(url => {
+                                    if (url) downloadFile(url, doc.name);
+                                  }).catch(err => {
+                                    console.error("Error securing download:", err);
+                                    alert("Could not download file securely.");
+                                  });
                                 } else {
                                   alert(`Downloading: ${doc.name}`);
                                 }
@@ -610,7 +640,12 @@ export default function StaffProfile({
                             onClick={(e) => { 
                               e.preventDefault(); 
                               if (doc.fileUrl) {
-                                downloadFile(doc.fileUrl, doc.name);
+                                getSignedUrlForDocument(doc.fileUrl).then(url => {
+                                  if (url) downloadFile(url, doc.name);
+                                }).catch(err => {
+                                  console.error("Error securing download:", err);
+                                  alert("Could not download file securely.");
+                                });
                               } else {
                                 alert(`Downloading: ${doc.name}`);
                               }
@@ -649,15 +684,17 @@ export default function StaffProfile({
                 <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <a
-                  href={viewingFileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Open in New Tab</span>
-                </a>
+                {resolvedViewingUrl && (
+                  <a
+                    href={resolvedViewingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-700 transition-colors flex items-center gap-1 font-bold text-xs"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Open in New Tab</span>
+                  </a>
+                )}
                 <button 
                   onClick={() => setViewingFileUrl(null)}
                   className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
@@ -668,20 +705,31 @@ export default function StaffProfile({
               </div>
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
-              {viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
-                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
-                  <img 
-                    src={viewingFileUrl} 
-                    alt="Document Preview"
-                    className="max-w-full max-h-full object-contain"
-                  />
+              {isLoadingViewing ? (
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
                 </div>
+              ) : resolvedViewingUrl ? (
+                viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                  <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
+                    <img 
+                      src={resolvedViewingUrl} 
+                      alt="Document Preview"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <iframe 
+                    src={resolvedViewingUrl} 
+                    className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
+                    title="Document Viewer"
+                  />
+                )
               ) : (
-                <iframe 
-                  src={viewingFileUrl} 
-                  className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
-                  title="Document Viewer"
-                />
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex items-center justify-center p-4 text-slate-500 font-semibold text-xs">
+                  Failed to generate secure viewing URL.
+                </div>
               )}
             </div>
           </div>
