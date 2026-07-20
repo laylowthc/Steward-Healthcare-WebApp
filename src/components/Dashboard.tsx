@@ -129,7 +129,7 @@ export default function Dashboard({
 
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-white leading-tight">
-                  {currentUser?.name || 'Blessing Gurure'}
+                  {currentUser?.name || 'Admin'}
                 </h1>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="p-0.5 px-2.5 rounded-full bg-white/10 text-white text-xs font-bold">

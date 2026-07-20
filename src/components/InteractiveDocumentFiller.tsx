@@ -118,7 +118,7 @@ export default function InteractiveDocumentFiller({
       timesheet_expenses: [
         { date: '', type: 'Mileage', desc: 'Hertfordshire Patient Community Travel', qty: '50 miles', cost: '0.45', total: 22.50 }
       ],
-      timesheet_clientAuthoriser: 'Blessing Gurure',
+      timesheet_clientAuthoriser: 'Manager/Authoriser',
 
       // SUPERVISION RECORD
       supervision_actions: [
@@ -146,7 +146,7 @@ export default function InteractiveDocumentFiller({
       app_referee1Org: 'NHS Trust Herts',
       app_referee1Email: 'a.pendelton@nhs-herts.net',
       app_referee1Tel: '01462 888771',
-      app_referee2Name: 'Blessing Gurure',
+      app_referee2Name: 'Clara Oswald',
       app_referee2Role: 'Senior Care Coordinator',
       app_referee2Org: 'Greenfield Nursing Center',
       app_referee2Email: 'c.oswald@greenfieldhcare.org',
@@ -1008,7 +1008,7 @@ export default function InteractiveDocumentFiller({
                           {/* Employer execution block */}
                           <div className="p-3 border rounded-xl bg-purple-50/55 space-y-2">
                             <span className="font-black text-[#310d59] block uppercase text-[8.5px]">Signed on behalf of Steward Care Ltd:</span>
-                            <p className="font-bold">Blessing Gurure</p>
+                            <p className="font-bold">Authorized Representative</p>
                             <p className="text-[10px] text-slate-500">Title: Director & Branch Coordinator</p>
                             <div className="border border-dashed h-12 bg-white flex items-center justify-center font-mono text-[9px] text-slate-400">
                               [ELECTRONIC APPROVED SIGNATURE]
@@ -1178,7 +1178,7 @@ export default function InteractiveDocumentFiller({
                       </div>
                       <div>
                         <label className="font-bold text-slate-500 uppercase text-[9px]">Supervisor/Manager</label>
-                        <input type="text" disabled value="Blessing Gurure" className="p-2 border rounded w-full bg-slate-100 font-bold" />
+                        <input type="text" disabled value="Authorized Representative" className="p-2 border rounded w-full bg-slate-100 font-bold" />
                       </div>
                       <div>
                         <label className="font-bold text-slate-500 uppercase text-[9px]">Date of Supervision Audit</label>

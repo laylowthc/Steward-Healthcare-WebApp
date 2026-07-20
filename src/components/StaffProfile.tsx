@@ -65,6 +65,13 @@ export default function StaffProfile({
   const [address, setAddress] = useState(staffMember?.address || '');
   const [nmcPin, setNmcPin] = useState(staffMember?.nmcPin || '');
   const [nmcExpiry, setNmcExpiry] = useState(staffMember?.nmcExpiry || '');
+  
+  const [role, setRole] = useState<any>(staffMember?.role || 'Care Assistant');
+  const [status, setStatus] = useState<any>(staffMember?.status || 'Active');
+  const [dbsStatus, setDbsStatus] = useState<any>(staffMember?.dbsStatus || 'Pending');
+  const [rightToWork, setRightToWork] = useState<any>(staffMember?.rightToWork || 'Pending');
+  const [trainingStatus, setTrainingStatus] = useState<any>(staffMember?.trainingStatus || 'Pending');
+  const [avatarUrl, setAvatarUrl] = useState(staffMember?.avatarUrl || '');
 
   if (!staffMember) {
     return (
@@ -86,8 +93,14 @@ export default function StaffProfile({
       phone,
       email,
       address,
-      nmcPin: staffMember.role === 'Nurse' ? nmcPin : undefined,
-      nmcExpiry: staffMember.role === 'Nurse' ? nmcExpiry : undefined,
+      role,
+      status,
+      dbsStatus,
+      rightToWork,
+      trainingStatus,
+      avatarUrl,
+      nmcPin: role === 'Nurse' ? nmcPin : undefined,
+      nmcExpiry: role === 'Nurse' ? nmcExpiry : undefined,
     });
     setIsEditing(false);
   };
@@ -213,8 +226,12 @@ export default function StaffProfile({
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center space-x-4">
-            <div className="h-16 w-16 rounded-2xl bg-purple-100 text-purple-900 border border-slate-200 flex items-center justify-center font-black text-2xl uppercase shadow-inner">
-              {staffMember.name.split(' ').map(n => n[0]).join('')}
+            <div className="h-16 w-16 rounded-2xl bg-purple-100 text-purple-900 border border-slate-200 flex items-center justify-center font-black text-2xl uppercase shadow-inner overflow-hidden relative">
+              {staffMember.avatarUrl ? (
+                <img src={staffMember.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                staffMember.name.split(' ').map(n => n[0]).join('')
+              )}
             </div>
             <div>
               <div className="flex items-center space-x-2">
@@ -348,7 +365,75 @@ export default function StaffProfile({
                   />
                 </div>
 
-                {staffMember.role === 'Nurse' && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Profile Photo URL (Passport-Style Headshot)</label>
+                  <input
+                    type="url"
+                    value={avatarUrl}
+                    onChange={(e) => setAvatarUrl(e.target.value)}
+                    placeholder="https://example.com/photo.jpg"
+                    className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                  />
+                  <p className="text-[9px] text-slate-400 mt-1">Must be a recent, clear, passport-style headshot.</p>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Role / Designation</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                  >
+                    <option value="Nurse">Registered Nurse</option>
+                    <option value="Senior Care Assistant">Senior Care Assistant</option>
+                    <option value="Care Assistant">Care Assistant</option>
+                    <option value="Deputy Manager">Deputy Manager</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Account Status</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Suspended">Suspended</option>
+                    <option value="Non-Compliant">Non-Compliant</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">DBS Status</label>
+                    <select value={dbsStatus} onChange={(e) => setDbsStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                      <option value="Compliant">Compliant</option>
+                      <option value="Expiring">Expiring</option>
+                      <option value="Non-Compliant">Non-Compliant</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Right to Work</label>
+                    <select value={rightToWork} onChange={(e) => setRightToWork(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                      <option value="Compliant">Compliant</option>
+                      <option value="Expiring">Expiring</option>
+                      <option value="Non-Compliant">Non-Compliant</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Training</label>
+                    <select value={trainingStatus} onChange={(e) => setTrainingStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                      <option value="Compliant">Compliant</option>
+                      <option value="Expiring">Expiring</option>
+                      <option value="Non-Compliant">Non-Compliant</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
+                </div>
+
+                {role === 'Nurse' && (
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase">NMC PIN</label>

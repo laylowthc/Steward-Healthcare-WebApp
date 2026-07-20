@@ -34,7 +34,8 @@ export interface Staff {
   phone: string;
   address: string;
   role: StaffRole;
-  status: 'Active' | 'Non-Compliant';
+  status: 'Active' | 'Non-Compliant' | 'Pending' | 'Suspended';
+  avatarUrl?: string;
   nmcPin?: string;
   nmcExpiry?: string;
   dbsStatus: ComplianceLevel | 'Pending';

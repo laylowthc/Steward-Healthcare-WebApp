@@ -80,10 +80,11 @@ export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
-  const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<any | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<any | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
@@ -171,18 +172,6 @@ export default function App() {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
-
-  // One-time patch for "Clara" to "Blessing" locally
-  useEffect(() => {
-    const patched = localStorage.getItem('shc_name_patched_v2');
-    if (!patched) {
-      setStaff(initialStaff);
-      setDocuments(initialDocuments);
-      setTimesheets(initialTimesheets);
-      setActivityLogs(initialActivityLogs);
-      localStorage.setItem('shc_name_patched_v2', 'true');
-    }
-  }, []);
 
   // Sync to client-side localStorage
   useEffect(() => {
@@ -318,6 +307,19 @@ export default function App() {
         if (sUser) {
           console.log("Successfully matched Supabase user profile during session restoration:", sUser);
           
+          if (sUser.status === 'Suspended') {
+             setIsLoggedIn(false);
+             setProfileSyncError("Your account has been suspended. Please contact administration.");
+             return;
+          }
+
+          if (sUser.status === 'Pending' && sUser.role !== 'Applicant' && sUser.role !== 'Family') {
+             setIsLoggedIn(false);
+             setProfileSyncError("Your account is Pending approval. Please wait for an administrator to activate it.");
+             return;
+          }
+
+          setCurrentUserProfile(sUser);
           setSupabaseUserId(sUser.id);
           
           // Map the role from DB to React state
@@ -500,14 +502,14 @@ export default function App() {
     if (!targetApplicant) return;
 
     if (newStatus === 'Accepted') {
-      // 1. Automatically remove them from the Recruitment Pipeline
-      setApplicants(prev => prev.filter(a => a.id !== id));
+      // 1. Preserve them in the Recruitment Pipeline but mark as Accepted
+      setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
 
       // 2. Automatically create an Active Staff record
       const alreadyExists = staff.some(s => s.email.toLowerCase() === targetApplicant.email.toLowerCase());
       if (!alreadyExists) {
         // Automatically assign: Staff ID, Compliance Profile, Document Folder, Employment Status = Active
-        const newStaffId = `staff_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        const newStaffId = targetApplicant.id; // Try to keep ID consistent
         const newStaffMember: Staff = {
           id: newStaffId,
           name: targetApplicant.name,
@@ -540,11 +542,18 @@ export default function App() {
         };
         setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
         
+        // Update user status and role in Supabase
+        supabase.from('users').update({ status: 'Active', role: 'Staff' }).eq('id', targetApplicant.id).then(({ error }) => {
+          if (error) {
+            console.error("Failed to update user in Supabase", error);
+          }
+        });
+
         // Log every action inside Recent Activity
         const logs: ActivityLog[] = [
           {
             id: `act_${Date.now()}_1`,
-            action: `RECRUITMENT: Candidate ${targetApplicant.name} reached Accepted stage and was removed from the Recruitment Pipeline.`,
+            action: `RECRUITMENT: Candidate ${targetApplicant.name} reached Accepted stage.`,
             timestamp: 'Just now',
             user: 'Agency Automation',
             type: 'applicant'
@@ -740,7 +749,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
         timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: 'Admin',
         type: 'applicant'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -759,6 +768,20 @@ export default function App() {
 
   const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+
+    // Try updating Supabase profile to match new role and status
+    try {
+      const { error: roleUpdateErr } = await supabase.from('users').update({
+        role: updatedStaff.role,
+        status: updatedStaff.status
+      }).eq('id', updatedStaff.id);
+      
+      if (roleUpdateErr) {
+        console.error("Error updating user role in Supabase:", roleUpdateErr);
+      }
+    } catch (e) {
+      console.error("Exception updating user role in Supabase:", e);
+    }
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
@@ -780,7 +803,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
         timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: 'Admin',
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -855,7 +878,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
         timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: 'Admin',
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -1139,7 +1162,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
         timestamp: 'Just now',
-        user: 'Agency Admin (Blessing)',
+        user: 'Admin',
         type: 'timesheet'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -1325,7 +1348,7 @@ export default function App() {
           handleUploadDocument({
             name: file.name,
             category: category as any,
-            staffId: currentUserId,
+            staffId: currentUserId || undefined,
             staffName: activeApplicant.name,
             status: 'Awaiting Review',
           }, file);
@@ -1375,22 +1398,7 @@ export default function App() {
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
-            <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Blessing (Super-Admin)' : activeStaffMember?.name}</span>
-            {userAccountRole === 'admin' && (
-              <button 
-                onClick={() => {
-                  // Instantly swap perspective for satisfied evaluation
-                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                  setCurrentRole(nextRole);
-                  setSelectedStaffId(null);
-                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-                }}
-                className="text-[9px] text-indigo-700 font-bold hover:underline"
-                title="Switch role perspective"
-              >
-                [Swap]
-              </button>
-            )}
+            <span className="truncate max-w-[130px]">{currentUserProfile?.full_name || 'System User'}</span>
           </div>
         </div>
 
@@ -1602,33 +1610,17 @@ export default function App() {
 
           <div className="flex items-center space-x-4">
             
-            {/* Quick swap button directly in the main header for satisfied exploration */}
-            {userAccountRole === 'admin' && (
-              <button
-                onClick={() => {
-                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                  setCurrentRole(nextRole);
-                  setSelectedStaffId(null);
-                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-                }}
-                className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
-              >
-                <span>SWAP ROLE:</span>
-                <span className="text-[#9C1F60] font-black">{currentRole === 'admin' ? 'STAFF' : 'ADMIN'}</span>
-              </button>
-            )}
-
             {/* Profile badge with popup settings */}
             <div className="relative">
               <button 
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
-                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
-                  {currentRole === 'admin' ? 'BL' : activeStaffMember?.name.substring(0,2).toUpperCase()}
+                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs uppercase">
+                  {currentUserProfile?.full_name ? currentUserProfile.full_name.substring(0,2) : 'US'}
                 </div>
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
-                  {currentRole === 'admin' ? 'Blessing (Admin)' : activeStaffMember?.name}
+                  {currentUserProfile?.full_name || 'System User'}
                 </span>
                 <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
               </button>
@@ -1636,8 +1628,8 @@ export default function App() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-50 text-xs text-slate-700 font-medium">
                   <div className="px-3 py-2 border-b border-slate-50">
-                    <p className="font-extrabold text-slate-900 leading-none">Blessing Steward</p>
-                    <p className="text-[10px] text-slate-400 mt-1 leading-none">blessing.admin@shc247.co.uk</p>
+                    <p className="font-extrabold text-slate-900 leading-none truncate">{currentUserProfile?.full_name || 'User'}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-none truncate">{currentUserProfile?.email || 'email@example.com'}</p>
                   </div>
                   
                   <button 
@@ -1815,7 +1807,7 @@ export default function App() {
                           id: `act_${Date.now()}`,
                           action,
                           timestamp: 'Just now',
-                          user: 'Blessing (Admin)',
+                          user: 'Admin',
                           type: logType
                         };
                         setActivityLogs(prev => [log, ...prev]);
@@ -1842,7 +1834,7 @@ export default function App() {
                           id: `act_${Date.now()}`,
                           action,
                           timestamp: 'Just now',
-                          user: 'Blessing (Admin)',
+                          user: 'Admin',
                           type: logType
                         };
                         setActivityLogs(prev => [log, ...prev]);

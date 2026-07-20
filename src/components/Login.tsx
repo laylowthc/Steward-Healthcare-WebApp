@@ -46,14 +46,7 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
       }
       // Successful auth triggers onAuthStateChange in App.tsx
     } catch (err: any) {
-      // Fallback for demo users that aren't registered yet in Supabase Auth
-      if (email.toLowerCase() === 'admin@shc247.co.uk' || email.toLowerCase() === 'admin') {
-        onLoginSuccess('admin');
-      } else if (email.toLowerCase() === 'clara.oswald@shc247.co.uk' || email.toLowerCase() === 'clara' || email.toLowerCase() === 'staff') {
-        onLoginSuccess('staff', 'staff_1');
-      } else {
-        setError(err.message || 'Invalid username or password.');
-      }
+      setError(err.message || 'Invalid username or password.');
     }
   };
 
@@ -498,81 +491,7 @@ export default function Login({ onLoginSuccess, onAddApplicant, onSystemReset }:
             </form>
           )}
 
-          {/* Quick Demo Logins Section */}
-          <div className="mt-6 pt-6 border-t border-slate-100">
-            <div className="relative mb-4">
-              <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <div className="relative flex justify-center text-xs text-slate-500">
-                <span className="bg-white px-3 font-semibold uppercase tracking-wider text-slate-400">
-                  Quick Demo Viewers
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => onLoginSuccess('admin')}
-                className="flex flex-col items-center justify-center p-3 border border-purple-100 rounded-xl bg-purple-50/50 hover:bg-purple-50 hover:border-purple-300 text-center transition-all cursor-pointer group"
-              >
-                <div className="p-1 px-2 rounded-full bg-purple-100 text-purple-900 text-[10px] font-bold mb-1 shadow-sm">
-                  AGENCY ROLE
-                </div>
-                <span className="text-xs font-bold text-purple-950 group-hover:text-purple-600 flex items-center">
-                  Admin Dashboard <ArrowRight className="w-3 h-3 ml-1" />
-                </span>
-                <span className="text-[10px] text-slate-500">Recruitment & Compliance</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onLoginSuccess('staff', 'staff_1')}
-                className="flex flex-col items-center justify-center p-3 border border-rose-100 rounded-xl bg-rose-50/50 hover:bg-rose-50 hover:border-rose-300 text-center transition-all cursor-pointer group"
-              >
-                <div className="p-1 px-2 rounded-full bg-rose-100 text-rose-900 text-[10px] font-bold mb-1 shadow-sm">
-                  STAFF ROLE
-                </div>
-                <span className="text-xs font-bold text-rose-950 group-hover:text-rose-600 flex items-center">
-                  Staff Member <ArrowRight className="w-3 h-3 ml-1" />
-                </span>
-                <span className="text-[10px] text-slate-500">Blessing (Registered Nurse)</span>
-              </button>
-            </div>
-
-            {/* Family & Relatives Live Portal link */}
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => onLoginSuccess('family')}
-                className="w-full flex items-center justify-between p-3.5 border border-dashed border-rose-200 rounded-xl bg-rose-50/30 hover:bg-rose-50 hover:border-rose-300 transition-all cursor-pointer group text-left"
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-rose-100 text-rose-700 rounded-lg group-hover:scale-105 transition-transform">
-                    <Heart className="w-4 h-4 fill-rose-600 text-rose-700 font-bold" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black uppercase text-rose-950 font-sans tracking-wide">Family & Client Care Hub</h4>
-                    <p className="text-[10.5px] text-slate-500 mt-0.5">Are you a client relative? Submit real-time surveys here</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-rose-700 font-bold transform group-hover:translate-x-1 transition-transform shrink-0" />
-              </button>
-            </div>
-
-            {/* Dev Purge & Fresh Start Option */}
-            <div className="mt-5 pt-4 border-t border-slate-100 text-center">
-              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Developer Sandbox Control</p>
-              <button
-                type="button"
-                onClick={handleLoginReset}
-                className="mt-2 inline-flex items-center space-x-1.5 text-[10px] font-black text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 px-3 py-1.5 rounded-lg transition"
-              >
-                <span>⚠️ PURGE LOCAL CACHE & RESTART FRESH</span>
-              </button>
-            </div>
-          </div>
+          {/* Quick Demo Logins Section removed for production */}
         </div>
       </div>
 
