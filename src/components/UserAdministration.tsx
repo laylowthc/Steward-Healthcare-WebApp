@@ -15,7 +15,7 @@ interface SystemUser {
   name: string;
   email: string;
   role: 'admin' | 'staff' | 'applicant' | 'family';
-  status?: 'Active' | 'Deactivated';
+  status?: 'Active' | 'Deactivated' | 'Pending' | 'Suspended';
   permissions?: string[];
 }
 
@@ -341,8 +341,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     }
   };
 
-  const handleToggleStatus = async (user: SystemUser) => {
-    const newStatus = user.status === 'Deactivated' ? 'Active' : 'Deactivated';
+  const handleStatusChange = async (user: SystemUser, newStatus: SystemUser['status']) => {
     try {
       const { error } = await supabase
         .from('users')
@@ -354,9 +353,9 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       }
 
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
-      showMessage(`User account ${newStatus.toLowerCase()}.`, 'success');
+      showMessage(`User account status updated to ${newStatus}.`, 'success');
     } catch (error: any) {
-      console.error("Error toggling status:", error);
+      console.error("Error updating status:", error);
       showMessage(`Failed to update account status: ${error.message || error}`, 'error');
     }
   };
@@ -624,11 +623,21 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        user.status === 'Deactivated' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {user.status || 'Active'}
-                      </span>
+                      <select
+                        value={user.status || 'Active'}
+                        onChange={(e) => handleStatusChange(user, e.target.value as any)}
+                        className={`text-xs font-bold rounded-lg border px-2 py-1 ${
+                          user.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          user.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          user.status === 'Suspended' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                          'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Suspended">Suspended</option>
+                        <option value="Deactivated">Deactivated</option>
+                      </select>
                     </td>
                      <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end space-x-2">
@@ -663,17 +672,6 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                               title="Send Password Reset"
                             >
                               <Key className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleToggleStatus(user)}
-                              className={`p-1.5 rounded transition-colors ${
-                                user.status === 'Deactivated' 
-                                  ? 'text-emerald-500 hover:bg-emerald-50' 
-                                  : 'text-amber-500 hover:bg-amber-50'
-                              }`}
-                              title={user.status === 'Deactivated' ? 'Reactivate Account' : 'Deactivate Account'}
-                            >
-                              {user.status === 'Deactivated' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                             </button>
                             <button
                               onClick={() => setDeleteConfirmUserId(user.id)}

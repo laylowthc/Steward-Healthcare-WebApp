@@ -112,15 +112,26 @@ export default function Dashboard({
           <div className="absolute inset-0 bg-[#2D0B31] rounded-2xl p-6 text-white" style={{ backfaceVisibility: "hidden" }}>
             <div className="flex items-center space-x-5 h-full">
               {/* Profile Picture */}
-              <div className="relative">
-                {(currentUser as any)?.photoUrl ? (
+              <div 
+                className="relative cursor-pointer group"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const url = window.prompt("Enter the URL of your profile picture:");
+                  if (url) {
+                    localStorage.setItem(`shc_avatar_${currentUser?.id || 'admin'}`, url);
+                    window.location.reload();
+                  }
+                }}
+                title="Click to change profile picture"
+              >
+                {currentUser?.avatarUrl || (currentUser as any)?.photoUrl ? (
                   <img
-                    src={(currentUser as any).photoUrl}
-                    alt={currentUser.name || 'User Profile'}
-                    className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm"
+                    src={currentUser?.avatarUrl || (currentUser as any)?.photoUrl}
+                    alt={currentUser?.name || 'User Profile'}
+                    className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm group-hover:opacity-80 transition-opacity"
                   />
                 ) : (
-                  <div className="w-20 h-20 rounded-full bg-purple-100 text-purple-900 border-4 border-white shadow-sm flex items-center justify-center font-bold text-2xl uppercase">
+                  <div className="w-20 h-20 rounded-full bg-purple-100 text-purple-900 border-4 border-white shadow-sm flex items-center justify-center font-bold text-2xl uppercase group-hover:opacity-80 transition-opacity">
                     {currentUser?.name ? currentUser.name.substring(0, 2) : (currentRole?.substring(0, 2) || 'AD')}
                   </div>
                 )}

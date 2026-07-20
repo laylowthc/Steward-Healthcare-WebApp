@@ -88,6 +88,8 @@ export default function App() {
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
+  const [accountPendingMessage, setAccountPendingMessage] = useState<string | null>(null);
+  const [accountSuspendedMessage, setAccountSuspendedMessage] = useState<string | null>(null);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
     const local = localStorage.getItem('shc_family_feedbacks_v2');
@@ -244,6 +246,10 @@ export default function App() {
     let active = true;
 
     const syncProfile = async () => {
+      setProfileSyncError(null);
+      setAccountPendingMessage(null);
+      setAccountSuspendedMessage(null);
+
       if (!supabaseUser) {
         setIsLoggedIn(false);
         setUserAccountRole(null);
@@ -309,13 +315,13 @@ export default function App() {
           
           if (sUser.status === 'Suspended') {
              setIsLoggedIn(false);
-             setProfileSyncError("Your account has been suspended. Please contact administration.");
+             setAccountSuspendedMessage("Your account has been suspended. Please contact administration.");
              return;
           }
 
           if (sUser.status === 'Pending' && sUser.role !== 'Applicant' && sUser.role !== 'Family') {
              setIsLoggedIn(false);
-             setProfileSyncError("Your account is Pending approval. Please wait for an administrator to activate it.");
+             setAccountPendingMessage("Your account is Pending approval. Please wait for an administrator to activate it.");
              return;
           }
 
@@ -329,6 +335,8 @@ export default function App() {
           setUserAccountRole(dbRole);
           setIsLoggedIn(true);
           setProfileSyncError(null);
+          setAccountPendingMessage(null);
+          setAccountSuspendedMessage(null);
 
           // Fetch documents from Supabase public.documents for the user
           try {
@@ -494,6 +502,8 @@ export default function App() {
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
     setProfileSyncError(null);
+    setAccountPendingMessage(null);
+    setAccountSuspendedMessage(null);
   };
 
   // State mutation callbacks passed to children components
@@ -1209,6 +1219,66 @@ export default function App() {
     return <div className="flex h-screen items-center justify-center font-sans"><span className="text-slate-500 font-bold">Restoring user session...</span></div>;
   }
 
+  if (accountPendingMessage) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
+        {/* Visual background accents */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
+        
+        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600 mb-4">
+              <Clock className="h-6 w-6" />
+            </div>
+            
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Account Pending Approval</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {accountPendingMessage}
+            </p>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Logout and Return
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (accountSuspendedMessage) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
+        {/* Visual background accents */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-rose-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-amber-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
+        
+        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-rose-100 text-rose-600 mb-4">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Account Suspended</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {accountSuspendedMessage}
+            </p>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#9C1F60]"
+            >
+              Logout and Return
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (profileSyncError) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-sync-error-view">
@@ -1616,9 +1686,17 @@ export default function App() {
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
-                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs uppercase">
-                  {currentUserProfile?.full_name ? currentUserProfile.full_name.substring(0,2) : 'US'}
-                </div>
+                {localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`) ? (
+                  <img
+                    src={localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`)!}
+                    alt="Profile"
+                    className="h-7 w-7 rounded-lg object-cover"
+                  />
+                ) : (
+                  <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs uppercase">
+                    {currentUserProfile?.full_name ? currentUserProfile.full_name.substring(0,2) : 'US'}
+                  </div>
+                )}
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
                   {currentUserProfile?.full_name || 'System User'}
                 </span>
@@ -1680,7 +1758,20 @@ export default function App() {
                   {/* Dashboard Tab */}
                   {activeTab === 'dashboard' && (
                     <Dashboard 
-                      currentUser={staff.find(s => s.id === currentUserId)}
+                      currentUser={staff.find(s => s.id === currentUserId) || {
+                        id: currentUserId || 'ADM-001',
+                        name: currentUserProfile?.full_name || 'System Admin',
+                        email: currentUserProfile?.email || '',
+                        phone: '',
+                        address: '',
+                        role: 'Administrator',
+                        status: currentUserProfile?.status || 'Active',
+                        avatarUrl: localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`) || undefined,
+                        dbsStatus: 'Compliant',
+                        rightToWork: 'Compliant',
+                        trainingStatus: 'Compliant',
+                        joinedDate: new Date().toISOString()
+                      } as Staff}
                       currentRole={currentRole}
                       applicants={applicants}
                       staff={staff}
