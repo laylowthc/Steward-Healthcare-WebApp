@@ -42,7 +42,8 @@ import {
   RoleTemplate,
   FamilyFeedback,
   DocumentStatus,
-  mapCredentialToCategory
+  mapCredentialToCategory,
+  ComplianceLevel
 } from './types';
 
 import { 
@@ -91,14 +92,7 @@ export default function App() {
   const [accountPendingMessage, setAccountPendingMessage] = useState<string | null>(null);
   const [accountSuspendedMessage, setAccountSuspendedMessage] = useState<string | null>(null);
 
-  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
-    const local = localStorage.getItem('shc_family_feedbacks_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: FamilyFeedback) => [item.id, item])).values()) as FamilyFeedback[];
-    }
-    return initialFamilyFeedbacks;
-  });
+  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>([]);
 
   // Listen for shareable hash modification links (e.g. #family)
   useEffect(() => {
@@ -116,89 +110,18 @@ export default function App() {
   }, []);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>(() => {
-    const local = localStorage.getItem('shc_applicants_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Applicant) => [item.id, item])).values()) as Applicant[];
-    }
-    return initialApplicants;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('shc_applicants_v2', JSON.stringify(applicants));
-  }, [applicants]);
-
-  const [staff, setStaff] = useState<Staff[]>(() => {
-    const local = localStorage.getItem('shc_staff_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Staff) => [item.id, item])).values()) as Staff[];
-    }
-    return initialStaff;
-  });
-
-  const [documents, setDocuments] = useState<Document[]>(() => {
-    return initialDocuments;
-  });
-
-  const [timesheets, setTimesheets] = useState<Timesheet[]>(() => {
-    const local = localStorage.getItem('shc_timesheets_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Timesheet) => [item.id, item])).values()) as Timesheet[];
-    }
-    return initialTimesheets;
-  });
-
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
-    const local = localStorage.getItem('shc_logs_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: ActivityLog) => [item.id, item])).values()) as ActivityLog[];
-    }
-    return initialActivityLogs;
-  });
-
-  const [templates, setTemplates] = useState<RoleTemplate[]>(() => {
-    const local = localStorage.getItem('shc_templates_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: RoleTemplate) => [item.role, item])).values()) as RoleTemplate[];
-    }
-    return initialRoleTemplates;
-  });
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [templates, setTemplates] = useState<RoleTemplate[]>(initialRoleTemplates);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
-
-  // Sync to client-side localStorage
-  useEffect(() => {
-    localStorage.setItem('shc_recruits_v2', JSON.stringify(applicants));
-  }, [applicants]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_staff_v2', JSON.stringify(staff));
-  }, [staff]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_timesheets_v2', JSON.stringify(timesheets));
-  }, [timesheets]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_logs_v2', JSON.stringify(activityLogs));
-  }, [activityLogs]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_templates_v2', JSON.stringify(templates));
-  }, [templates]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_family_feedbacks_v2', JSON.stringify(familyFeedbacks));
-  }, [familyFeedbacks]);
 
   const [visibleCards, setVisibleCards] = useState<string[]>(() => {
     const local = localStorage.getItem('shc_visible_cards');
@@ -241,11 +164,11 @@ export default function App() {
     };
   }, []);
 
-  // Separate session profile synchronization flow (handles async Supabase database queries)
+  // Separate session profile and data synchronization flow (handles async Supabase database queries)
   useEffect(() => {
     let active = true;
 
-    const syncProfile = async () => {
+    const syncProfileAndData = async () => {
       setProfileSyncError(null);
       setAccountPendingMessage(null);
       setAccountSuspendedMessage(null);
@@ -275,8 +198,6 @@ export default function App() {
           throw selectError;
         }
 
-        console.log(`[Supabase Auth Profile Query] Found users by ID:`, JSON.stringify(existingUsers, null, 2));
-
         let sUser = existingUsers && existingUsers.length > 0 ? existingUsers[0] : null;
 
         // Fallback: If no user found by ID, query by email
@@ -291,8 +212,6 @@ export default function App() {
             console.error('[Supabase Auth Profile Query] Error querying by email:', JSON.stringify(emailError, null, 2));
             throw emailError;
           }
-
-          console.log(`[Supabase Auth Profile Query] Found users by email:`, JSON.stringify(usersByEmail, null, 2));
 
           if (usersByEmail && usersByEmail.length > 0) {
             sUser = usersByEmail[0];
@@ -334,80 +253,220 @@ export default function App() {
           setCurrentUserId(supabaseUser.id); // Map to Supabase UUID
           setUserAccountRole(dbRole);
           setIsLoggedIn(true);
-          setProfileSyncError(null);
-          setAccountPendingMessage(null);
-          setAccountSuspendedMessage(null);
 
-          // Fetch documents from Supabase public.documents for the user
-          try {
-            let query = supabase.from('documents').select('*');
-            if (dbRole !== 'admin') {
-              query = query.eq('user_id', sUser.id);
+          // Now fetch all associated data from Supabase!
+          console.log("[Supabase Data Loader] Fetching all database states for role:", dbRole);
+          
+          // 1. Fetch Users
+          let usersData: any[] = [];
+          if (dbRole === 'admin') {
+            const { data, error } = await supabase.from('users').select('*');
+            if (!error && data) usersData = data;
+          } else {
+            const { data, error } = await supabase.from('users').select('*').eq('id', sUser.id);
+            if (!error && data) usersData = data;
+          }
+
+          // 2. Fetch Staff Profiles
+          let profilesData: any[] = [];
+          if (dbRole === 'admin') {
+            const { data, error } = await supabase.from('staff_profiles').select('*');
+            if (!error && data) profilesData = data;
+          } else {
+            const { data, error } = await supabase.from('staff_profiles').select('*').eq('user_id', sUser.id);
+            if (!error && data) profilesData = data;
+          }
+
+          // Self-healing: If a logged in user profile is missing from staff_profiles, create it
+          const profilesMap = new Map(profilesData.map(p => [p.user_id, p]));
+          let userProfile = profilesMap.get(sUser.id);
+          if (!userProfile && sUser.role !== 'Family') {
+            console.log(`[Supabase Data Loader] Self-healing: Creating missing staff_profile row for user "${sUser.id}"`);
+            const defaultTitle = sUser.role === 'Admin' ? 'Administrator' : 'Care Assistant';
+            const defaultDept = sUser.role === 'Applicant' ? 'Applied' : 'Active';
+            const { data: newProfile, error: profileInsError } = await supabase
+              .from('staff_profiles')
+              .insert({
+                user_id: sUser.id,
+                job_title: defaultTitle,
+                department: defaultDept,
+                staff_number: JSON.stringify({})
+              })
+              .select('*')
+              .maybeSingle();
+            if (!profileInsError && newProfile) {
+              userProfile = newProfile;
+              profilesMap.set(sUser.id, newProfile);
+              profilesData.push(newProfile);
+            } else {
+              console.error('[Supabase Data Loader] Failed to self-heal staff_profile row:', profileInsError);
             }
-            const { data: dbDocs, error: docsError } = await query;
-            if (!docsError && dbDocs && active) {
-              const mappedDbDocs: Document[] = dbDocs.map(d => ({
+          }
+
+          // 3. Fetch Documents (which includes timesheets, logs, feedbacks, templates)
+          let docsData: any[] = [];
+          if (dbRole === 'admin') {
+            const { data, error } = await supabase.from('documents').select('*');
+            if (!error && data) docsData = data;
+          } else {
+            const { data, error } = await supabase.from('documents').select('*').eq('user_id', sUser.id);
+            if (!error && data) docsData = data;
+          }
+
+          if (!active) return;
+
+          // Map users to Applicants and Staff
+          const loadedApplicants: Applicant[] = [];
+          const loadedStaff: Staff[] = [];
+
+          usersData.forEach(u => {
+            const uRole = (u.role || 'Applicant').toLowerCase();
+            const profile = profilesMap.get(u.id);
+            
+            // Parse metadata from profile staff_number if present
+            let metadata: any = {};
+            if (profile?.staff_number) {
+              try {
+                metadata = JSON.parse(profile.staff_number);
+              } catch (e) {
+                metadata = {};
+              }
+            }
+
+            if (uRole === 'applicant') {
+              loadedApplicants.push({
+                id: u.id,
+                name: u.full_name || 'Applicant User',
+                email: u.email,
+                phone: u.phone || '',
+                position: profile?.job_title || 'Care Assistant',
+                status: (profile?.department as ApplicantStatus) || 'Applied',
+                dateCreated: u.created_at || new Date().toISOString(),
+                notes: metadata.notes || '',
+                complianceChecked: metadata.complianceChecked || {},
+                interviewTime: metadata.interviewTime,
+                interviewMeetUrl: metadata.interviewMeetUrl,
+                cvData: metadata.cvData
+              });
+            } else if (uRole === 'staff' || uRole === 'admin') {
+              loadedStaff.push({
+                id: u.id,
+                name: u.full_name || 'Staff Member',
+                email: u.email,
+                phone: u.phone || '',
+                address: metadata.address || 'Registered Caregiver Address',
+                role: profile?.job_title || (uRole === 'admin' ? 'Administrator' : 'Care Assistant'),
+                status: u.status || 'Active',
+                avatarUrl: metadata.avatarUrl,
+                nmcPin: metadata.nmcPin,
+                nmcExpiry: metadata.nmcExpiry,
+                dbsStatus: (profile?.enhanced_dbs ? 'Compliant' : (metadata.dbsStatus || 'Pending')),
+                dbsNumber: profile?.dbs_number || '',
+                dbsExpiry: profile?.dbs_issue_date || metadata.dbsExpiry || '',
+                rightToWork: (profile?.right_to_work as ComplianceLevel) || 'Compliant',
+                rightToWorkExpiry: metadata.rightToWorkExpiry,
+                trainingStatus: metadata.trainingStatus || 'Compliant',
+                trainingExpiry: metadata.trainingExpiry,
+                joinedDate: u.created_at || new Date().toISOString().split('T')[0]
+              });
+            }
+          });
+
+          // Map Documents
+          const loadedDocuments: Document[] = [];
+          const loadedTimesheets: Timesheet[] = [];
+          const loadedLogs: ActivityLog[] = [];
+          const loadedFeedbacks: FamilyFeedback[] = [];
+          const loadedTemplates: RoleTemplate[] = [];
+
+          docsData.forEach(d => {
+            const cat = d.category;
+            if (cat === 'Timesheet') {
+              try {
+                const parsed = JSON.parse(d.notes);
+                loadedTimesheets.push({
+                  ...parsed,
+                  id: d.id.toString(),
+                  approvalStatus: d.verification_status || parsed.approvalStatus || 'Pending'
+                });
+              } catch (e) {
+                loadedTimesheets.push({
+                  id: d.id.toString(),
+                  staffName: d.document_name || 'Staff member',
+                  role: 'Care Assistant',
+                  weekEnding: new Date().toISOString().split('T')[0],
+                  uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+                  approvalStatus: d.verification_status as any || 'Pending',
+                  hoursWorked: 0,
+                  fileUrl: d.file_path || '#'
+                });
+              }
+            } else if (cat === 'ActivityLog') {
+              try {
+                loadedLogs.push(JSON.parse(d.notes));
+              } catch (e) {
+                loadedLogs.push({
+                  id: d.id.toString(),
+                  action: d.document_name || 'System action logged',
+                  timestamp: d.upload_date || 'Just now',
+                  user: d.uploaded_by || 'System',
+                  type: 'status'
+                });
+              }
+            } else if (cat === 'FamilyFeedback') {
+              try {
+                loadedFeedbacks.push(JSON.parse(d.notes));
+              } catch (e) {
+                loadedFeedbacks.push({
+                  id: d.id.toString(),
+                  clientName: 'Client',
+                  familyRepresentative: 'Representative',
+                  relation: 'Relative',
+                  caregiverAssigned: 'Caregiver',
+                  ratingCareQuality: 5,
+                  ratingCommunication: 5,
+                  ratingPunctuality: 5,
+                  feedbackComments: d.document_name || 'Feedback comments',
+                  anonymous: false,
+                  dateSubmitted: d.upload_date || new Date().toISOString().split('T')[0],
+                  status: d.verification_status as any || 'Awaiting Action',
+                  category: 'General Inquiry',
+                  hasContactRequest: false
+                });
+              }
+            } else if (cat === 'RoleTemplate') {
+              try {
+                loadedTemplates.push(JSON.parse(d.notes));
+              } catch (e) {
+                // skip
+              }
+            } else {
+              // Standard document
+              const owner = usersData.find(u => u.id === d.user_id);
+              loadedDocuments.push({
                 id: d.id.toString(),
                 name: d.document_name,
                 category: d.category as DocumentCategory,
                 staffId: d.user_id,
-                staffName: sUser.full_name || 'System User',
+                staffName: owner?.full_name || 'System User',
                 fileUrl: d.file_path,
-                uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+                uploadDate: d.upload_date ? new Date(d.upload_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                 status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
-              }));
-              setDocuments(mappedDbDocs);
-            } else if (docsError) {
-              console.error("Error fetching documents from Supabase:", docsError);
+                size: d.file_size ? `${(d.file_size / 1024).toFixed(1)} KB` : '1.5 MB'
+              });
             }
-          } catch (docFetchErr) {
-            console.error("Error during document query:", docFetchErr);
+          });
+
+          setApplicants(loadedApplicants);
+          setStaff(loadedStaff);
+          setDocuments(loadedDocuments);
+          setTimesheets(loadedTimesheets);
+          setActivityLogs(loadedLogs);
+          setFamilyFeedbacks(loadedFeedbacks);
+          if (loadedTemplates.length > 0) {
+            setTemplates(loadedTemplates);
           }
 
-          // If they are a staff member, sync with the local staff state if missing
-          if (dbRole === 'staff') {
-            setStaff(prevStaff => {
-              const exists = prevStaff.some(s => s.email.toLowerCase() === userEmail || s.id === supabaseUser.id);
-              if (!exists) {
-                const newStaffMember: Staff = {
-                  id: supabaseUser.id,
-                  name: sUser.full_name || 'Staff Member',
-                  email: sUser.email,
-                  phone: 'N/A',
-                  address: 'Registered Caregiver Address',
-                  role: 'Care Assistant',
-                  status: 'Active',
-                  dbsStatus: 'Compliant',
-                  rightToWork: 'Compliant',
-                  trainingStatus: 'Compliant',
-                  joinedDate: new Date().toISOString().split('T')[0]
-                };
-                return [...prevStaff, newStaffMember];
-              }
-              return prevStaff;
-            });
-          }
-
-          // If they are an applicant, sync with local applicants state if missing
-          if (dbRole === 'applicant') {
-            setApplicants(prevApps => {
-              const exists = prevApps.some(a => a.email.toLowerCase() === userEmail || a.id === supabaseUser.id);
-              if (!exists) {
-                const newApplicant: Applicant = {
-                  id: supabaseUser.id,
-                  name: sUser.full_name || 'Applicant User',
-                  email: sUser.email,
-                  phone: 'N/A',
-                  position: 'Care Assistant', // Default target role
-                  status: 'Applied',
-                  dateCreated: new Date().toISOString().split('T')[0],
-                  notes: 'Self-registered applicant via portal.'
-                };
-                return [...prevApps, newApplicant];
-              }
-              return prevApps;
-            });
-          }
         } else {
           // No matching Supabase user profile exists!
           const diagnosticMsg = `No matching Supabase application profile exists in the 'public.users' table for email '${supabaseUser.email}' (UID: ${supabaseUser.id}).`;
@@ -423,7 +482,7 @@ export default function App() {
       }
     };
 
-    syncProfile();
+    syncProfileAndData();
 
     return () => {
       active = false;
@@ -506,20 +565,192 @@ export default function App() {
     setAccountSuspendedMessage(null);
   };
 
+  // --- DATABASE PERSISTENCE HELPERS ---
+  const saveApplicantToSupabase = async (applicant: Applicant) => {
+    try {
+      // 1. Update/Insert in users table
+      const { error: userErr } = await supabase.from('users').upsert({
+        id: applicant.id,
+        full_name: applicant.name,
+        email: applicant.email.toLowerCase(),
+        phone: applicant.phone,
+        role: 'Applicant',
+        status: 'Pending',
+        firebase_uid: applicant.id
+      });
+      if (userErr) console.error("Error upserting applicant in users table:", userErr);
+
+      // 2. Prepare metadata
+      const metadata = {
+        notes: applicant.notes || '',
+        complianceChecked: applicant.complianceChecked || {},
+        interviewTime: applicant.interviewTime,
+        interviewMeetUrl: applicant.interviewMeetUrl,
+        cvData: applicant.cvData
+      };
+
+      // 3. Update/Insert in staff_profiles table
+      const { error: profileErr } = await supabase.from('staff_profiles').upsert({
+        user_id: applicant.id,
+        job_title: applicant.position,
+        department: applicant.status, // applicant's status
+        staff_number: JSON.stringify(metadata) // serialize metadata
+      }, { onConflict: 'user_id' });
+      if (profileErr) console.error("Error upserting applicant in staff_profiles:", profileErr);
+    } catch (e) {
+      console.error("Exception in saveApplicantToSupabase:", e);
+    }
+  };
+
+  const saveStaffToSupabase = async (s: Staff) => {
+    try {
+      // 1. Update/Insert in users table
+      const { error: userErr } = await supabase.from('users').upsert({
+        id: s.id,
+        full_name: s.name,
+        email: s.email.toLowerCase(),
+        phone: s.phone,
+        role: s.role === 'Administrator' ? 'Admin' : 'Staff',
+        status: s.status,
+        firebase_uid: s.id
+      });
+      if (userErr) console.error("Error upserting staff in users table:", userErr);
+
+      // 2. Prepare metadata
+      const metadata = {
+        address: s.address,
+        avatarUrl: s.avatarUrl,
+        nmcPin: s.nmcPin,
+        nmcExpiry: s.nmcExpiry,
+        dbsStatus: s.dbsStatus,
+        rightToWorkExpiry: s.rightToWorkExpiry,
+        trainingStatus: s.trainingStatus,
+        trainingExpiry: s.trainingExpiry
+      };
+
+      // 3. Update/Insert in staff_profiles table
+      const { error: profileErr } = await supabase.from('staff_profiles').upsert({
+        user_id: s.id,
+        job_title: s.role,
+        department: s.status,
+        right_to_work: s.rightToWork,
+        dbs_number: s.dbsNumber,
+        dbs_issue_date: s.dbsExpiry,
+        enhanced_dbs: s.dbsStatus === 'Compliant',
+        profile_status: s.status,
+        staff_number: JSON.stringify(metadata)
+      }, { onConflict: 'user_id' });
+      if (profileErr) console.error("Error upserting staff in staff_profiles:", profileErr);
+    } catch (e) {
+      console.error("Exception in saveStaffToSupabase:", e);
+    }
+  };
+
+  const saveTimesheetToSupabase = async (t: Timesheet) => {
+    try {
+      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
+      const { error } = await supabase.from('documents').upsert({
+        id: t.id.startsWith('time_') ? undefined : t.id,
+        user_id: adminUser,
+        document_name: `Timesheet for ${t.staffName}`,
+        category: 'Timesheet',
+        file_path: t.fileUrl || '#',
+        verification_status: t.approvalStatus,
+        notes: JSON.stringify(t)
+      });
+      if (error) console.error("Error saving timesheet to Supabase:", error);
+    } catch (e) {
+      console.error("Exception in saveTimesheetToSupabase:", e);
+    }
+  };
+
+  const saveActivityLogToSupabase = async (log: ActivityLog) => {
+    try {
+      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
+      const { error } = await supabase.from('documents').insert({
+        user_id: adminUser,
+        document_name: log.action,
+        category: 'ActivityLog',
+        file_path: '#',
+        notes: JSON.stringify(log)
+      });
+      if (error) console.error("Error saving activity log to Supabase:", error);
+    } catch (e) {
+      console.error("Exception in saveActivityLogToSupabase:", e);
+    }
+  };
+
+  const saveFamilyFeedbackToSupabase = async (f: FamilyFeedback) => {
+    try {
+      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
+      const { error } = await supabase.from('documents').upsert({
+        id: f.id.startsWith('fb_') ? undefined : f.id,
+        user_id: adminUser,
+        document_name: `Feedback from ${f.familyRepresentative}`,
+        category: 'FamilyFeedback',
+        file_path: '#',
+        verification_status: f.status,
+        notes: JSON.stringify(f)
+      });
+      if (error) console.error("Error saving family feedback to Supabase:", error);
+    } catch (e) {
+      console.error("Exception in saveFamilyFeedbackToSupabase:", e);
+    }
+  };
+
+  const saveRoleTemplateToSupabase = async (rt: RoleTemplate) => {
+    try {
+      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
+      const { error } = await supabase.from('documents').upsert({
+        id: rt.role.replace(/\s+/g, '_'),
+        user_id: adminUser,
+        document_name: `Template: ${rt.role}`,
+        category: 'RoleTemplate',
+        file_path: '#',
+        notes: JSON.stringify(rt)
+      });
+      if (error) console.error("Error saving role template to Supabase:", error);
+    } catch (e) {
+      console.error("Exception in saveRoleTemplateToSupabase:", e);
+    }
+  };
+
+  const handleUpdateTemplates = async (newTemplates: RoleTemplate[]) => {
+    setTemplates(newTemplates);
+    for (const rt of newTemplates) {
+      await saveRoleTemplateToSupabase(rt);
+    }
+  };
+
+  const handleUpdateFeedbackStatus = async (id: string, newStatus: any) => {
+    setFamilyFeedbacks(prev => prev.map(f => {
+      if (f.id === id) {
+        const updated = { ...f, status: newStatus };
+        saveFamilyFeedbackToSupabase(updated);
+        return updated;
+      }
+      return f;
+    }));
+  };
+
+  const handleDeleteFeedback = async (id: string) => {
+    setFamilyFeedbacks(prev => prev.filter(f => f.id !== id));
+    await handleDeleteDocument(id);
+  };
+
   // State mutation callbacks passed to children components
   const handleUpdateApplicantStatus = async (id: string, newStatus: ApplicantStatus) => {
     const targetApplicant = applicants.find(a => a.id === id);
     if (!targetApplicant) return;
 
-    if (newStatus === 'Accepted') {
-      // 1. Preserve them in the Recruitment Pipeline but mark as Accepted
-      setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+    const updatedApplicant = { ...targetApplicant, status: newStatus };
+    setApplicants(prev => prev.map(a => a.id === id ? updatedApplicant : a));
+    await saveApplicantToSupabase(updatedApplicant);
 
-      // 2. Automatically create an Active Staff record
+    if (newStatus === 'Accepted') {
       const alreadyExists = staff.some(s => s.email.toLowerCase() === targetApplicant.email.toLowerCase());
       if (!alreadyExists) {
-        // Automatically assign: Staff ID, Compliance Profile, Document Folder, Employment Status = Active
-        const newStaffId = targetApplicant.id; // Try to keep ID consistent
+        const newStaffId = targetApplicant.id;
         const newStaffMember: Staff = {
           id: newStaffId,
           name: targetApplicant.name,
@@ -538,8 +769,8 @@ export default function App() {
           joinedDate: new Date().toISOString().split('T')[0]
         };
         setStaff(prevStaff => [...prevStaff, newStaffMember]);
+        await saveStaffToSupabase(newStaffMember);
 
-        // Automatically assign Document Folder
         const placeholderDoc: Document = {
           id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
           name: `${targetApplicant.name.replace(/\s+/g, '_')}_Compliance_Profile.pdf`,
@@ -552,14 +783,20 @@ export default function App() {
         };
         setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
         
-        // Update user status and role in Supabase
-        supabase.from('users').update({ status: 'Active', role: 'Staff' }).eq('id', targetApplicant.id).then(({ error }) => {
-          if (error) {
-            console.error("Failed to update user in Supabase", error);
-          }
+        const { error: docError } = await supabase.from('documents').insert({
+          user_id: newStaffMember.id,
+          document_name: placeholderDoc.name,
+          category: placeholderDoc.category,
+          file_path: '#',
+          verification_status: 'Approved',
+          file_size: 1572864,
+          file_type: 'application/pdf'
         });
+        if (docError) console.error("Error creating Accepted compliance doc in Supabase:", docError);
 
-        // Log every action inside Recent Activity
+        const { error: userUpdateErr } = await supabase.from('users').update({ status: 'Active', role: 'Staff' }).eq('id', targetApplicant.id);
+        if (userUpdateErr) console.error("Failed to update user role/status in Supabase:", userUpdateErr);
+
         const logs: ActivityLog[] = [
           {
             id: `act_${Date.now()}_1`,
@@ -584,14 +821,10 @@ export default function App() {
           }
         ];
         setActivityLogs(prevLogs => [...logs, ...prevLogs]);
-      }
-    } else {
-      setApplicants(prev => prev.map(a => {
-        if (a.id === id) {
-          return { ...a, status: newStatus };
+        for (const l of logs) {
+          await saveActivityLogToSupabase(l);
         }
-        return a;
-      }));
+      }
     }
   };
 
@@ -604,8 +837,8 @@ export default function App() {
     };
 
     setApplicants(prev => [newApp, ...prev]);
+    saveApplicantToSupabase(newApp);
 
-    // Push activity log
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
       action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
@@ -614,39 +847,43 @@ export default function App() {
       type: 'applicant'
     };
     setActivityLogs(prev => [log, ...prev]);
+    saveActivityLogToSupabase(log);
     return newApp.id;
   };
 
-  const handleUpdateApplicantCompliance = (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
+  const handleUpdateApplicantCompliance = async (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
     setApplicants(prev => prev.map(a => {
       if (a.id === applicantId) {
-        return {
-          ...a,
-          complianceChecked
-        };
+        const updated = { ...a, complianceChecked };
+        saveApplicantToSupabase(updated);
+        return updated;
       }
       return a;
     }));
   };
 
-  const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
+  const handleUpdateApplicantDetails = async (id: string, fields: Partial<Applicant>) => {
     setApplicants(prev => prev.map(a => {
       if (a.id === id) {
-        return { ...a, ...fields };
+        const updated = { ...a, ...fields };
+        saveApplicantToSupabase(updated);
+        return updated;
       }
       return a;
     }));
   };
 
-  const handleSaveCVData = (applicantId: string, cvData: any) => {
-    handleUpdateApplicantDetails(applicantId, { cvData });
-    setActivityLogs(prev => [{
+  const handleSaveCVData = async (applicantId: string, cvData: any) => {
+    await handleUpdateApplicantDetails(applicantId, { cvData });
+    const log: ActivityLog = {
       id: `act_${Date.now()}_cv`,
       action: `CV Builder data updated for applicant.`,
       timestamp: 'Just now',
       user: 'Applicant Portal',
       type: 'applicant'
-    }, ...prev]);
+    };
+    setActivityLogs(prev => [log, ...prev]);
+    await saveActivityLogToSupabase(log);
   };
 
   const handleGenerateCVPdf = (applicantId: string, pdfBlob: Blob) => {
@@ -670,7 +907,6 @@ export default function App() {
       return;
     }
     try {
-      // 1. Reset React states
       setApplicants([]);
       setStaff([]);
       setDocuments([]);
@@ -678,11 +914,9 @@ export default function App() {
       setActivityLogs([]);
       setFamilyFeedbacks([]);
 
-      // 2. Clear client caches
       localStorage.clear();
       sessionStorage.clear();
 
-      // 3. Sign out
       await supabase.auth.signOut();
       setIsLoggedIn(false);
       setUserAccountRole(null);
@@ -703,7 +937,6 @@ export default function App() {
 
       console.log(`[handleDeleteApplicant] Beginning persistent delete workflow for applicant: "${targetApplicant.name}" (${id})`);
 
-      // Find user profile in Supabase 'users' table
       const { data: matchedUsers, error: findError } = await supabase
         .from('users')
         .select('id, email')
@@ -741,7 +974,7 @@ export default function App() {
         if (!response.ok) {
           console.error("[handleDeleteApplicant] Backend user deletion failed:", result);
           alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
-          return; // STOP! Do not update React state
+          return;
         }
 
         console.log("[handleDeleteApplicant] Backend user deletion successful:", result);
@@ -749,12 +982,10 @@ export default function App() {
         console.log(`[handleDeleteApplicant] No active database profile was found for ID/Email. This is a local-only candidate record.`);
       }
 
-      // Database deletion verified successful -> now safely update React local state
       setApplicants(prev => prev.filter(a => a.id !== id));
       setDocuments(prev => prev.filter(d => d.staffId !== id));
       setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
 
-      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
@@ -763,6 +994,7 @@ export default function App() {
         type: 'applicant'
       };
       setActivityLogs(prev => [log, ...prev]);
+      await saveActivityLogToSupabase(log);
 
       if (targetUserId) {
         alert(`SUCCESS:\nCandidate "${targetApplicant.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
@@ -778,20 +1010,7 @@ export default function App() {
 
   const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
     setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
-
-    // Try updating Supabase profile to match new role and status
-    try {
-      const { error: roleUpdateErr } = await supabase.from('users').update({
-        role: updatedStaff.role,
-        status: updatedStaff.status
-      }).eq('id', updatedStaff.id);
-      
-      if (roleUpdateErr) {
-        console.error("Error updating user role in Supabase:", roleUpdateErr);
-      }
-    } catch (e) {
-      console.error("Exception updating user role in Supabase:", e);
-    }
+    await saveStaffToSupabase(updatedStaff);
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
@@ -801,14 +1020,14 @@ export default function App() {
       type: 'compliance'
     };
     setActivityLogs(prev => [log, ...prev]);
+    await saveActivityLogToSupabase(log);
   };
 
   const handleAddStaff = async (newStaff: Staff) => {
     try {
-      // Save to local React State (triggers localStorage sync automatically)
       setStaff(prev => [...prev, newStaff]);
+      await saveStaffToSupabase(newStaff);
 
-      // Push an activity log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
@@ -817,6 +1036,7 @@ export default function App() {
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
+      await saveActivityLogToSupabase(log);
     } catch (err) {
       console.error("Error manual registering staff:", err);
     }
@@ -829,7 +1049,6 @@ export default function App() {
 
       console.log(`[handleDeleteStaff] Beginning persistent delete workflow for staff member: "${target.name}" (${staffId})`);
 
-      // Find user profile in Supabase 'users' table
       const { data: matchedUsers, error: findError } = await supabase
         .from('users')
         .select('id, email')
@@ -867,7 +1086,7 @@ export default function App() {
         if (!response.ok) {
           console.error("[handleDeleteStaff] Backend user deletion failed:", result);
           alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
-          return; // STOP! Do not update React state
+          return;
         }
 
         console.log("[handleDeleteStaff] Backend user deletion successful:", result);
@@ -875,7 +1094,6 @@ export default function App() {
         console.log(`[handleDeleteStaff] No active database profile was found for ID/Email. This is a local-only staff record.`);
       }
 
-      // Database deletion verified successful -> now safely update React local state
       setStaff(prev => prev.filter(s => s.id !== staffId));
       if (selectedStaffId === staffId) {
         setSelectedStaffId(null);
@@ -883,7 +1101,6 @@ export default function App() {
       setDocuments(prev => prev.filter(d => d.staffId !== staffId));
       setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
 
-      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
@@ -892,6 +1109,7 @@ export default function App() {
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
+      await saveActivityLogToSupabase(log);
 
       if (targetUserId) {
         alert(`SUCCESS:\nStaff member "${target.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
@@ -916,6 +1134,7 @@ export default function App() {
       type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
+    saveActivityLogToSupabase(log);
   };
 
   const handleUploadDocument = async (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => {
@@ -926,7 +1145,6 @@ export default function App() {
       let uploadedToStorage = false;
 
       try {
-        // 1. Upload the file into the private Supabase Storage bucket named: documents
         console.log("=== SUPABASE UPLOAD VERIFICATION ===");
         console.log("Uploaded Storage bucket name: 'documents'");
         console.log("Exact upload path:", filePath);
@@ -945,11 +1163,8 @@ export default function App() {
         }
 
         uploadedToStorage = true;
-
-        // 2. Use relative storage path for local state consistency
         finalFileUrl = filePath;
 
-        // Determine target user's Supabase UUID
         let targetSupabaseId = null;
         const targetFirebaseUid = doc.staffId || currentUserId;
         
@@ -962,7 +1177,6 @@ export default function App() {
           const name = targetApplicant?.name || targetStaff?.name || 'Unknown User';
           
           try {
-            // Check if user exists by firebase_uid
             let { data: uData, error: uError } = await supabase
               .from('users')
               .select('id')
@@ -970,7 +1184,6 @@ export default function App() {
               .maybeSingle();
 
             if (!uData) {
-              // Also try checking by email
               const { data: eData } = await supabase
                 .from('users')
                 .select('id')
@@ -982,7 +1195,6 @@ export default function App() {
             if (uData) {
               targetSupabaseId = uData.id;
             } else {
-              // Create new user row
               const { data: newUData, error: insError } = await supabase
                 .from('users')
                 .insert({
@@ -1005,10 +1217,8 @@ export default function App() {
           }
         }
 
-        // Map category to a database check-constraint-compliant value
         const mappedCategory = mapCredentialToCategory(doc.category);
 
-        // Prepare the payload for exact verification logging
         const insertPayload = {
           user_id: targetSupabaseId,
           document_name: file.name,
@@ -1020,14 +1230,11 @@ export default function App() {
           verification_status: 'Pending'
         };
 
-        // Verbose verification logging immediately before insertion
         console.log("=== SUPABASE PRE-INSERT VERIFICATION ===");
         console.log("Table: public.documents");
         console.log("Payload:", JSON.stringify(insertPayload, null, 2));
-        console.log("Category Value Checked:", insertPayload.category);
         console.log("========================================");
 
-        // 3. Create a row in the existing documents PostgreSQL table
         const { data: dbData, error: dbError } = await supabase
           .from('documents')
           .insert(insertPayload);
@@ -1038,7 +1245,6 @@ export default function App() {
       } catch (e: any) {
         console.error("Failed to upload/register with Supabase:", e);
         
-        // Rollback uploaded storage file if metadata creation failed
         if (uploadedToStorage) {
           try {
             await supabase.storage
@@ -1050,9 +1256,8 @@ export default function App() {
           }
         }
 
-        // Display the real error to the user
         alert(e.message || e);
-        return; // Halt execution and do not add to local application state/UI
+        return;
       }
     }
 
@@ -1074,6 +1279,7 @@ export default function App() {
       type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
+    saveActivityLogToSupabase(log);
   };
 
   const handleAssignDocument = (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
@@ -1096,7 +1302,6 @@ export default function App() {
     };
     setDocuments(prev => [newAssigned, ...prev]);
 
-    // Open email client
     const subject = encodeURIComponent(`Action Required: E-Signature Request for ${docName}`);
     const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease review and sign your document here:\n${secureLink}\n\nThank you.`);
     window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
@@ -1109,18 +1314,22 @@ export default function App() {
       type: 'document'
     };
     setActivityLogs(prev => [logSent, ...prev]);
+    saveActivityLogToSupabase(logSent);
 
-    // Simulate lifecycle automatically
     const simulateStatus = (status: DocumentStatus, actionMsg: string, delayMs: number) => {
       setTimeout(() => {
         setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status } : d));
-        setActivityLogs(prev => [{
-          id: `act_${Date.now()}_${status.toLowerCase()}`,
-          action: actionMsg,
-          timestamp: 'Just now',
-          user: 'System Workflow',
-          type: 'document'
-        }, ...prev]);
+        setActivityLogs(prev => {
+          const logItem = {
+            id: `act_${Date.now()}_${status.toLowerCase()}`,
+            action: actionMsg,
+            timestamp: 'Just now',
+            user: 'System Workflow',
+            type: 'document' as const
+          };
+          saveActivityLogToSupabase(logItem);
+          return [logItem, ...prev];
+        });
       }, delayMs);
     };
 
@@ -1144,7 +1353,7 @@ export default function App() {
       if (error) {
         console.error("[handleDeleteDocument] Failed to delete from Supabase:", JSON.stringify(error, null, 2));
         alert(`Failed to delete document from database: ${error.message}`);
-        return; // Abort
+        return;
       }
 
       setDocuments(prev => prev.filter(d => d.id !== docId));
@@ -1154,20 +1363,28 @@ export default function App() {
     }
   };
 
-  const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
+  const handleUpdateTimesheetStatus = async (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
+    let target: Timesheet | undefined;
     setTimesheets(prev => prev.map(t => {
       if (t.id === timesheetId) {
-        return { 
+        const updated = { 
           ...t, 
           approvalStatus: status,
           reviewer: 'Admin'
         };
+        target = updated;
+        saveTimesheetToSupabase(updated);
+        return updated;
       }
       return t;
     }));
 
-    const target = timesheets.find(t => t.id === timesheetId);
     if (target) {
+      const { error: docErr } = await supabase.from('documents').update({
+        verification_status: status
+      }).eq('id', timesheetId);
+      if (docErr) console.error("Error updating timesheet status in documents table:", docErr);
+
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
@@ -1176,16 +1393,18 @@ export default function App() {
         type: 'timesheet'
       };
       setActivityLogs(prev => [log, ...prev]);
+      saveActivityLogToSupabase(log);
     }
   };
 
-  const handleAddTimesheet = (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
+  const handleAddTimesheet = async (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
     const newTime: Timesheet = {
       ...timesheet,
       id: `time_${Date.now()}`,
       uploadDate: new Date().toISOString().split('T')[0]
     };
     setTimesheets(prev => [newTime, ...prev]);
+    await saveTimesheetToSupabase(newTime);
 
     const log: ActivityLog = {
       id: `act_${Date.now()}`,
@@ -1195,6 +1414,7 @@ export default function App() {
       type: 'timesheet'
     };
     setActivityLogs(prev => [log, ...prev]);
+    saveActivityLogToSupabase(log);
   };
 
   // Helper selectors
