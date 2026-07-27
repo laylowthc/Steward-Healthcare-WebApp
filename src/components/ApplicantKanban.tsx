@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Applicant, ApplicantStatus, RoleTemplate, CVData } from '../types';
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
-import CVBuilder from './CVBuilder';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -716,26 +715,6 @@ export default function ApplicantKanban({
         );
       })()}
 
-      {/* CV Builder Modal */}
-      {showCVBuilder && selectedApplicant && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex justify-center items-center p-4">
-          <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
-            <button 
-              onClick={() => setShowCVBuilder(false)} 
-              className="absolute top-4 right-4 z-10 text-slate-500 hover:text-slate-800 bg-white p-1 rounded-full shadow-sm"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <div className="flex-1 overflow-y-auto">
-              <CVBuilder 
-                applicant={selectedApplicant} 
-                onSaveCVData={(id, data) => onSaveCVData && onSaveCVData(id, data)}
-                onGeneratePDF={(id, blob) => onGenerateCVPdf && onGenerateCVPdf(id, blob)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

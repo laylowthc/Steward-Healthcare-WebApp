@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Applicant, RoleTemplate, Document, CVData, mapCredentialToCategory } from '../types';
-import { Upload, FileText, CheckCircle, Clock, FileBadge, Eye, ExternalLink, X, RefreshCw } from 'lucide-react';
-import CVBuilder from './CVBuilder';
-import { getSignedUrlForDocument } from '../lib/supabase';
+import { Applicant, RoleTemplate, Document, Staff } from '../types';
+import { 
+  Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X, RefreshCw, 
+  PenTool, ShieldCheck, UserCheck, BookOpen, AlertCircle, Sparkles, CheckSquare
+} from 'lucide-react';
+import OnlineApplicationForm from './OnlineApplicationForm';
+import PassportPhotoUpload from './PassportPhotoUpload';
+import InteractiveDocumentFiller from './InteractiveDocumentFiller';
+import { getSignedUrlForDocument, supabase } from '../lib/supabase';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -11,8 +16,8 @@ interface ApplicantPortalProps {
   onUploadDocument: (file: File, category: string) => void;
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onLogout: () => void;
-  onSaveCVData?: (applicantId: string, cvData: CVData) => void;
-  onGenerateCVPdf?: (applicantId: string, pdfBlob: Blob) => void;
+  onSaveCVData?: (applicantId: string, cvData: any) => void;
+  onSaveDocument?: (doc: Document) => void;
 }
 
 export default function ApplicantPortal({
@@ -23,16 +28,23 @@ export default function ApplicantPortal({
   onUpdateApplicantCompliance,
   onLogout,
   onSaveCVData,
-  onGenerateCVPdf
+  onSaveDocument
 }: ApplicantPortalProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
+  
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'cv'>('overview');
 
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [resolvedViewingUrl, setResolvedViewingUrl] = useState<string | null>(null);
   const [isLoadingViewing, setIsLoadingViewing] = useState(false);
+
+  // Active filler doc state
+  const [activeFillingDoc, setActiveFillingDoc] = useState<Document | null>(null);
+
+  // Profile avatar photo url state
+  const [avatarUrl, setAvatarUrl] = useState<string>(applicant.cvData?.personalDetails?.avatarUrl || '');
 
   useEffect(() => {
     let active = true;
@@ -56,16 +68,17 @@ export default function ApplicantPortal({
   }, [viewingFileUrl]);
 
   const jobTemplate = templates.find(t => t.role.toLowerCase() === applicant.position.toLowerCase()) || templates[0];
-  const reqs = jobTemplate?.requiredCredentials || [];
+  const reqs = jobTemplate?.requiredCredentials || ['Passport', 'DBS Certificate', 'Right to Work', 'Training Certificate'];
 
-  // Derive statusChecklist dynamically and exclusively from actual documents!
+  // Documents for this applicant
+  const applicantDocs = documents.filter(d => d.staffId === applicant.id);
+
+  // Derive compliance checklist status
   const statusChecklist: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'> = {};
   reqs.forEach(req => {
-    const dbCategory = mapCredentialToCategory(req);
-    const applicantDocs = documents.filter(d => d.staffId === applicant.id);
-    const doc = applicantDocs.find(d => d.category === dbCategory);
+    const doc = applicantDocs.find(d => d.category.toLowerCase().includes(req.toLowerCase()) || req.toLowerCase().includes(d.category.toLowerCase()));
     if (doc) {
-      if (doc.status === 'Approved') {
+      if (doc.status === 'Approved' || doc.status === 'Signed') {
         statusChecklist[req] = 'Compliant';
       } else {
         statusChecklist[req] = 'Awaiting Review';
@@ -76,227 +89,568 @@ export default function ApplicantPortal({
   });
 
   const handleUpload = async () => {
-    if (!uploadFile) return;
-    
-    if (!uploadCategory) {
-      alert("Please select a document category.");
+    if (!uploadFile || !uploadCategory) {
+      alert("Please select a file and document category.");
       return;
     }
 
     setIsUploading(true);
-    // Map to database-compliant category to prevent database constraint violations
-    const mappedCategory = mapCredentialToCategory(uploadCategory);
-    
     setTimeout(() => {
-      onUploadDocument(uploadFile, mappedCategory);
+      onUploadDocument(uploadFile, uploadCategory);
       setUploadFile(null);
       setUploadCategory('');
       setIsUploading(false);
-    }, 1500);
+    }, 1200);
   };
 
-  const applicantDocs = documents.filter(d => d.staffId === applicant.id);
+  const handleSaveApplicationForm = async (applicantId: string, formData: Record<string, any>) => {
+    // 1. Save CVData/Application form metadata
+    if (onSaveCVData) {
+      onSaveCVData(applicantId, {
+        personalDetails: {
+          address: formData.address,
+          dob: formData.dob,
+          nationality: formData.nationality,
+          title: formData.title,
+          gender: formData.gender,
+          niNumber: formData.niNumber,
+          rightToWorkStatus: formData.rightToWorkStatus,
+          emergencyName: formData.emergencyName,
+          emergencyRelation: formData.emergencyRelation,
+          emergencyPhone: formData.emergencyPhone,
+          avatarUrl: avatarUrl
+        },
+        employmentHistory: formData.employmentHistory,
+        qualifications: formData.educationHistory,
+        mandatoryTraining: formData.mandatoryTrainings,
+        skills: formData.skills,
+        references: formData.references
+      });
+    }
+
+    // 2. Persist Application Form document into Supabase documents table
+    try {
+      const appDocName = `Application_Form_${applicant.name.replace(/\s+/g, '_')}.pdf`;
+      const { error: docErr } = await supabase.from('documents').upsert({
+        user_id: applicant.id,
+        document_name: appDocName,
+        category: 'Application Form',
+        file_path: '#',
+        verification_status: 'Awaiting Review',
+        notes: JSON.stringify(formData)
+      });
+      if (docErr) console.error("Error persisting application form to Supabase:", docErr);
+    } catch (e) {
+      console.error("Exception in handleSaveApplicationForm:", e);
+    }
+  };
+
+  // List of mandatory HR onboarding documents
+  const hrDocList = [
+    {
+      category: 'New Starter Form',
+      title: 'New Starter Information Form (Appendix D)',
+      desc: 'Employee personal details, tax history, emergency contacts & health declarations.'
+    },
+    {
+      category: 'Bank Details & PAYE',
+      title: 'Bank Details & PAYE Starter Declaration (PAY 1 B)',
+      desc: 'Payroll bank account details, sort code, account number & HMRC tax statement.'
+    },
+    {
+      category: 'Next of Kin',
+      title: 'Next of Kin & Emergency Contact Form',
+      desc: 'Primary and secondary emergency contacts, medical notices & relationships.'
+    },
+    {
+      category: '48-Hour Opt-Out',
+      title: 'Working Time Regulations 48-Hour Opt-Out Agreement',
+      desc: 'Electronic declaration regarding UK Working Time Directive hours.'
+    },
+    {
+      category: 'Policies Acknowledgement',
+      title: 'Confidentiality Agreement & Policy Handbook Signoff',
+      desc: 'CQC compliance, GDPR data privacy & clinical code of conduct agreement.'
+    }
+  ];
+
+  // Helper to trigger filling an HR doc
+  const handleOpenHrDoc = (category: string, title: string) => {
+    const existing = applicantDocs.find(d => d.category === category);
+    const docToFill: Document = existing || {
+      id: `doc_${category.replace(/\s+/g, '_')}_${Date.now()}`,
+      name: `${title}.pdf`,
+      category: category as any,
+      staffId: applicant.id,
+      staffName: applicant.name,
+      uploadDate: new Date().toISOString().split('T')[0],
+      status: 'Awaiting Review',
+      size: '1.2 MB'
+    };
+    setActiveFillingDoc(docToFill);
+  };
+
+  const handleOpenJobDescription = () => {
+    const existing = applicantDocs.find(d => d.category === 'Job Description');
+    const docToFill: Document = existing || {
+      id: `doc_jd_${Date.now()}`,
+      name: `Job_Description_${applicant.position.replace(/\s+/g, '_')}.pdf`,
+      category: 'Job Description',
+      staffId: applicant.id,
+      staffName: applicant.name,
+      uploadDate: new Date().toISOString().split('T')[0],
+      status: 'Awaiting Review',
+      size: '1.8 MB'
+    };
+    setActiveFillingDoc(docToFill);
+  };
+
+  const handleSaveDocumentSignature = async (filledData: Record<string, any>) => {
+    if (!activeFillingDoc) return;
+
+    const updatedDoc: Document = {
+      ...activeFillingDoc,
+      status: 'Approved',
+      filledData
+    };
+
+    if (onSaveDocument) {
+      onSaveDocument(updatedDoc);
+    }
+
+    // Persist to Supabase
+    try {
+      const { error } = await supabase.from('documents').upsert({
+        user_id: applicant.id,
+        document_name: updatedDoc.name,
+        category: updatedDoc.category,
+        file_path: updatedDoc.fileUrl || '#',
+        verification_status: 'Approved',
+        notes: JSON.stringify(filledData)
+      });
+      if (error) console.error("Error saving signed document to Supabase:", error);
+    } catch (e) {
+      console.error("Exception saving document to Supabase:", e);
+    }
+
+    setActiveFillingDoc(null);
+  };
+
+  // Convert applicant to mock Staff object for InteractiveDocumentFiller compatibility
+  const applicantAsStaff: Staff = {
+    id: applicant.id,
+    name: applicant.name,
+    email: applicant.email,
+    phone: applicant.phone,
+    address: applicant.cvData?.personalDetails?.address || 'Registered Candidate Address',
+    role: applicant.position as any,
+    status: 'Active',
+    dbsStatus: 'Compliant',
+    rightToWork: 'Compliant',
+    trainingStatus: 'Compliant',
+    avatarUrl: avatarUrl,
+    joinedDate: applicant.dateCreated
+  };
 
   return (
     <div className="flex-1 bg-slate-50 min-h-screen">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">My Applicant Portal</h1>
-          <p className="text-xs text-slate-500">Welcome, {applicant.name}</p>
-        </div>
-        <div className="flex space-x-3 items-center">
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            <button 
-              onClick={() => setActiveTab('overview')} 
-              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${activeTab === 'overview' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="px-2 py-0.5 bg-purple-100 text-purple-900 border border-purple-200 text-[10px] font-black uppercase rounded">
+                Candidate Portal
+              </span>
+              <span className="text-xs text-slate-500 font-semibold">• Position: {applicant.position}</span>
+            </div>
+            <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <nav className="flex bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                  activeTab === 'overview' ? 'bg-white text-purple-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                1. Overview & Compliance
+              </button>
+              <button
+                onClick={() => setActiveTab('application_form')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                  activeTab === 'application_form' ? 'bg-white text-purple-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                2. Application Form
+              </button>
+              <button
+                onClick={() => setActiveTab('hr_documents')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                  activeTab === 'hr_documents' ? 'bg-white text-purple-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                3. HR Onboarding Forms
+              </button>
+              <button
+                onClick={() => setActiveTab('job_description')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                  activeTab === 'job_description' ? 'bg-white text-purple-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                4. Job Description
+              </button>
+            </nav>
+
+            <button
+              onClick={onLogout}
+              className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-100 transition"
             >
-              Overview
-            </button>
-            <button 
-              onClick={() => setActiveTab('cv')} 
-              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${activeTab === 'cv' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              CV Builder
+              Logout
             </button>
           </div>
-          <button 
-            onClick={onLogout}
-            className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded hover:bg-rose-100 transition"
-          >
-            Logout
-          </button>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-6 space-y-6">
-        
-        {activeTab === 'overview' ? (
-          <>
-            {/* Progress Tracker */}
-            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-purple-600" />
-            Application Progress
-          </h2>
-          <div className="flex items-center space-x-2 text-xs">
-            {['Applied', 'Screening', 'Interview', 'Compliance', 'Active'].map((stage, idx) => {
-              const stages = ['Applied', 'Screening', 'Interview', 'Compliance', 'Active'];
-              const currentIdx = stages.indexOf(applicant.status);
-              const isPast = idx <= currentIdx;
-              const isCurrent = stage === applicant.status;
-              
-              return (
-                <React.Fragment key={stage}>
-                  <div className={`px-3 py-1.5 rounded-full font-bold border ${isCurrent ? 'bg-purple-100 text-purple-800 border-purple-300' : isPast ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                    {stage}
-                  </div>
-                  {idx < stages.length - 1 && (
-                    <div className={`h-0.5 w-8 ${isPast ? 'bg-emerald-200' : 'bg-slate-200'}`} />
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </section>
+      <main className="max-w-6xl mx-auto p-6 space-y-6">
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Required Documents Checklist */}
-          <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-rose-600" />
-              Required Documentation
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">Please upload the following required documents to move your application to the next stage.</p>
-            
-            <div className="space-y-3">
-              {reqs.map(req => {
-                const status = statusChecklist[req] || 'Missing';
-                return (
-                  <div key={req} className="flex items-center justify-between p-3 border border-slate-100 rounded-xl bg-slate-50">
-                    <span className="text-xs font-bold text-slate-700">{req}</span>
-                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
-                      status === 'Compliant' ? 'bg-emerald-100 text-emerald-800' :
-                      status === 'Awaiting Review' ? 'bg-amber-100 text-amber-800' :
-                      'bg-rose-100 text-rose-800'
+        {/* TAB 1: OVERVIEW & COMPLIANCE */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Onboarding Stage Tracker */}
+            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-purple-700" />
+                Candidate Onboarding Workflow Journey
+              </h2>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {[
+                  { title: '1. Register Account', status: 'Done', desc: 'Account Created' },
+                  { title: '2. Admin Activated', status: 'Done', desc: 'Active Candidate' },
+                  { title: '3. Application Form', status: applicantDocs.some(d => d.category === 'Application Form') ? 'Done' : 'In Progress', desc: 'Online Paperwork' },
+                  { title: '4. HR Onboarding', status: applicantDocs.some(d => d.category === 'New Starter Form') ? 'Done' : 'Pending', desc: 'PAYE & Appendix D' },
+                  { title: '5. Job Description', status: applicantDocs.some(d => d.category === 'Job Description') ? 'Done' : 'Pending', desc: 'Read & E-Signed' }
+                ].map((step, idx) => {
+                  const isDone = step.status === 'Done';
+                  const isCurrent = step.status === 'In Progress';
+                  return (
+                    <div key={idx} className={`p-3 rounded-xl border text-left ${
+                      isDone ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' :
+                      isCurrent ? 'bg-purple-50 border-purple-300 text-purple-900 font-bold' :
+                      'bg-slate-50 border-slate-200 text-slate-500'
                     }`}>
-                      {status}
-                    </span>
+                      <span className="text-[10px] uppercase font-black tracking-wider block">Step {idx + 1}</span>
+                      <div className="text-xs font-bold mt-0.5">{step.title}</div>
+                      <span className={`text-[9px] font-extrabold mt-1 block px-1.5 py-0.5 rounded w-fit ${
+                        isDone ? 'bg-emerald-200/60 text-emerald-900' :
+                        isCurrent ? 'bg-purple-200/60 text-purple-900' :
+                        'bg-slate-200/60 text-slate-600'
+                      }`}>
+                        {step.status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Passport Photo Upload Component */}
+            <PassportPhotoUpload
+              currentPhotoUrl={avatarUrl}
+              userId={applicant.id}
+              userName={applicant.name}
+              onPhotoUploaded={(url) => {
+                setAvatarUrl(url);
+                if (onSaveCVData) {
+                  onSaveCVData(applicant.id, {
+                    ...applicant.cvData,
+                    personalDetails: { ...applicant.cvData?.personalDetails, avatarUrl: url }
+                  });
+                }
+              }}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Compliance Checklist */}
+              <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-purple-700" />
+                    Required Compliance Credentials
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Upload official compliance documents required for Care Quality Commission (CQC) clearance.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  {reqs.map(req => {
+                    const status = statusChecklist[req] || 'Missing';
+                    return (
+                      <div key={req} className="flex items-center justify-between p-3 border border-slate-200 rounded-xl bg-slate-50">
+                        <span className="text-xs font-bold text-slate-800">{req}</span>
+                        <span className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full border ${
+                          status === 'Compliant' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                          status === 'Awaiting Review' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                          'bg-rose-50 text-rose-800 border-rose-200'
+                        }`}>
+                          {status}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Upload Widget */}
+              <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-indigo-600" />
+                    Upload Compliance Document
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Attach PDF or image file (DBS, Passport, Right to Work, Training).
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Document Category</label>
+                    <select
+                      value={uploadCategory}
+                      onChange={(e) => setUploadCategory(e.target.value)}
+                      className="w-full text-xs p-2.5 border border-slate-300 rounded-xl bg-white font-medium"
+                    >
+                      <option value="">-- Choose Category --</option>
+                      {reqs.map(req => (
+                        <option key={req} value={req}>{req}</option>
+                      ))}
+                      <option value="Passport">Passport / Photo ID</option>
+                      <option value="DBS Certificate">DBS Certificate</option>
+                      <option value="Right to Work">Right to Work Proof</option>
+                      <option value="Training Certificate">Training Certificate</option>
+                      <option value="Reference">Professional Reference</option>
+                      <option value="Other">Other Document</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Select File (PDF or Image)</label>
+                    <input
+                      type="file"
+                      accept=".pdf,image/*"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      className="block w-full text-xs text-slate-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-xl file:border-0
+                        file:text-xs file:font-bold
+                        file:bg-purple-50 file:text-purple-900
+                        hover:file:bg-purple-100 cursor-pointer border border-slate-200 rounded-xl p-1"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleUpload}
+                    disabled={!uploadFile || !uploadCategory || isUploading}
+                    className="w-full py-2.5 bg-purple-900 hover:bg-purple-800 text-white text-xs font-extrabold rounded-xl transition shadow disabled:opacity-50 cursor-pointer"
+                  >
+                    {isUploading ? 'Uploading to Supabase Storage...' : 'Confirm & Save Document'}
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            {/* Submitted Documents Vault */}
+            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-slate-600" />
+                Submitted Candidate Documents Archive
+              </h2>
+
+              {applicantDocs.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs font-semibold bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  📂 No compliance documents submitted yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {applicantDocs.map(doc => (
+                    <div key={doc.id} className="p-3.5 border border-slate-200 rounded-xl bg-white flex flex-col justify-between shadow-xs">
+                      <div>
+                        <span className="text-[10px] font-black text-purple-900 uppercase tracking-wider">{doc.category}</span>
+                        <h3 className="text-xs font-bold text-slate-800 mt-1 truncate" title={doc.name}>{doc.name}</h3>
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-slate-100 flex justify-between items-center text-[10px]">
+                        <span className="text-slate-400 font-semibold">{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                        <div className="flex items-center gap-1.5">
+                          {doc.fileUrl && (
+                            <button
+                              onClick={() => setViewingFileUrl(doc.fileUrl)}
+                              className="px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-900 rounded font-bold border border-purple-200 transition cursor-pointer flex items-center gap-0.5"
+                            >
+                              <Eye className="w-3 h-3" />
+                              View
+                            </button>
+                          )}
+                          <span className={`px-2 py-0.5 rounded-full font-extrabold ${
+                            doc.status === 'Approved' || doc.status === 'Signed' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
+                            doc.status === 'Awaiting Review' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                            'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}>
+                            {doc.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* TAB 2: ONLINE APPLICATION FORM */}
+        {activeTab === 'application_form' && (
+          <div className="animate-in fade-in duration-200">
+            <OnlineApplicationForm
+              applicant={applicant}
+              onSaveApplication={handleSaveApplicationForm}
+              onCancel={() => setActiveTab('overview')}
+            />
+          </div>
+        )}
+
+        {/* TAB 3: HR ONBOARDING DOCUMENTS */}
+        {activeTab === 'hr_documents' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <span className="text-[10px] uppercase font-black tracking-widest text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">
+                Digital HR Paperwork
+              </span>
+              <h2 className="text-xl font-bold text-slate-900 mt-2">Mandatory HR Onboarding Forms</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Fill, sign, and save all required HR documents electronically. All progress persists in Supabase.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {hrDocList.map((hrDoc) => {
+                const existing = applicantDocs.find(d => d.category === hrDoc.category);
+                const isSigned = existing?.status === 'Approved' || existing?.status === 'Signed';
+
+                return (
+                  <div key={hrDoc.category} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">
+                          {hrDoc.category}
+                        </span>
+                        {isSigned ? (
+                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            Completed & Signed
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                            Pending Signature
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 mt-2">{hrDoc.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1">{hrDoc.desc}</p>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        onClick={() => handleOpenHrDoc(hrDoc.category, hrDoc.title)}
+                        className={`w-full py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs ${
+                          isSigned
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                            : 'bg-purple-900 hover:bg-purple-800 text-white'
+                        }`}
+                      >
+                        <PenTool className="w-3.5 h-3.5" />
+                        <span>{isSigned ? 'View / Edit Signed Form' : 'Fill & E-Sign Form'}</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
-          </section>
+          </div>
+        )}
 
-          {/* Upload Widget */}
-          <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-indigo-600" />
-              Upload Document
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Select Document Category</label>
-                <select 
-                  value={uploadCategory} 
-                  onChange={(e) => setUploadCategory(e.target.value)}
-                  className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-indigo-500 bg-white"
-                >
-                  <option value="">-- Choose Category --</option>
-                  {reqs.map(req => (
-                    <option key={req} value={req}>{req}</option>
-                  ))}
-                  <option value="CV">CV / Resume</option>
-                  <option value="Other">Other Certificate</option>
-                </select>
+        {/* TAB 4: JOB DESCRIPTION */}
+        {activeTab === 'job_description' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <span className="text-[10px] uppercase font-black tracking-widest text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">
+                Role Signoff
+              </span>
+              <h2 className="text-xl font-bold text-slate-900 mt-2">
+                Job Description & Duties Acknowledgement ({applicant.position})
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Read, review duties, and electronically sign the official job description for your assigned role.
+              </p>
+            </div>
+
+            <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4 max-w-3xl mx-auto">
+              <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black text-purple-950 uppercase block">Assigned Candidate Role</span>
+                  <div className="text-base font-bold text-slate-900">{applicant.position}</div>
+                </div>
+                {applicantDocs.some(d => d.category === 'Job Description') ? (
+                  <span className="text-xs font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                    Job Description Signed
+                  </span>
+                ) : (
+                  <span className="text-xs font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
+                    Awaiting E-Signature
+                  </span>
+                )}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Select File (PDF, IMG)</label>
-                <input 
-                  type="file" 
-                  accept=".pdf,image/*"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  className="block w-full text-xs text-slate-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-lg file:border-0
-                    file:text-xs file:font-semibold
-                    file:bg-indigo-50 file:text-indigo-700
-                    hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-lg p-1"
-                />
-              </div>
+              <p className="text-xs text-slate-600">
+                You must review every duty outlined in the official Steward Health Care job description for {applicant.position}s, acknowledge compliance, and append your electronic signature.
+              </p>
 
-              <button 
-                onClick={handleUpload}
-                disabled={!uploadFile || !uploadCategory || isUploading}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition disabled:opacity-50"
+              <button
+                onClick={handleOpenJobDescription}
+                className="w-full py-3 bg-gradient-to-r from-purple-900 to-indigo-900 hover:opacity-95 text-white text-xs font-extrabold rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer"
               >
-                {isUploading ? 'Uploading...' : 'Confirm Upload'}
+                <PenTool className="w-4 h-4" />
+                <span>Open & E-Sign Official Job Description</span>
               </button>
             </div>
-          </section>
-        </div>
-
-        {/* Uploaded Documents List */}
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-slate-500" />
-            My Submitted Documents
-          </h2>
-          
-          {applicantDocs.length === 0 ? (
-            <p className="text-xs text-slate-400 italic">No documents uploaded yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {applicantDocs.map(doc => (
-                <div key={doc.id} className="p-3 border border-slate-200 rounded-xl flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase">{doc.category}</span>
-                    <h3 className="text-xs font-bold text-slate-800 mt-1 truncate">{doc.name}</h3>
-                  </div>
-                  <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between items-center text-[10px]">
-                    <span className="text-slate-500">{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                    <div className="flex items-center gap-2">
-                      {doc.fileUrl && (
-                        <button
-                          onClick={() => setViewingFileUrl(doc.fileUrl)}
-                          className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-bold border border-indigo-100 cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Eye className="w-2.5 h-2.5" />
-                          View
-                        </button>
-                      )}
-                      <span className={`px-1.5 py-0.5 rounded-full font-bold ${
-                        doc.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' :
-                        doc.status === 'Awaiting Review' ? 'bg-amber-50 text-amber-700' :
-                        'bg-rose-50 text-rose-700'
-                      }`}>
-                        {doc.status}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-          </>
-        ) : (
-          <CVBuilder 
-            applicant={applicant} 
-            onSaveCVData={(id, data) => onSaveCVData && onSaveCVData(id, data)}
-            onGeneratePDF={(id, blob) => onGenerateCVPdf && onGenerateCVPdf(id, blob)}
-          />
+          </div>
         )}
+
       </main>
 
+      {/* Interactive Document Filler Modal */}
+      {activeFillingDoc && (
+        <InteractiveDocumentFiller
+          document={activeFillingDoc}
+          staffMember={applicantAsStaff}
+          onClose={() => setActiveFillingDoc(null)}
+          onSaveSignature={handleSaveDocumentSignature}
+        />
+      )}
+
+      {/* Document Viewer Modal */}
       {viewingFileUrl && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
               <div className="flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-indigo-600" />
+                <FileText className="w-5 h-5 text-purple-900" />
                 <h3 className="font-bold text-slate-800 text-sm">Document Viewer</h3>
               </div>
               <div className="flex items-center space-x-2">
@@ -311,7 +665,7 @@ export default function ApplicantPortal({
                     <span>Open in New Tab</span>
                   </a>
                 )}
-                <button 
+                <button
                   onClick={() => setViewingFileUrl(null)}
                   className="p-1 px-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors flex items-center gap-1 font-bold text-xs"
                 >
@@ -323,21 +677,21 @@ export default function ApplicantPortal({
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
                 <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
-                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <RefreshCw className="w-8 h-8 text-purple-900 animate-spin" />
                   <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
                 </div>
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
-                    <img 
-                      src={resolvedViewingUrl} 
+                    <img
+                      src={resolvedViewingUrl}
                       alt="Document Preview"
                       className="max-w-full max-h-full object-contain"
                     />
                   </div>
                 ) : (
-                  <iframe 
-                    src={resolvedViewingUrl} 
+                  <iframe
+                    src={resolvedViewingUrl}
                     className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200"
                     title="Document Viewer"
                   />
@@ -351,6 +705,7 @@ export default function ApplicantPortal({
           </div>
         </div>
       )}
+
     </div>
   );
 }

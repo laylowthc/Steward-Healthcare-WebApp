@@ -1,7 +1,19 @@
 export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Compliance' | 'Accepted' | 'Rejected';
 
 export interface CVData {
-  personalDetails: { address: string; dob: string; nationality: string };
+  personalDetails: { 
+    address: string; 
+    dob: string; 
+    nationality: string;
+    avatarUrl?: string;
+    title?: string;
+    gender?: string;
+    niNumber?: string;
+    rightToWorkStatus?: string;
+    emergencyName?: string;
+    emergencyRelation?: string;
+    emergencyPhone?: string;
+  };
   employmentHistory: Array<{ company: string; role: string; startDate: string; endDate: string; duties: string }>;
   qualifications: Array<{ institution: string; degree: string; year: string }>;
   mandatoryTraining: string[];
@@ -54,6 +66,12 @@ export type DocumentCategory =
   | 'DBS Certificate'
   | 'Driving Licence'
   | 'CV'
+  | 'Application Form'
+  | 'New Starter Form'
+  | 'Bank Details & PAYE'
+  | 'Next of Kin'
+  | '48-Hour Opt-Out'
+  | 'Policies Acknowledgement'
   | 'Employment Contract'
   | 'Job Description'
   | 'Nurse Profile'
@@ -61,7 +79,11 @@ export type DocumentCategory =
   | 'Training Certificate'
   | 'Reference'
   | 'Timesheet'
-  | 'Other';
+  | 'ActivityLog'
+  | 'FamilyFeedback'
+  | 'RoleTemplate'
+  | 'Other'
+  | string;
 
 export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed' | 'Sent' | 'Opened' | 'Completed' | 'Declined';
 

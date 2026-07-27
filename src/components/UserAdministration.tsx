@@ -164,34 +164,50 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         }
       };
 
-      // Set in local storage 'shc_applicants_v2' for local state integration
-      try {
-        const storedApps = localStorage.getItem('shc_applicants_v2');
-        const apps = storedApps ? JSON.parse(storedApps) : [];
-        localStorage.setItem('shc_applicants_v2', JSON.stringify([newApp, ...apps]));
-      } catch (err) {
-        console.error("Failed to save applicant in localStorage:", err);
-      }
+      // Save directly to Supabase users & staff_profiles tables
+      await supabase.from('users').upsert({
+        id: newAppId,
+        full_name: contact.name,
+        email: contact.email.toLowerCase(),
+        phone: '(Synchronized from Gmail)',
+        role: 'Applicant',
+        status: 'Pending',
+        firebase_uid: newAppId
+      });
 
-      // Update contact status in UI and local storage
+      await supabase.from('staff_profiles').upsert({
+        user_id: newAppId,
+        job_title: 'Care Assistant',
+        department: 'Applied',
+        staff_number: JSON.stringify({
+          notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`,
+          complianceChecked: {
+            'Passport': 'Missing',
+            'DBS Certificate': 'Missing',
+            'Right to Work': 'Missing',
+            'Training Certificate': 'Missing'
+          }
+        })
+      });
+
+      // Update contact status in UI
       updateLocalContactStatus(contact.id, 'Imported');
       setGmailContacts(prev => prev.map(c => c.id === contact.id ? { ...c, status: 'Imported' as const } : c));
       
-      // Save to activity log in localStorage
-      try {
-        const storedLogs = localStorage.getItem('shc_logs_v2');
-        const logs = storedLogs ? JSON.parse(storedLogs) : [];
-        const newLog = {
+      // Save to activity log in Supabase
+      await supabase.from('documents').insert({
+        user_id: newAppId,
+        document_name: `Imported Gmail lead ${contact.name}`,
+        category: 'ActivityLog',
+        file_path: '#',
+        notes: JSON.stringify({
           id: `act_${Date.now()}`,
           action: `RECRUITMENT OUTREACH: Imported Gmail lead ${contact.name} (${contact.email}) as applicant.`,
           timestamp: 'Just now',
           user: 'Admin Outreach',
           type: 'applicant'
-        };
-        localStorage.setItem('shc_logs_v2', JSON.stringify([newLog, ...logs]));
-      } catch (logErr) {
-        console.error("Failed to add activity log", logErr);
-      }
+        })
+      });
 
       showMessage(`Imported ${contact.name} to Applicant Kanban successfully.`, 'success');
     } catch (error) {
@@ -217,21 +233,20 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       updateLocalContactStatus(outreachModalContact.id, 'Contacted');
       setGmailContacts(prev => prev.map(c => c.id === outreachModalContact.id ? { ...c, status: 'Contacted' as const } : c));
 
-      // Save to activity log in localStorage
-      try {
-        const storedLogs = localStorage.getItem('shc_logs_v2');
-        const logs = storedLogs ? JSON.parse(storedLogs) : [];
-        const newLog = {
+      // Save to activity log in Supabase
+      await supabase.from('documents').insert({
+        user_id: '310d20c5-3b9a-4519-bf58-a52fd0c04ecb',
+        document_name: `Sent outreach email to ${outreachModalContact.name}`,
+        category: 'ActivityLog',
+        file_path: '#',
+        notes: JSON.stringify({
           id: `act_${Date.now()}`,
           action: `GMAIL OUTREACH: Sent email "${emailSubject}" to candidate ${outreachModalContact.name}.`,
           timestamp: 'Just now',
           user: 'Admin Outreach',
           type: 'status'
-        };
-        localStorage.setItem('shc_logs_v2', JSON.stringify([newLog, ...logs]));
-      } catch (logErr) {
-        console.error("Failed to add activity log", logErr);
-      }
+        })
+      });
 
       showMessage(`Email successfully sent to ${outreachModalContact.email}`, 'success');
       setOutreachModalContact(null);
