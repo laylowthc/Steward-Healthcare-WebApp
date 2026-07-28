@@ -323,32 +323,43 @@ export default function App() {
             const uRole = (u.role || 'Applicant').toLowerCase();
             const profile = profilesMap.get(u.id);
             
-            // Parse metadata from profile staff_number if present
-            let metadata: any = {};
-            if (profile?.staff_number) {
-              try {
-                metadata = JSON.parse(profile.staff_number);
-              } catch (e) {
-                metadata = {};
-              }
-            }
-
             if (uRole === 'applicant') {
+              // Extract CV Data from documents if it exists
+              const appDoc = docsData.find(d => d.user_id === u.id && d.category === 'Application Form');
+              let parsedCvData = undefined;
+              if (appDoc && appDoc.notes) {
+                try {
+                  parsedCvData = JSON.parse(appDoc.notes);
+                } catch(e) {}
+              }
+              
+              // Extract compliance from another document or just set it to default since we are moving away from staff_number json
+              const complianceDoc = docsData.find(d => d.user_id === u.id && d.category === 'Compliance Data');
+              let complianceChecked = {};
+              if (complianceDoc && complianceDoc.notes) {
+                try { complianceChecked = JSON.parse(complianceDoc.notes); } catch(e) {}
+              }
+
               loadedApplicants.push({
                 id: u.id,
                 name: u.full_name || 'Applicant User',
                 email: u.email,
                 phone: u.phone || '',
                 position: profile?.job_title || 'Care Assistant',
-                status: (profile?.department as ApplicantStatus) || 'Applied',
+                status: u.status as ApplicantStatus || 'Applied',
                 dateCreated: u.created_at || new Date().toISOString(),
-                notes: metadata.notes || '',
-                complianceChecked: metadata.complianceChecked || {},
-                interviewTime: metadata.interviewTime,
-                interviewMeetUrl: metadata.interviewMeetUrl,
-                cvData: metadata.cvData
+                notes: '',
+                complianceChecked: complianceChecked,
+                cvData: parsedCvData
               });
             } else if (uRole === 'staff' || uRole === 'admin') {
+              // Parse staff metadata from a 'Staff Metadata' document instead of staff_number
+              const metaDoc = docsData.find(d => d.user_id === u.id && d.category === 'Staff Metadata');
+              let metadata: any = {};
+              if (metaDoc && metaDoc.notes) {
+                try { metadata = JSON.parse(metaDoc.notes); } catch(e) {}
+              }
+              
               loadedStaff.push({
                 id: u.id,
                 name: u.full_name || 'Staff Member',
@@ -360,104 +371,60 @@ export default function App() {
                 avatarUrl: metadata.avatarUrl,
                 nmcPin: metadata.nmcPin,
                 nmcExpiry: metadata.nmcExpiry,
-                dbsStatus: (profile?.enhanced_dbs ? 'Compliant' : (metadata.dbsStatus || 'Pending')),
+                dbsStatus: metadata.dbsStatus || 'Compliant',
                 dbsNumber: profile?.dbs_number || '',
-                dbsExpiry: profile?.dbs_issue_date || metadata.dbsExpiry || '',
-                rightToWork: (profile?.right_to_work as ComplianceLevel) || 'Compliant',
-                rightToWorkExpiry: metadata.rightToWorkExpiry,
+                dbsExpiry: profile?.dbs_issue_date || '',
+                rightToWork: metadata.rightToWork || 'Compliant',
+                rightToWorkExpiry: metadata.rightToWorkExpiry || '',
                 trainingStatus: metadata.trainingStatus || 'Compliant',
-                trainingExpiry: metadata.trainingExpiry,
+                trainingExpiry: metadata.trainingExpiry || '',
                 joinedDate: u.created_at || new Date().toISOString().split('T')[0]
               });
             }
           });
 
-          // Map Documents
+          
           const loadedDocuments: Document[] = [];
           const loadedTimesheets: Timesheet[] = [];
           const loadedLogs: ActivityLog[] = [];
-          const loadedFeedbacks: FamilyFeedback[] = [];
+          const loadedFeedbacks: any[] = [];
           const loadedTemplates: RoleTemplate[] = [];
 
           docsData.forEach(d => {
-            const cat = d.category;
-            if (cat === 'Timesheet') {
-              try {
-                const parsed = JSON.parse(d.notes);
-                loadedTimesheets.push({
-                  ...parsed,
-                  id: d.id.toString(),
-                  approvalStatus: d.verification_status || parsed.approvalStatus || 'Pending'
-                });
-              } catch (e) {
-                loadedTimesheets.push({
-                  id: d.id.toString(),
-                  staffName: d.document_name || 'Staff member',
-                  role: 'Care Assistant',
-                  weekEnding: new Date().toISOString().split('T')[0],
-                  uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
-                  approvalStatus: d.verification_status as any || 'Pending',
-                  hoursWorked: 0,
-                  fileUrl: d.file_path || '#'
-                });
-              }
-            } else if (cat === 'ActivityLog') {
+            if (d.category === 'ActivityLog') {
               try {
                 loadedLogs.push(JSON.parse(d.notes));
-              } catch (e) {
-                loadedLogs.push({
-                  id: d.id.toString(),
-                  action: d.document_name || 'System action logged',
-                  timestamp: d.upload_date || 'Just now',
-                  user: d.uploaded_by || 'System',
-                  type: 'status'
-                });
-              }
-            } else if (cat === 'FamilyFeedback') {
+              } catch(e) {}
+            } else if (d.category === 'Timesheet') {
               try {
-                loadedFeedbacks.push(JSON.parse(d.notes));
-              } catch (e) {
-                loadedFeedbacks.push({
-                  id: d.id.toString(),
-                  clientName: 'Client',
-                  familyRepresentative: 'Representative',
-                  relation: 'Relative',
-                  caregiverAssigned: 'Caregiver',
-                  ratingCareQuality: 5,
-                  ratingCommunication: 5,
-                  ratingPunctuality: 5,
-                  feedbackComments: d.document_name || 'Feedback comments',
-                  anonymous: false,
-                  dateSubmitted: d.upload_date || new Date().toISOString().split('T')[0],
-                  status: d.verification_status as any || 'Awaiting Action',
-                  category: 'General Inquiry',
-                  hasContactRequest: false
-                });
-              }
-            } else if (cat === 'RoleTemplate') {
+                loadedTimesheets.push(JSON.parse(d.notes));
+              } catch(e) {}
+            } else if (d.category === 'RoleTemplate') {
               try {
                 loadedTemplates.push(JSON.parse(d.notes));
-              } catch (e) {
-                // skip
-              }
-            } else {
-              // Standard document
+              } catch(e) {}
+            } else if (d.category === 'FamilyFeedback') {
+              try {
+                loadedFeedbacks.push(JSON.parse(d.notes));
+              } catch(e) {}
+            } else if (d.category !== 'Application Form' && d.category !== 'Compliance Data' && d.category !== 'Staff Metadata') {
               const owner = usersData.find(u => u.id === d.user_id);
               loadedDocuments.push({
-                id: d.id.toString(),
+                id: d.id,
                 name: d.document_name,
-                category: d.category as DocumentCategory,
+                category: d.category as any,
                 staffId: d.user_id,
                 staffName: owner?.full_name || 'System User',
                 fileUrl: d.file_path,
                 uploadDate: d.upload_date ? new Date(d.upload_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
+                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as any,
                 size: d.file_size ? `${(d.file_size / 1024).toFixed(1)} KB` : '1.5 MB'
               });
             }
           });
-
+          
           setApplicants(loadedApplicants);
+
           setStaff(loadedStaff);
           setDocuments(loadedDocuments);
           setTimesheets(loadedTimesheets);
@@ -575,28 +542,51 @@ export default function App() {
         email: applicant.email.toLowerCase(),
         phone: applicant.phone,
         role: 'Applicant',
-        status: 'Pending',
+        status: applicant.status || 'Applied',
         firebase_uid: applicant.id
       });
       if (userErr) console.error("Error upserting applicant in users table:", userErr);
 
       // 2. Prepare metadata
-      const metadata = {
-        notes: applicant.notes || '',
-        complianceChecked: applicant.complianceChecked || {},
-        interviewTime: applicant.interviewTime,
-        interviewMeetUrl: applicant.interviewMeetUrl,
-        cvData: applicant.cvData
-      };
-
-      // 3. Update/Insert in staff_profiles table
       const { error: profileErr } = await supabase.from('staff_profiles').upsert({
         user_id: applicant.id,
         job_title: applicant.position,
-        department: applicant.status, // applicant's status
-        staff_number: JSON.stringify(metadata) // serialize metadata
-      }, { onConflict: 'user_id' });
-      if (profileErr) console.error("Error upserting applicant in staff_profiles:", profileErr);
+        department: 'Applied'
+      });
+      if (profileErr) console.error("Error upserting staff in staff_profiles:", profileErr);
+      
+      // Save CV Data as a document
+      if (applicant.cvData) {
+        const { data: existingAppDoc } = await supabase.from('documents').select('id').eq('user_id', applicant.id).eq('category', 'Application Form').maybeSingle();
+        if (existingAppDoc) {
+          await supabase.from('documents').update({ notes: JSON.stringify(applicant.cvData) }).eq('id', existingAppDoc.id);
+        } else {
+          await supabase.from('documents').insert({
+            user_id: applicant.id,
+            document_name: 'Application Form Data',
+            category: 'Application Form',
+            file_path: '#',
+            notes: JSON.stringify(applicant.cvData)
+          });
+        }
+      }
+      
+      // Save compliance data as a document
+      if (applicant.complianceChecked) {
+        const { data: existingCompDoc } = await supabase.from('documents').select('id').eq('user_id', applicant.id).eq('category', 'Compliance Data').maybeSingle();
+        if (existingCompDoc) {
+          await supabase.from('documents').update({ notes: JSON.stringify(applicant.complianceChecked) }).eq('id', existingCompDoc.id);
+        } else {
+          await supabase.from('documents').insert({
+            user_id: applicant.id,
+            document_name: 'Compliance Checklist',
+            category: 'Compliance Data',
+            file_path: '#',
+            notes: JSON.stringify(applicant.complianceChecked)
+          });
+        }
+      }
+      
     } catch (e) {
       console.error("Exception in saveApplicantToSupabase:", e);
     }
@@ -604,7 +594,6 @@ export default function App() {
 
   const saveStaffToSupabase = async (s: Staff) => {
     try {
-      // 1. Update/Insert in users table
       const { error: userErr } = await supabase.from('users').upsert({
         id: s.id,
         full_name: s.name,
@@ -616,7 +605,6 @@ export default function App() {
       });
       if (userErr) console.error("Error upserting staff in users table:", userErr);
 
-      // 2. Prepare metadata
       const metadata = {
         address: s.address,
         avatarUrl: s.avatarUrl,
@@ -627,20 +615,27 @@ export default function App() {
         trainingStatus: s.trainingStatus,
         trainingExpiry: s.trainingExpiry
       };
-
-      // 3. Update/Insert in staff_profiles table
+      
       const { error: profileErr } = await supabase.from('staff_profiles').upsert({
         user_id: s.id,
         job_title: s.role,
-        department: s.status,
-        right_to_work: s.rightToWork,
-        dbs_number: s.dbsNumber,
-        dbs_issue_date: s.dbsExpiry,
-        enhanced_dbs: s.dbsStatus === 'Compliant',
-        profile_status: s.status,
-        staff_number: JSON.stringify(metadata)
-      }, { onConflict: 'user_id' });
+        department: 'Staff'
+      });
       if (profileErr) console.error("Error upserting staff in staff_profiles:", profileErr);
+      
+      // Save Staff metadata as a document
+      const { data: existingMetaDoc } = await supabase.from('documents').select('id').eq('user_id', s.id).eq('category', 'Staff Metadata').maybeSingle();
+      if (existingMetaDoc) {
+        await supabase.from('documents').update({ notes: JSON.stringify(metadata) }).eq('id', existingMetaDoc.id);
+      } else {
+        await supabase.from('documents').insert({
+          user_id: s.id,
+          document_name: 'Staff Metadata',
+          category: 'Staff Metadata',
+          file_path: '#',
+          notes: JSON.stringify(metadata)
+        });
+      }
     } catch (e) {
       console.error("Exception in saveStaffToSupabase:", e);
     }
@@ -649,8 +644,9 @@ export default function App() {
   const saveTimesheetToSupabase = async (t: Timesheet) => {
     try {
       const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { error } = await supabase.from('documents').upsert({
-        id: t.id.startsWith('time_') ? undefined : t.id,
+      // Do not use the custom local ID which might not be a valid UUID. Instead let Supabase insert new ones.
+      // Timesheets are usually append-only in this demo.
+      const { error } = await supabase.from('documents').insert({
         user_id: adminUser,
         document_name: `Timesheet for ${t.staffName}`,
         category: 'Timesheet',
@@ -683,16 +679,14 @@ export default function App() {
   const saveFamilyFeedbackToSupabase = async (f: FamilyFeedback) => {
     try {
       const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { error } = await supabase.from('documents').upsert({
-        id: f.id.startsWith('fb_') ? undefined : f.id,
+      const { error } = await supabase.from('documents').insert({
         user_id: adminUser,
         document_name: `Feedback from ${f.familyRepresentative}`,
         category: 'FamilyFeedback',
         file_path: '#',
-        verification_status: f.status,
         notes: JSON.stringify(f)
       });
-      if (error) console.error("Error saving family feedback to Supabase:", error);
+      if (error) console.error("Error saving feedback to Supabase:", error);
     } catch (e) {
       console.error("Exception in saveFamilyFeedbackToSupabase:", e);
     }
@@ -701,15 +695,19 @@ export default function App() {
   const saveRoleTemplateToSupabase = async (rt: RoleTemplate) => {
     try {
       const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { error } = await supabase.from('documents').upsert({
-        id: rt.role.replace(/\s+/g, '_'),
-        user_id: adminUser,
-        document_name: `Template: ${rt.role}`,
-        category: 'RoleTemplate',
-        file_path: '#',
-        notes: JSON.stringify(rt)
-      });
-      if (error) console.error("Error saving role template to Supabase:", error);
+      const { data: existingTemplate } = await supabase.from('documents').select('id').eq('category', 'RoleTemplate').eq('document_name', `Template: ${rt.role}`).maybeSingle();
+      
+      if (existingTemplate) {
+        await supabase.from('documents').update({ notes: JSON.stringify(rt) }).eq('id', existingTemplate.id);
+      } else {
+        await supabase.from('documents').insert({
+          user_id: adminUser,
+          document_name: `Template: ${rt.role}`,
+          category: 'RoleTemplate',
+          file_path: '#',
+          notes: JSON.stringify(rt)
+        });
+      }
     } catch (e) {
       console.error("Exception in saveRoleTemplateToSupabase:", e);
     }

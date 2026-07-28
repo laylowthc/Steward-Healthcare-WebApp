@@ -29,8 +29,7 @@ export default function ApplicantKanban({
 }: ApplicantKanbanProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
-  const [showCVBuilder, setShowCVBuilder] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // New applicant form state
   const [newName, setNewName] = useState('');
@@ -381,15 +380,18 @@ export default function ApplicantKanban({
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100">
-                    <button 
-                      onClick={() => setShowCVBuilder(true)}
-                      className="w-full flex items-center justify-center space-x-2 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-xs rounded-xl transition-colors"
-                    >
-                      <FileBadge className="w-4 h-4" />
-                      <span>Manage & Generate CV</span>
-                    </button>
-                  </div>
+                  {selectedApplicant.cvData && (
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
+                        <h4 className="text-[10px] font-black text-emerald-900 uppercase flex items-center">
+                          <FileBadge className="w-3.5 h-3.5 mr-1" /> Submitted Application Form Data
+                        </h4>
+                        <div className="max-h-40 overflow-y-auto text-[10px] text-emerald-800 font-mono bg-white p-2 rounded border border-emerald-100">
+                           {JSON.stringify(selectedApplicant.cvData, null, 2)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* job description autolink section */}
                   {jobTemplate && (

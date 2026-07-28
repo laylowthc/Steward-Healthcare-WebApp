@@ -444,17 +444,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
       console.log("[UserAdministration] Backend administrative deletion successful:", result);
       
-      // Delete any corresponding applicants in local storage
-      try {
-        const storedApps = localStorage.getItem('shc_applicants_v2');
-        if (storedApps) {
-          const apps = JSON.parse(storedApps);
-          const filtered = apps.filter((a: any) => a.email.toLowerCase() !== user.email.toLowerCase());
-          localStorage.setItem('shc_applicants_v2', JSON.stringify(filtered));
-        }
-      } catch (e) {
-        console.error("Error purging matching applicant records from localStorage:", e);
-      }
+      // Local storage fallbacks have been removed
 
       // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));

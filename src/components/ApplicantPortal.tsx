@@ -104,7 +104,7 @@ export default function ApplicantPortal({
   };
 
   const handleSaveApplicationForm = async (applicantId: string, formData: Record<string, any>) => {
-    // 1. Save CVData/Application form metadata
+    // Save to the dedicated applications table via App's handler
     if (onSaveCVData) {
       onSaveCVData(applicantId, {
         personalDetails: {
@@ -126,22 +126,6 @@ export default function ApplicantPortal({
         skills: formData.skills,
         references: formData.references
       });
-    }
-
-    // 2. Persist Application Form document into Supabase documents table
-    try {
-      const appDocName = `Application_Form_${applicant.name.replace(/\s+/g, '_')}.pdf`;
-      const { error: docErr } = await supabase.from('documents').upsert({
-        user_id: applicant.id,
-        document_name: appDocName,
-        category: 'Application Form',
-        file_path: '#',
-        verification_status: 'Awaiting Review',
-        notes: JSON.stringify(formData)
-      });
-      if (docErr) console.error("Error persisting application form to Supabase:", docErr);
-    } catch (e) {
-      console.error("Exception in handleSaveApplicationForm:", e);
     }
   };
 
