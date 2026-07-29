@@ -2,7 +2,7 @@ export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Complianc
 export type AccountStatus = 'Pending' | 'Active' | 'Suspended';
 
 export interface CVData {
-  personalDetails: { address: string; dob: string; nationality: string };
+  personalDetails: { address: string; dob: string; nationality: string; avatarUrl?: string };
   employmentHistory: Array<{ company: string; role: string; startDate: string; endDate: string; duties: string }>;
   qualifications: Array<{ institution: string; degree: string; year: string }>;
   mandatoryTraining: string[];
@@ -46,6 +46,7 @@ export interface Staff {
   trainingStatus: ComplianceLevel;
   trainingExpiry?: string;
   joinedDate: string;
+  avatarUrl?: string;
 }
 
 export interface SystemUserProfile {
@@ -70,6 +71,8 @@ export type DocumentCategory =
   | 'Training Certificate'
   | 'Reference'
   | 'Timesheet'
+  | 'Application Form'
+  | 'New Starter Form'
   | 'Other';
 
 export type DocumentStatus = 'Awaiting Review' | 'Approved' | 'Expired' | 'Pending Signature' | 'Signed' | 'Sent' | 'Opened' | 'Completed' | 'Declined';

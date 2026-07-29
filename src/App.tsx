@@ -1270,7 +1270,6 @@ export default function App() {
         }}
         onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
         onSaveCVData={handleSaveCVData}
-        onGenerateCVPdf={handleGenerateCVPdf}
         onLogout={handleLogout}
       />
     );
