@@ -183,19 +183,58 @@ as $$
     select 1
     from public.users u
     where u.id = auth.uid()
-      and u.role in ('Admin')
+      and lower(u.role) = 'admin'
       and u.status = 'Active'
   );
 $$;
+
+create or replace function public.protect_applicant_workflow_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.current_user_is_admin() then
+    if new.status is distinct from old.status
+       or new.user_id is distinct from old.user_id then
+      raise exception
+        'Applicants cannot change recruitment status or account ownership';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_applicant_workflow_fields
+  on public.applicants;
+
+create trigger protect_applicant_workflow_fields
+before update on public.applicants
+for each row
+execute function public.protect_applicant_workflow_fields();
 
 drop policy if exists applicants_read on public.applicants;
 create policy applicants_read on public.applicants
 for select using (public.current_user_is_admin() or user_id = auth.uid());
 
 drop policy if exists applicants_write on public.applicants;
-create policy applicants_write on public.applicants
-for all using (public.current_user_is_admin() or user_id = auth.uid())
+drop policy if exists applicants_insert on public.applicants;
+create policy applicants_insert on public.applicants
+for insert with check (
+  public.current_user_is_admin()
+  or (user_id = auth.uid() and status = 'Applied')
+);
+
+drop policy if exists applicants_update on public.applicants;
+create policy applicants_update on public.applicants
+for update using (public.current_user_is_admin() or user_id = auth.uid())
 with check (public.current_user_is_admin() or user_id = auth.uid());
+
+drop policy if exists applicants_delete on public.applicants;
+create policy applicants_delete on public.applicants
+for delete using (public.current_user_is_admin());
 
 drop policy if exists staff_profiles_read on public.staff_profiles;
 create policy staff_profiles_read on public.staff_profiles
