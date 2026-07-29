@@ -105,34 +105,11 @@ export default function StaffProfile({
     }
   };
 
-  // Quick state togglers to make prototyping satisfying
-  const toggleDBSCorrection = () => {
-    const isCompliant = staffMember.dbsStatus === 'Compliant';
-    onUpdateStaffDetails({
-      ...staffMember,
-      dbsStatus: isCompliant ? 'Non-Compliant' : 'Compliant',
-      dbsExpiry: isCompliant ? '2026-05-15' : '2029-06-18',
-      status: !isCompliant && staffMember.trainingStatus === 'Compliant' ? 'Active' : staffMember.status
-    });
-  };
-
-  const toggleTrainingCorrection = () => {
-    const isCompliant = staffMember.trainingStatus === 'Compliant';
-    onUpdateStaffDetails({
-      ...staffMember,
-      trainingStatus: isCompliant ? 'Non-Compliant' : 'Compliant',
-      trainingExpiry: isCompliant ? '2026-06-10' : '2027-04-12',
-      status: !isCompliant && staffMember.dbsStatus === 'Compliant' ? 'Active' : staffMember.status
-    });
-  };
-
-  // Mock upload simulator
   const handleFileUpload = (file: File) => {
     setUploadProgress(10);
     const fileSize = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
     const fileUrl = URL.createObjectURL(file);
 
-    // Simulate step progress increments
     const interval = setInterval(() => {
       setUploadProgress((prev) => {
         if (prev === null) return null;
@@ -392,44 +369,6 @@ export default function StaffProfile({
             )}
           </div>
 
-          {/* Quick Demo Audit Shifters */}
-          <div className="bg-slate-100 p-5 rounded-2xl border border-slate-200">
-            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center">
-              <Shield className="w-3.5 h-3.5 text-rose-700 mr-1 shrink-0" /> Interactive Demo Controls
-            </h4>
-            <p className="text-[11px] text-slate-600 mt-1 font-medium leading-normal">
-              Toggle this candidate's accreditation status below to test dynamic agency metrics calculations in real-time.
-            </p>
-            <div className="mt-4 pt-3 border-t border-slate-200 space-y-2">
-              <button
-                onClick={toggleDBSCorrection}
-                className={`w-full flex items-center justify-between p-2 rounded-xl text-left border transition text-xs font-bold bg-white cursor-pointer ${
-                  staffMember.dbsStatus === 'Compliant'
-                    ? 'border-emerald-200 text-emerald-800 text-xs'
-                    : 'border-rose-200 text-rose-800'
-                }`}
-              >
-                <span>Enhanced DBS Registry</span>
-                <span className="p-1 px-2 rounded-full border text-[9px] uppercase font-black tracking-wider flex items-center bg-slate-50">
-                  <RefreshCw className="w-2.5 h-2.5 mr-1" /> {staffMember.dbsStatus}
-                </span>
-              </button>
-
-              <button
-                onClick={toggleTrainingCorrection}
-                className={`w-full flex items-center justify-between p-2 rounded-xl text-left border transition text-xs font-bold bg-white cursor-pointer ${
-                  staffMember.trainingStatus === 'Compliant'
-                    ? 'border-emerald-200 text-emerald-800'
-                    : 'border-rose-200 text-rose-800'
-                }`}
-              >
-                <span>Mandatory Nursing Training</span>
-                <span className="p-1 px-2 rounded-full border text-[9px] uppercase font-black tracking-wider flex items-center bg-slate-50">
-                  <RefreshCw className="w-2.5 h-2.5 mr-1" /> {staffMember.trainingStatus}
-                </span>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Right Columns: Compliance traffic lights and document tables */}

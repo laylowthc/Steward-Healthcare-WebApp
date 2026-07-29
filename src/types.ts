@@ -1,4 +1,5 @@
 export type ApplicantStatus = 'Applied' | 'Screening' | 'Interview' | 'Compliance' | 'Accepted' | 'Rejected';
+export type AccountStatus = 'Pending' | 'Active' | 'Suspended';
 
 export interface CVData {
   personalDetails: { address: string; dob: string; nationality: string };
@@ -34,7 +35,7 @@ export interface Staff {
   phone: string;
   address: string;
   role: StaffRole;
-  status: 'Active' | 'Non-Compliant';
+  status: 'Active' | 'Non-Compliant' | 'Suspended';
   nmcPin?: string;
   nmcExpiry?: string;
   dbsStatus: ComplianceLevel | 'Pending';
@@ -45,6 +46,15 @@ export interface Staff {
   trainingStatus: ComplianceLevel;
   trainingExpiry?: string;
   joinedDate: string;
+}
+
+export interface SystemUserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  role: 'admin' | 'staff' | 'family' | 'applicant';
+  status: AccountStatus;
+  permissions: string[];
 }
 
 export type DocumentCategory = 

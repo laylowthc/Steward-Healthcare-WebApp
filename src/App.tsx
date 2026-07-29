@@ -37,11 +37,11 @@ import {
   Timesheet, 
   ActivityLog, 
   ApplicantStatus, 
-  StaffRole, 
   DocumentCategory,
   RoleTemplate,
   FamilyFeedback,
   DocumentStatus,
+  SystemUserProfile,
   mapCredentialToCategory
 } from './types';
 
@@ -56,6 +56,19 @@ import {
 } from './mockData';
 
 import { supabase } from './lib/supabase';
+import {
+  applicantToRow,
+  createUserProfile,
+  insertActivityLog,
+  loadWorkflowData,
+  mapApplicantRow,
+  mapFeedbackRow,
+  mapStaffRow,
+  mapTimesheetRow,
+  staffToRow,
+  timesheetToRow,
+  getCurrentProfile
+} from './lib/workflowRepository';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -79,135 +92,31 @@ import StaffDashboard from './components/StaffDashboard';
 export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
-  const [currentUserId, setCurrentUserId] = useState<string>('staff_1'); // Defaults to Blessing Gurure demo
+  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('applicant');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
   const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<any | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<SystemUserProfile | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
 
-  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(() => {
-    const local = localStorage.getItem('shc_family_feedbacks_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: FamilyFeedback) => [item.id, item])).values()) as FamilyFeedback[];
-    }
-    return initialFamilyFeedbacks;
-  });
-
-  // Listen for shareable hash modification links (e.g. #family)
-  useEffect(() => {
-    const handleHashCheck = () => {
-      if (window.location.hash === '#family') {
-        setCurrentRole('family');
-        setIsLoggedIn(true);
-      } else if (window.location.hash === '#login') {
-        setIsLoggedIn(false);
-      }
-    };
-    handleHashCheck();
-    window.addEventListener('hashchange', handleHashCheck);
-    return () => window.removeEventListener('hashchange', handleHashCheck);
-  }, []);
+  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(initialFamilyFeedbacks);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>(() => {
-    const local = localStorage.getItem('shc_applicants_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Applicant) => [item.id, item])).values()) as Applicant[];
-    }
-    return initialApplicants;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('shc_applicants_v2', JSON.stringify(applicants));
-  }, [applicants]);
-
-  const [staff, setStaff] = useState<Staff[]>(() => {
-    const local = localStorage.getItem('shc_staff_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Staff) => [item.id, item])).values()) as Staff[];
-    }
-    return initialStaff;
-  });
-
-  const [documents, setDocuments] = useState<Document[]>(() => {
-    return initialDocuments;
-  });
-
-  const [timesheets, setTimesheets] = useState<Timesheet[]>(() => {
-    const local = localStorage.getItem('shc_timesheets_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: Timesheet) => [item.id, item])).values()) as Timesheet[];
-    }
-    return initialTimesheets;
-  });
-
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
-    const local = localStorage.getItem('shc_logs_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: ActivityLog) => [item.id, item])).values()) as ActivityLog[];
-    }
-    return initialActivityLogs;
-  });
-
-  const [templates, setTemplates] = useState<RoleTemplate[]>(() => {
-    const local = localStorage.getItem('shc_templates_v2');
-    if (local) {
-      const parsed = JSON.parse(local);
-      return Array.from(new Map(parsed.map((item: RoleTemplate) => [item.role, item])).values()) as RoleTemplate[];
-    }
-    return initialRoleTemplates;
-  });
+  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
+  const [staff, setStaff] = useState<Staff[]>(initialStaff);
+  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>(initialTimesheets);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
+  const [templates, setTemplates] = useState<RoleTemplate[]>(initialRoleTemplates);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
-
-  // One-time patch for "Clara" to "Blessing" locally
-  useEffect(() => {
-    const patched = localStorage.getItem('shc_name_patched_v2');
-    if (!patched) {
-      setStaff(initialStaff);
-      setDocuments(initialDocuments);
-      setTimesheets(initialTimesheets);
-      setActivityLogs(initialActivityLogs);
-      localStorage.setItem('shc_name_patched_v2', 'true');
-    }
-  }, []);
-
-  // Sync to client-side localStorage
-  useEffect(() => {
-    localStorage.setItem('shc_recruits_v2', JSON.stringify(applicants));
-  }, [applicants]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_staff_v2', JSON.stringify(staff));
-  }, [staff]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_timesheets_v2', JSON.stringify(timesheets));
-  }, [timesheets]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_logs_v2', JSON.stringify(activityLogs));
-  }, [activityLogs]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_templates_v2', JSON.stringify(templates));
-  }, [templates]);
-
-  useEffect(() => {
-    localStorage.setItem('shc_family_feedbacks_v2', JSON.stringify(familyFeedbacks));
-  }, [familyFeedbacks]);
 
   const [visibleCards, setVisibleCards] = useState<string[]>(() => {
     const local = localStorage.getItem('shc_visible_cards');
@@ -259,6 +168,7 @@ export default function App() {
         setIsLoggedIn(false);
         setUserAccountRole(null);
         setSupabaseUserId(null);
+        setCurrentUserProfile(null);
         return;
       }
 
@@ -268,71 +178,45 @@ export default function App() {
           throw new Error("No email associated with authenticated Supabase user.");
         }
 
-        // Try querying public.users by UUID id first
-        console.log(`[Supabase Auth Profile Query] Checking for user ID: "${supabaseUser.id}" in public.users`);
-        const { data: existingUsers, error: selectError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', supabaseUser.id);
-
-        if (selectError) {
-          console.error('[Supabase Auth Profile Query] Error querying by ID:', JSON.stringify(selectError, null, 2));
-          throw selectError;
-        }
-
-        console.log(`[Supabase Auth Profile Query] Found users by ID:`, JSON.stringify(existingUsers, null, 2));
-
-        let sUser = existingUsers && existingUsers.length > 0 ? existingUsers[0] : null;
-
-        // Fallback: If no user found by ID, query by email
-        if (!sUser) {
-          console.log(`[Supabase Auth Profile Query] No user found by ID. Trying email fallback: "${userEmail}"`);
-          const { data: usersByEmail, error: emailError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('email', userEmail);
-
-          if (emailError) {
-            console.error('[Supabase Auth Profile Query] Error querying by email:', JSON.stringify(emailError, null, 2));
-            throw emailError;
-          }
-
-          console.log(`[Supabase Auth Profile Query] Found users by email:`, JSON.stringify(usersByEmail, null, 2));
-
-          if (usersByEmail && usersByEmail.length > 0) {
-            sUser = usersByEmail[0];
-            // Sync user details to map to the new ID mapping standard
-            console.log(`[Supabase Auth Profile Query] Mapping email-matched user "${sUser.id}" with firebase_uid: "${supabaseUser.id}"`);
-            const { error: updateError } = await supabase
-              .from('users')
-              .update({ firebase_uid: supabaseUser.id })
-              .eq('id', sUser.id);
-            if (updateError) {
-              console.error('[Supabase Auth Profile Query] Error updating firebase_uid:', JSON.stringify(updateError, null, 2));
-            }
-          }
-        }
+        const profile = await getCurrentProfile(supabaseUser.id, userEmail);
 
         if (!active) return;
 
-        if (sUser) {
-          console.log("Successfully matched Supabase user profile during session restoration:", sUser);
-          
-          setSupabaseUserId(sUser.id);
-          
-          // Map the role from DB to React state
-          const dbRole = (sUser.role || 'Applicant').toLowerCase() as 'admin' | 'staff' | 'family' | 'applicant';
+        if (profile) {
+          setSupabaseUserId(profile.id);
+          setCurrentUserProfile(profile);
+          const dbRole = profile.role;
           setCurrentRole(dbRole);
-          setCurrentUserId(supabaseUser.id); // Map to Supabase UUID
+          setCurrentUserId(profile.id);
           setUserAccountRole(dbRole);
           setIsLoggedIn(true);
           setProfileSyncError(null);
+
+          if (profile.status !== 'Active') {
+            setApplicants([]);
+            setStaff([]);
+            setDocuments([]);
+            setTimesheets([]);
+            setActivityLogs([]);
+            return;
+          }
+
+          const workflow = await loadWorkflowData(profile);
+          if (!active) return;
+          setApplicants(workflow.applicants);
+          setStaff(workflow.staff);
+          setTimesheets(workflow.timesheets);
+          if (workflow.templates.length > 0) {
+            setTemplates(workflow.templates);
+          }
+          setActivityLogs(workflow.activityLogs);
+          setFamilyFeedbacks(workflow.familyFeedbacks);
 
           // Fetch documents from Supabase public.documents for the user
           try {
             let query = supabase.from('documents').select('*');
             if (dbRole !== 'admin') {
-              query = query.eq('user_id', sUser.id);
+              query = query.eq('user_id', profile.id);
             }
             const { data: dbDocs, error: docsError } = await query;
             if (!docsError && dbDocs && active) {
@@ -340,8 +224,8 @@ export default function App() {
                 id: d.id.toString(),
                 name: d.document_name,
                 category: d.category as DocumentCategory,
-                staffId: d.user_id,
-                staffName: sUser.full_name || 'System User',
+                staffId: d.staff_profile_id || d.applicant_id || d.user_id,
+                staffName: profile.fullName || 'System User',
                 fileUrl: d.file_path,
                 uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
                 status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
@@ -352,51 +236,6 @@ export default function App() {
             }
           } catch (docFetchErr) {
             console.error("Error during document query:", docFetchErr);
-          }
-
-          // If they are a staff member, sync with the local staff state if missing
-          if (dbRole === 'staff') {
-            setStaff(prevStaff => {
-              const exists = prevStaff.some(s => s.email.toLowerCase() === userEmail || s.id === supabaseUser.id);
-              if (!exists) {
-                const newStaffMember: Staff = {
-                  id: supabaseUser.id,
-                  name: sUser.full_name || 'Staff Member',
-                  email: sUser.email,
-                  phone: 'N/A',
-                  address: 'Registered Caregiver Address',
-                  role: 'Care Assistant',
-                  status: 'Active',
-                  dbsStatus: 'Compliant',
-                  rightToWork: 'Compliant',
-                  trainingStatus: 'Compliant',
-                  joinedDate: new Date().toISOString().split('T')[0]
-                };
-                return [...prevStaff, newStaffMember];
-              }
-              return prevStaff;
-            });
-          }
-
-          // If they are an applicant, sync with local applicants state if missing
-          if (dbRole === 'applicant') {
-            setApplicants(prevApps => {
-              const exists = prevApps.some(a => a.email.toLowerCase() === userEmail || a.id === supabaseUser.id);
-              if (!exists) {
-                const newApplicant: Applicant = {
-                  id: supabaseUser.id,
-                  name: sUser.full_name || 'Applicant User',
-                  email: sUser.email,
-                  phone: 'N/A',
-                  position: 'Care Assistant', // Default target role
-                  status: 'Applied',
-                  dateCreated: new Date().toISOString().split('T')[0],
-                  notes: 'Self-registered applicant via portal.'
-                };
-                return [...prevApps, newApplicant];
-              }
-              return prevApps;
-            });
           }
         } else {
           // No matching Supabase user profile exists!
@@ -447,6 +286,36 @@ export default function App() {
     setActivityLogs([]);
   };
 
+  const reloadWorkflowState = async (profile = currentUserProfile) => {
+    if (!profile || profile.status !== 'Active') return;
+    const workflow = await loadWorkflowData(profile);
+    setApplicants(workflow.applicants);
+    setStaff(workflow.staff);
+    setTimesheets(workflow.timesheets);
+    if (workflow.templates.length > 0) {
+      setTemplates(workflow.templates);
+    }
+    setActivityLogs(workflow.activityLogs);
+    setFamilyFeedbacks(workflow.familyFeedbacks);
+
+    let query = supabase.from('documents').select('*');
+    if (profile.role !== 'admin') {
+      query = query.eq('user_id', profile.id);
+    }
+    const { data: dbDocs, error: docsError } = await query;
+    if (docsError) throw docsError;
+    setDocuments((dbDocs || []).map(d => ({
+      id: d.id.toString(),
+      name: d.document_name,
+      category: d.category as DocumentCategory,
+      staffId: d.staff_profile_id || d.applicant_id || d.user_id,
+      staffName: profile.fullName || 'System User',
+      fileUrl: d.file_path,
+      uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+      status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
+    })));
+  };
+
   // Global OAuth Popup close Handler
   useEffect(() => {
     if (window.location.hash && window.location.hash.includes('access_token=') && window.location.hash.includes('state=google_auth_state')) {
@@ -462,29 +331,12 @@ export default function App() {
 
   // Auth Operations
   const handleLoginSuccess = async (role: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => {
+    if (!userId) return;
     setCurrentRole(role);
     setUserAccountRole(role);
-    if (userId) {
-      setCurrentUserId(userId);
-    } else {
-      // Demo accounts or fallback login without userId
-      if (role === 'admin') {
-        setCurrentUserId('admin_demo');
-      } else if (role === 'staff') {
-        setCurrentUserId('staff_1');
-      }
-    }
-    setIsLoggedIn(true);
+    setCurrentUserId(userId);
     setSelectedStaffId(null);
-    if (role === 'family') {
-      window.location.hash = 'family';
-    } else {
-      // Clear hash if logging in as staff/admin so they don't get routed back
-      if (window.location.hash === '#family') {
-        window.location.hash = '';
-      }
-      setActiveTab(role === 'admin' ? 'dashboard' : 'staff_dashboard');
-    }
+    setActiveTab(role === 'admin' ? 'dashboard' : 'staff_dashboard');
   };
 
   const handleLogout = async () => {
@@ -492,6 +344,7 @@ export default function App() {
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
     setProfileSyncError(null);
+    setCurrentUserProfile(null);
   };
 
   // State mutation callbacks passed to children components
@@ -499,124 +352,124 @@ export default function App() {
     const targetApplicant = applicants.find(a => a.id === id);
     if (!targetApplicant) return;
 
-    if (newStatus === 'Accepted') {
-      // 1. Automatically remove them from the Recruitment Pipeline
-      setApplicants(prev => prev.filter(a => a.id !== id));
-
-      // 2. Automatically create an Active Staff record
-      const alreadyExists = staff.some(s => s.email.toLowerCase() === targetApplicant.email.toLowerCase());
-      if (!alreadyExists) {
-        // Automatically assign: Staff ID, Compliance Profile, Document Folder, Employment Status = Active
-        const newStaffId = `staff_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        const newStaffMember: Staff = {
-          id: newStaffId,
-          name: targetApplicant.name,
-          email: targetApplicant.email,
-          phone: targetApplicant.phone,
-          address: 'Registered Candidate Address',
-          role: targetApplicant.position as StaffRole,
-          status: 'Active',
-          dbsStatus: 'Compliant',
-          dbsNumber: `001${Math.floor(10000000 + Math.random() * 90000000)}`,
-          dbsExpiry: new Date(Date.now() + 3 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          rightToWork: 'Compliant',
-          rightToWorkExpiry: new Date(Date.now() + 4 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          trainingStatus: 'Compliant',
-          trainingExpiry: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          joinedDate: new Date().toISOString().split('T')[0]
-        };
-        setStaff(prevStaff => [...prevStaff, newStaffMember]);
-
-        // Automatically assign Document Folder
-        const placeholderDoc: Document = {
-          id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
-          name: `${targetApplicant.name.replace(/\s+/g, '_')}_Compliance_Profile.pdf`,
-          category: 'Passport',
-          staffId: newStaffMember.id,
-          staffName: targetApplicant.name,
-          uploadDate: new Date().toISOString().split('T')[0],
-          status: 'Approved',
-          size: '1.5 MB'
-        };
-        setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
-        
-        // Log every action inside Recent Activity
-        const logs: ActivityLog[] = [
-          {
-            id: `act_${Date.now()}_1`,
-            action: `RECRUITMENT: Candidate ${targetApplicant.name} reached Accepted stage and was removed from the Recruitment Pipeline.`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'applicant'
-          },
-          {
-            id: `act_${Date.now()}_2`,
-            action: `STAFFING: Automatically created Active Staff record for ${targetApplicant.name} (Staff ID: ${newStaffId}).`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'status'
-          },
-          {
-            id: `act_${Date.now()}_3`,
-            action: `COMPLIANCE: Automatically assigned Compliance Profile and Document Folder to ${targetApplicant.name}.`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'compliance'
-          }
-        ];
-        setActivityLogs(prevLogs => [...logs, ...prevLogs]);
-      }
-    } else {
-      setApplicants(prev => prev.map(a => {
-        if (a.id === id) {
-          return { ...a, status: newStatus };
+    try {
+      if (newStatus === 'Accepted') {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) {
+          alert('Your session has expired. Please sign in again before accepting this applicant.');
+          return;
         }
-        return a;
-      }));
+
+        const response = await fetch('/api/admin/accept-applicant', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ applicantId: id })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          alert(`Applicant acceptance failed: ${result.error || 'Unknown server error'}`);
+          return;
+        }
+        await reloadWorkflowState();
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('applicants')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === id ? mapApplicantRow(data) : a));
+      const log = await insertActivityLog({
+        action: `RECRUITMENT: Candidate ${targetApplicant.name} moved to ${newStatus}.`,
+        user: currentUserProfile?.fullName || 'Authenticated User',
+        type: 'applicant'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to update applicant status:', error);
+      alert(error.message || 'Failed to update applicant status.');
     }
   };
 
-  const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
-    const newId = specificId || `app_${Date.now()}`;
-    const newApp: Applicant = {
-      ...applicant,
-      id: newId,
-      dateCreated: new Date().toISOString().split('T')[0]
-    };
+  const handleAddApplicant = async (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
+    try {
+      const payload = applicantToRow({
+        ...applicant,
+        id: specificId,
+        userId: specificId
+      });
+      const { data, error } = await supabase
+        .from('applicants')
+        .insert(payload)
+        .select('*')
+        .single();
 
-    setApplicants(prev => [newApp, ...prev]);
-
-    // Push activity log
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
-      timestamp: 'Just now',
-      user: 'System Bot',
-      type: 'applicant'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    return newApp.id;
+      if (error) throw error;
+      const newApp = mapApplicantRow(data);
+      setApplicants(prev => [newApp, ...prev]);
+      const log = await insertActivityLog({
+        action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
+        user: currentUserProfile?.fullName || 'System',
+        type: 'applicant'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+      return newApp.id;
+    } catch (error: any) {
+      console.error('Failed to add applicant:', error);
+      alert(error.message || 'Failed to add applicant.');
+      return '';
+    }
   };
 
-  const handleUpdateApplicantCompliance = (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
-    setApplicants(prev => prev.map(a => {
-      if (a.id === applicantId) {
-        return {
-          ...a,
-          complianceChecked
-        };
-      }
-      return a;
-    }));
+  const handleUpdateApplicantCompliance = async (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('applicants')
+        .update({ compliance_checked: complianceChecked, updated_at: new Date().toISOString() })
+        .eq('id', applicantId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === applicantId ? mapApplicantRow(data) : a));
+    } catch (error) {
+      console.error('Failed to update applicant compliance:', error);
+    }
   };
 
-  const handleUpdateApplicantDetails = (id: string, fields: Partial<Applicant>) => {
-    setApplicants(prev => prev.map(a => {
-      if (a.id === id) {
-        return { ...a, ...fields };
-      }
-      return a;
-    }));
+  const handleUpdateApplicantDetails = async (id: string, fields: Partial<Applicant>) => {
+    try {
+      const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (fields.name !== undefined) updatePayload.full_name = fields.name;
+      if (fields.email !== undefined) updatePayload.email = fields.email.toLowerCase();
+      if (fields.phone !== undefined) updatePayload.phone = fields.phone;
+      if (fields.position !== undefined) updatePayload.position = fields.position;
+      if (fields.status !== undefined) updatePayload.status = fields.status;
+      if (fields.notes !== undefined) updatePayload.notes = fields.notes;
+      if (fields.complianceChecked !== undefined) updatePayload.compliance_checked = fields.complianceChecked;
+      if (fields.interviewTime !== undefined) updatePayload.interview_time = fields.interviewTime || null;
+      if (fields.interviewMeetUrl !== undefined) updatePayload.interview_meet_url = fields.interviewMeetUrl || null;
+      if (fields.cvData !== undefined) updatePayload.cv_data = fields.cvData;
+
+      const { data, error } = await supabase
+        .from('applicants')
+        .update(updatePayload)
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === id ? mapApplicantRow(data) : a));
+    } catch (error: any) {
+      console.error('Failed to update applicant details:', error);
+      alert(error.message || 'Failed to update applicant details.');
+    }
   };
 
   const handleSaveCVData = (applicantId: string, cvData: any) => {
@@ -740,7 +593,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
         timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'applicant'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -758,34 +611,60 @@ export default function App() {
   };
 
   const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
-    setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
+    try {
+      const { data, error } = await supabase
+        .from('staff_profiles')
+        .update(staffToRow(updatedStaff))
+        .eq('id', updatedStaff.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? mapStaffRow(data) : s));
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
-      timestamp: 'Just now',
-      user: 'System Bot',
-      type: 'compliance'
-    };
-    setActivityLogs(prev => [log, ...prev]);
+      const log = await insertActivityLog({
+        action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
+        user: currentUserProfile?.fullName || 'Authenticated User',
+        type: 'compliance'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to update staff profile:', error);
+      alert(error.message || 'Failed to update staff profile.');
+    }
   };
 
   const handleAddStaff = async (newStaff: Staff) => {
     try {
-      // Save to local React State (triggers localStorage sync automatically)
-      setStaff(prev => [...prev, newStaff]);
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .upsert({
+          email: newStaff.email.toLowerCase(),
+          full_name: newStaff.name,
+          role: 'Staff',
+          status: 'Pending',
+          permissions: []
+        }, { onConflict: 'email' })
+        .select('*')
+        .single();
+      if (userError) throw userError;
 
-      // Push an activity log
-      const log: ActivityLog = {
-        id: `act_${Date.now()}`,
+      const { data, error } = await supabase
+        .from('staff_profiles')
+        .insert(staffToRow({ ...newStaff, userId: userData.id }))
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setStaff(prev => [mapStaffRow(data), ...prev]);
+      const log = await insertActivityLog({
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
-        timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'compliance'
-      };
+      }, currentUserProfile?.id);
       setActivityLogs(prev => [log, ...prev]);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error manual registering staff:", err);
+      alert(err.message || 'Failed to register staff.');
     }
   };
 
@@ -855,7 +734,7 @@ export default function App() {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
         timestamp: 'Just now',
-        user: 'Blessing (Super-Admin)',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
@@ -872,17 +751,26 @@ export default function App() {
     }
   };
 
-  const handleUpdateDocument = (updatedDoc: Document) => {
-    setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
+  const handleUpdateDocument = async (updatedDoc: Document) => {
+    try {
+      const updatePayload = {
+        document_name: updatedDoc.name,
+        category: mapCredentialToCategory(updatedDoc.category),
+        verification_status: updatedDoc.status === 'Awaiting Review' ? 'Pending' : updatedDoc.status,
+        file_path: updatedDoc.fileUrl || null
+      };
+      await supabase.from('documents').update(updatePayload).eq('id', updatedDoc.id);
+      setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `COMPLIANCE: Online form completed and e-signed: '${updatedDoc.category}' for ${updatedDoc.staffName}`,
-      timestamp: 'Just now',
-      user: updatedDoc.staffName || 'System Bot',
-      type: 'document'
-    };
-    setActivityLogs(prev => [log, ...prev]);
+      const log = await insertActivityLog({
+        action: `COMPLIANCE: Online form completed and e-signed: '${updatedDoc.category}' for ${updatedDoc.staffName}`,
+        user: updatedDoc.staffName || currentUserProfile?.fullName || 'System',
+        type: 'document'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error) {
+      console.error('Failed to update document:', error);
+    }
   };
 
   const handleUploadDocument = async (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => {
@@ -917,7 +805,9 @@ export default function App() {
         finalFileUrl = filePath;
 
         // Determine target user's Supabase UUID
-        let targetSupabaseId = null;
+        let targetSupabaseId: string | null = null;
+        let targetApplicantId: string | null = null;
+        let targetStaffProfileId: string | null = null;
         const targetFirebaseUid = doc.staffId || currentUserId;
         
         if (targetFirebaseUid === currentUserId && supabaseUserId) {
@@ -929,43 +819,37 @@ export default function App() {
           const name = targetApplicant?.name || targetStaff?.name || 'Unknown User';
           
           try {
-            // Check if user exists by firebase_uid
-            let { data: uData, error: uError } = await supabase
-              .from('users')
-              .select('id')
-              .eq('firebase_uid', targetFirebaseUid)
-              .maybeSingle();
+            if (targetApplicant) {
+              const { data: appRow } = await supabase
+                .from('applicants')
+                .select('id, user_id')
+                .eq('id', targetApplicant.id)
+                .maybeSingle();
+              if (appRow) {
+                targetApplicantId = appRow.id;
+                targetSupabaseId = appRow.user_id;
+              }
+            }
 
-            if (!uData) {
-              // Also try checking by email
+            if (!targetSupabaseId && targetStaff) {
+              const { data: staffRow } = await supabase
+                .from('staff_profiles')
+                .select('id, user_id')
+                .eq('id', targetStaff.id)
+                .maybeSingle();
+              if (staffRow) {
+                targetStaffProfileId = staffRow.id;
+                targetSupabaseId = staffRow.user_id;
+              }
+            }
+
+            if (!targetSupabaseId && email !== 'unknown@example.com') {
               const { data: eData } = await supabase
                 .from('users')
                 .select('id')
                 .eq('email', email.toLowerCase())
                 .maybeSingle();
-              uData = eData;
-            }
-
-            if (uData) {
-              targetSupabaseId = uData.id;
-            } else {
-              // Create new user row
-              const { data: newUData, error: insError } = await supabase
-                .from('users')
-                .insert({
-                  firebase_uid: targetFirebaseUid,
-                  full_name: name,
-                  email: email.toLowerCase(),
-                  role: 'Applicant',
-                  status: 'Pending'
-                })
-                .select('id')
-                .single();
-              if (newUData) {
-                targetSupabaseId = newUData.id;
-              } else {
-                console.error("Failed to create new Supabase user on-the-fly for upload sync:", insError);
-              }
+              targetSupabaseId = eData?.id || null;
             }
           } catch (userErr) {
             console.error("Error looking up/syncing user in Supabase for upload:", userErr);
@@ -984,7 +868,9 @@ export default function App() {
           file_size: file.size,
           file_type: file.type,
           upload_date: new Date().toISOString().split('T')[0],
-          verification_status: 'Pending'
+          verification_status: 'Pending',
+          applicant_id: targetApplicantId,
+          staff_profile_id: targetStaffProfileId
         };
 
         // Verbose verification logging immediately before insertion
@@ -1043,57 +929,61 @@ export default function App() {
     setActivityLogs(prev => [log, ...prev]);
   };
 
-  const handleAssignDocument = (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
+  const handleAssignDocument = async (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
     const targetStaff = staff.find(s => s.id === targetStaffId);
     const staffMemberName = targetStaff?.name || 'Unknown';
     const staffEmail = targetStaff?.email || 'staff@example.com';
-    const docId = `doc_assigned_${Date.now()}`;
-    const secureLink = `https://shc.test/sign/${docId}`;
+    if (!targetStaff) return;
 
-    const newAssigned: Document = {
-      id: docId,
-      name: docName,
-      category: docCategory,
-      staffId: targetStaffId,
-      staffName: staffMemberName,
-      uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Sent',
-      assignedByAdmin: true,
-      size: '420 KB'
-    };
-    setDocuments(prev => [newAssigned, ...prev]);
+    try {
+      const { data: staffRow } = await supabase
+        .from('staff_profiles')
+        .select('id, user_id')
+        .eq('id', targetStaffId)
+        .maybeSingle();
 
-    // Open email client
-    const subject = encodeURIComponent(`Action Required: E-Signature Request for ${docName}`);
-    const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease review and sign your document here:\n${secureLink}\n\nThank you.`);
-    window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
+      const { data, error } = await supabase
+        .from('documents')
+        .insert({
+          user_id: staffRow?.user_id || null,
+          staff_profile_id: targetStaffId,
+          document_name: docName,
+          category: mapCredentialToCategory(docCategory),
+          upload_date: new Date().toISOString().split('T')[0],
+          verification_status: 'Pending Signature'
+        })
+        .select('*')
+        .single();
 
-    const logSent: ActivityLog = {
-      id: `act_${Date.now()}_sent`,
-      action: `E-SIGNATURE SENT: Secure link emailed to ${staffMemberName} (${staffEmail}) for ${docName}`,
-      timestamp: 'Just now',
-      user: 'System Workflow',
-      type: 'document'
-    };
-    setActivityLogs(prev => [logSent, ...prev]);
+      if (error) throw error;
 
-    // Simulate lifecycle automatically
-    const simulateStatus = (status: DocumentStatus, actionMsg: string, delayMs: number) => {
-      setTimeout(() => {
-        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status } : d));
-        setActivityLogs(prev => [{
-          id: `act_${Date.now()}_${status.toLowerCase()}`,
-          action: actionMsg,
-          timestamp: 'Just now',
-          user: 'System Workflow',
-          type: 'document'
-        }, ...prev]);
-      }, delayMs);
-    };
+      const newAssigned: Document = {
+        id: data.id.toString(),
+        name: data.document_name,
+        category: data.category as DocumentCategory,
+        staffId: targetStaffId,
+        staffName: staffMemberName,
+        uploadDate: data.upload_date || new Date().toISOString().split('T')[0],
+        status: 'Pending Signature',
+        assignedByAdmin: true
+      };
+      setDocuments(prev => [newAssigned, ...prev]);
 
-    simulateStatus('Opened', `E-SIGNATURE OPENED: ${staffMemberName} viewed ${docName}`, 4000);
-    simulateStatus('Signed', `E-SIGNATURE SIGNED: ${staffMemberName} electronically signed ${docName}`, 8000);
-    simulateStatus('Completed', `E-SIGNATURE COMPLETED: Workflow finished for ${docName}. Locked & encrypted.`, 12000);
+      // Open email client
+      const subject = encodeURIComponent(`Action Required: Document Request for ${docName}`);
+      const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease sign in to SHC StaffHub to review and complete your pending document: ${docName}\n\nThank you.`);
+      window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
+
+      const logSent = await insertActivityLog({
+        action: `DOCUMENT REQUEST: ${docName} assigned to ${staffMemberName} (${staffEmail}).`,
+        user: currentUserProfile?.fullName || 'Administrator',
+        type: 'document'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [logSent, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to assign document:', error);
+      alert(error.message || 'Failed to assign document.');
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -1121,51 +1011,65 @@ export default function App() {
     }
   };
 
-  const handleUpdateTimesheetStatus = (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
-    setTimesheets(prev => prev.map(t => {
-      if (t.id === timesheetId) {
-        return { 
-          ...t, 
-          approvalStatus: status,
-          reviewer: 'Admin'
-        };
-      }
-      return t;
-    }));
+  const handleUpdateTimesheetStatus = async (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
+    try {
+      const reviewer = currentUserProfile?.fullName || 'Administrator';
+      const { data, error } = await supabase
+        .from('timesheets')
+        .update({ approval_status: status, reviewer, updated_at: new Date().toISOString() })
+        .eq('id', timesheetId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setTimesheets(prev => prev.map(t => t.id === timesheetId ? mapTimesheetRow(data) : t));
 
-    const target = timesheets.find(t => t.id === timesheetId);
-    if (target) {
-      const log: ActivityLog = {
-        id: `act_${Date.now()}`,
-        action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
-        timestamp: 'Just now',
-        user: 'Agency Admin (Blessing)',
-        type: 'timesheet'
-      };
-      setActivityLogs(prev => [log, ...prev]);
+      const target = timesheets.find(t => t.id === timesheetId);
+      if (target) {
+        const log = await insertActivityLog({
+          action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
+          user: reviewer,
+          type: 'timesheet'
+        }, currentUserProfile?.id);
+        setActivityLogs(prev => [log, ...prev]);
+      }
+    } catch (error: any) {
+      console.error('Failed to update timesheet status:', error);
+      alert(error.message || 'Failed to update timesheet status.');
     }
   };
 
-  const handleAddTimesheet = (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
-    const newTime: Timesheet = {
-      ...timesheet,
-      id: `time_${Date.now()}`,
-      uploadDate: new Date().toISOString().split('T')[0]
-    };
-    setTimesheets(prev => [newTime, ...prev]);
+  const handleAddTimesheet = async (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
+    try {
+      const targetStaff = staff.find(s => s.name === timesheet.staffName);
+      const { data, error } = await supabase
+        .from('timesheets')
+        .insert(timesheetToRow({
+          ...timesheet,
+          userId: currentRole === 'staff' ? currentUserId : undefined,
+          staffProfileId: targetStaff?.id
+        }))
+        .select('*')
+        .single();
+      if (error) throw error;
+      const newTime = mapTimesheetRow(data);
+      setTimesheets(prev => [newTime, ...prev]);
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `SHIFT CLAIM: Shift claim log reported directly by ${timesheet.staffName}: ${timesheet.hoursWorked} registered hours`,
-      timestamp: 'Just now',
-      user: timesheet.staffName,
-      type: 'timesheet'
-    };
-    setActivityLogs(prev => [log, ...prev]);
+      const log = await insertActivityLog({
+        action: `SHIFT CLAIM: Shift claim log reported directly by ${timesheet.staffName}: ${timesheet.hoursWorked} registered hours`,
+        user: timesheet.staffName,
+        type: 'timesheet'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to add timesheet:', error);
+      alert(error.message || 'Failed to add timesheet.');
+    }
   };
 
   // Helper selectors
-  const activeStaffMember = staff.find(s => s.id === (selectedStaffId || currentUserId));
+  const activeStaffMember = selectedStaffId
+    ? staff.find(s => s.id === selectedStaffId)
+    : staff.find(s => s.id === currentUserId || s.email.toLowerCase() === (currentUserProfile?.email || '').toLowerCase());
 
   // Navigation Links & Icons configuration
   const navigationTabs = [
@@ -1229,6 +1133,40 @@ export default function App() {
   
   if (!isLoggedIn) {
     return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} onSystemReset={handleSystemReset} />;
+  }
+
+  if (currentUserProfile && currentUserProfile.status !== 'Active') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-account-status-view">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100 text-amber-700 mb-4">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
+              {currentUserProfile.status === 'Pending' ? 'Account Pending Approval' : 'Account Suspended'}
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {currentUserProfile.status === 'Pending'
+                ? 'Your account is authenticated, but an administrator must activate it before you can enter StaffHub.'
+                : 'Your account is authenticated, but access is currently suspended.'}
+            </p>
+            <div className="bg-slate-50 rounded-xl p-4 mb-6 border border-slate-200 text-left">
+              <p className="text-[11px] font-bold text-slate-500 uppercase">Signed in as</p>
+              <p className="text-sm font-bold text-slate-900 mt-1">{currentUserProfile.fullName}</p>
+              <p className="text-xs text-slate-500">{currentUserProfile.email}</p>
+              <p className="text-xs text-slate-500 mt-2">Status: <span className="font-bold">{currentUserProfile.status}</span></p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center items-center px-4 py-2.5 rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Family & Client Feedback Portal: Clean Isolated Perspective
@@ -1375,22 +1313,7 @@ export default function App() {
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
-            <span className="truncate max-w-[130px]">{currentRole === 'admin' ? 'Blessing (Super-Admin)' : activeStaffMember?.name}</span>
-            {userAccountRole === 'admin' && (
-              <button 
-                onClick={() => {
-                  // Instantly swap perspective for satisfied evaluation
-                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                  setCurrentRole(nextRole);
-                  setSelectedStaffId(null);
-                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-                }}
-                className="text-[9px] text-indigo-700 font-bold hover:underline"
-                title="Switch role perspective"
-              >
-                [Swap]
-              </button>
-            )}
+            <span className="truncate max-w-[180px]">{currentUserProfile?.fullName || activeStaffMember?.name || 'Authenticated User'}</span>
           </div>
         </div>
 
@@ -1601,23 +1524,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
-            
-            {/* Quick swap button directly in the main header for satisfied exploration */}
-            {userAccountRole === 'admin' && (
-              <button
-                onClick={() => {
-                  const nextRole = currentRole === 'admin' ? 'staff' : 'admin';
-                  setCurrentRole(nextRole);
-                  setSelectedStaffId(null);
-                  setActiveTab(nextRole === 'admin' ? 'dashboard' : 'staff_dashboard');
-                }}
-                className="inline-flex items-center space-x-1 border border-slate-205 rounded-xl px-2.5 py-1 text-[10px] bg-slate-50 font-black tracking-wider text-slate-600 hover:text-indigo-700 hover:bg-indigo-50/50 transition cursor-pointer"
-              >
-                <span>SWAP ROLE:</span>
-                <span className="text-[#9C1F60] font-black">{currentRole === 'admin' ? 'STAFF' : 'ADMIN'}</span>
-              </button>
-            )}
-
             {/* Profile badge with popup settings */}
             <div className="relative">
               <button 
@@ -1625,10 +1531,10 @@ export default function App() {
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
                 <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
-                  {currentRole === 'admin' ? 'BL' : activeStaffMember?.name.substring(0,2).toUpperCase()}
+                  {(currentUserProfile?.fullName || activeStaffMember?.name || 'US').substring(0,2).toUpperCase()}
                 </div>
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
-                  {currentRole === 'admin' ? 'Blessing (Admin)' : activeStaffMember?.name}
+                  {currentUserProfile?.fullName || activeStaffMember?.name}
                 </span>
                 <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
               </button>
@@ -1636,21 +1542,22 @@ export default function App() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-50 text-xs text-slate-700 font-medium">
                   <div className="px-3 py-2 border-b border-slate-50">
-                    <p className="font-extrabold text-slate-900 leading-none">Blessing Steward</p>
-                    <p className="text-[10px] text-slate-400 mt-1 leading-none">blessing.admin@shc247.co.uk</p>
+                    <p className="font-extrabold text-slate-900 leading-none">{currentUserProfile?.fullName || 'Authenticated User'}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-none">{currentUserProfile?.email || supabaseUser?.email}</p>
                   </div>
                   
-                  <button 
-                    onClick={() => {
-                      setCurrentRole('admin');
-                      setSelectedStaffId(null);
-                      setActiveTab('system');
-                      setProfileDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
-                  >
-                    <span>System Architecture Spec</span>
-                  </button>
+                  {currentRole === 'admin' && (
+                    <button 
+                      onClick={() => {
+                        setSelectedStaffId(null);
+                        setActiveTab('system');
+                        setProfileDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
+                    >
+                      <span>System Architecture Spec</span>
+                    </button>
+                  )}
 
                   <button 
                     onClick={handleLogout}
@@ -1803,7 +1710,7 @@ export default function App() {
                       onAddApplicant={handleAddApplicant}
                       onUploadDocument={handleUploadDocument}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
-                      onAddLog={(action, type) => {
+                      onAddLog={async (action, type) => {
                         let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'document';
                         if (type === 'recruitment') logType = 'applicant';
                         else if (type === 'staff') logType = 'status';
@@ -1811,13 +1718,11 @@ export default function App() {
                         else if (type === 'timesheet') logType = 'timesheet';
                         else if (type === 'document') logType = 'document';
 
-                        const log: ActivityLog = {
-                          id: `act_${Date.now()}`,
+                        const log = await insertActivityLog({
                           action,
-                          timestamp: 'Just now',
-                          user: 'Blessing (Admin)',
+                          user: currentUserProfile?.fullName || 'Administrator',
                           type: logType
-                        };
+                        }, currentUserProfile?.id);
                         setActivityLogs(prev => [log, ...prev]);
                       }}
                     />
@@ -1833,18 +1738,16 @@ export default function App() {
                       onDeleteFeedback={(id) => {
                         setFamilyFeedbacks(prev => prev.filter(f => f.id !== id));
                       }}
-                      onAddLog={(action, type) => {
+                      onAddLog={async (action, type) => {
                         let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'compliance';
                         if (type === 'recruitment') logType = 'applicant';
                         else if (type === 'staff') logType = 'status';
                         else if (type === 'timesheet') logType = 'timesheet';
-                        const log: ActivityLog = {
-                          id: `act_${Date.now()}`,
+                        const log = await insertActivityLog({
                           action,
-                          timestamp: 'Just now',
-                          user: 'Blessing (Admin)',
+                          user: currentUserProfile?.fullName || 'Administrator',
                           type: logType
-                        };
+                        }, currentUserProfile?.id);
                         setActivityLogs(prev => [log, ...prev]);
                       }}
                     />

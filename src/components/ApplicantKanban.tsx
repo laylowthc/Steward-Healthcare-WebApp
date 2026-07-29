@@ -6,7 +6,7 @@ import CVBuilder from './CVBuilder';
 interface ApplicantKanbanProps {
   applicants: Applicant[];
   onUpdateApplicantStatus: (id: string, newStatus: ApplicantStatus) => void;
-  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => string;
+  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => Promise<string>;
   templates: RoleTemplate[];
   onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
@@ -43,11 +43,11 @@ export default function ApplicantKanban({
   // Define Kanban status list order
   const statuses: ApplicantStatus[] = ['Applied', 'Screening', 'Interview', 'Compliance', 'Accepted', 'Rejected'];
 
-  const handleCreateApplicant = (e: React.FormEvent) => {
+  const handleCreateApplicant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newEmail || !newPhone) return;
 
-    const newId = onAddApplicant({
+    const newId = await onAddApplicant({
       name: newName,
       email: newEmail,
       phone: newPhone,
@@ -565,60 +565,45 @@ export default function ApplicantKanban({
                             // Check if a workspace token is available in sessionStorage
                             const token = sessionStorage.getItem('shc_google_access_token');
                             
-                            if (token) {
-                              try {
-                                const response = await fetch('https://meet.googleapis.com/v2/spaces', {
-                                  method: 'POST',
-                                  headers: {
-                                    'Authorization': `Bearer ${token}`,
-                                    'Content-Type': 'application/json'
-                                  },
-                                  body: JSON.stringify({})
-                                });
-                                
-                                if (response.ok) {
-                                  const data = await response.json();
-                                  const meetUrl = data.meetingUri;
-                                  
-                                  if (meetUrl) {
-                                    onUpdateApplicantDetails(selectedApplicant.id, {
-                                      interviewMeetUrl: meetUrl,
-                                      interviewTime: schedTime
-                                    });
-                                    setSelectedApplicant({
-                                      ...selectedApplicant,
-                                      interviewMeetUrl: meetUrl,
-                                      interviewTime: schedTime
-                                    });
-                                    alert(`Successfully reserved live Google Meet space via Google API:\n\n${meetUrl}`);
-                                    return;
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error creating Google Meet space:', err);
-                              }
-                            }
-                            
-                            // Fallback simulation mode
-                            const codes = ['abc-defg-hij', 'mnp-qrst-uvw', 'xyz-abcd-efg', 'shc-hrt-mtg'];
-                            const selectedCode = codes[Math.floor(Math.random() * codes.length)];
-                            const fallbackUrl = `https://meet.google.com/${selectedCode}`;
-                            
-                            onUpdateApplicantDetails(selectedApplicant.id, {
-                              interviewMeetUrl: fallbackUrl,
-                              interviewTime: schedTime
-                            });
-                            setSelectedApplicant({
-                              ...selectedApplicant,
-                              interviewMeetUrl: fallbackUrl,
-                              interviewTime: schedTime
-                            });
-                            
-                            let alertMsg = `Simulated virtual meeting space generated successfully!`;
                             if (!token) {
-                              alertMsg += `\n\n(Note: To establish real live Google Meet spaces, simply link your Workspace client credentials in the 'Operations Terminal' first!)`;
+                              alert('Google Workspace is not connected. Connect a valid Workspace account before creating an interview space.');
+                              return;
                             }
-                            alert(alertMsg);
+
+                            try {
+                              const response = await fetch('https://meet.googleapis.com/v2/spaces', {
+                                method: 'POST',
+                                headers: {
+                                  'Authorization': `Bearer ${token}`,
+                                  'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({})
+                              });
+                              
+                              if (!response.ok) {
+                                throw new Error('Google Meet API rejected the request.');
+                              }
+
+                              const data = await response.json();
+                              const meetUrl = data.meetingUri;
+                              if (!meetUrl) {
+                                throw new Error('Google Meet API did not return a meeting URL.');
+                              }
+
+                              onUpdateApplicantDetails(selectedApplicant.id, {
+                                interviewMeetUrl: meetUrl,
+                                interviewTime: schedTime
+                              });
+                              setSelectedApplicant({
+                                ...selectedApplicant,
+                                interviewMeetUrl: meetUrl,
+                                interviewTime: schedTime
+                              });
+                              alert(`Successfully reserved live Google Meet space via Google API:\n\n${meetUrl}`);
+                            } catch (err: any) {
+                              console.error('Error creating Google Meet space:', err);
+                              alert(err.message || 'Error creating Google Meet space.');
+                            }
                           }}
                           className="w-full py-2 bg-purple-900 hover:bg-purple-950 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
                         >

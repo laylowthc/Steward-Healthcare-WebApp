@@ -16,9 +16,273 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
+  const getSupabaseClients = () => {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+      throw new Error("Supabase server configuration is incomplete");
+    }
+
+    return {
+      userClient: createClient(supabaseUrl, supabaseAnonKey),
+      adminClient: createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      })
+    };
+  };
+
+  const requireActiveAdmin = async (req: express.Request) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      const err = new Error("Missing or invalid authorization header") as any;
+      err.status = 401;
+      throw err;
+    }
+
+    const token = authHeader.split(" ")[1];
+    const { userClient, adminClient } = getSupabaseClients();
+    const { data: { user: callerUser }, error: authError } = await userClient.auth.getUser(token);
+
+    if (authError || !callerUser) {
+      const err = new Error("Invalid or expired session token") as any;
+      err.status = 401;
+      throw err;
+    }
+
+    const { data: callerProfile, error: profileError } = await adminClient
+      .from("users")
+      .select("*")
+      .eq("id", callerUser.id)
+      .single();
+
+    const callerRole = (callerProfile?.role || "").toLowerCase();
+    const callerStatus = callerProfile?.status || "Pending";
+    if (profileError || !callerProfile || callerRole !== "admin" || callerStatus !== "Active") {
+      const err = new Error("Forbidden: active administrative privileges required") as any;
+      err.status = 403;
+      throw err;
+    }
+
+    return { callerUser, callerProfile, adminClient };
+  };
+
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/admin/invite-user", async (req, res) => {
+    try {
+      const { callerUser, adminClient } = await requireActiveAdmin(req);
+      const { email, fullName, role = "Applicant", status = "Pending" } = req.body;
+
+      if (!email || !fullName) {
+        return res.status(400).json({ error: "Missing email or fullName" });
+      }
+
+      const normalizedEmail = String(email).toLowerCase();
+      const dbRole = ["Admin", "Staff", "Applicant", "Family"].includes(role) ? role : "Applicant";
+      const dbStatus = ["Pending", "Active", "Suspended"].includes(status) ? status : "Pending";
+
+      let authUserId: string | null = null;
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
+        data: { full_name: fullName, role: dbRole }
+      });
+
+      if (inviteError) {
+        console.error("[invite-user] Auth invite failed; continuing with profile upsert if user already exists:", inviteError);
+      } else {
+        authUserId = inviteData.user?.id || null;
+      }
+
+      const profilePayload: Record<string, any> = {
+        email: normalizedEmail,
+        full_name: fullName,
+        role: dbRole,
+        status: dbStatus,
+        permissions: [],
+        updated_at: new Date().toISOString()
+      };
+      if (authUserId) {
+        profilePayload.id = authUserId;
+        profilePayload.firebase_uid = authUserId;
+      }
+
+      const { data: profile, error: profileError } = await adminClient
+        .from("users")
+        .upsert(profilePayload, { onConflict: "email" })
+        .select("*")
+        .single();
+
+      if (profileError) {
+        return res.status(500).json({ error: "Failed to create user profile", details: profileError });
+      }
+
+      await adminClient.from("activity_logs").insert({
+        actor_user_id: callerUser.id,
+        actor_name: "Administrator",
+        type: "status",
+        action: `ACCOUNT: Created ${dbStatus} ${dbRole} account profile for ${fullName} (${normalizedEmail}).`
+      });
+
+      return res.json({ success: true, user: profile, inviteSent: !inviteError, inviteError: inviteError?.message || null });
+    } catch (error: any) {
+      console.error("[invite-user] Error:", error);
+      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/status", async (req, res) => {
+    try {
+      const { callerUser, adminClient } = await requireActiveAdmin(req);
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!["Pending", "Active", "Suspended"].includes(status)) {
+        return res.status(400).json({ error: "Invalid account status" });
+      }
+
+      const { data, error } = await adminClient
+        .from("users")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("*")
+        .single();
+
+      if (error) {
+        return res.status(500).json({ error: "Failed to update account status", details: error });
+      }
+
+      await adminClient.from("activity_logs").insert({
+        actor_user_id: callerUser.id,
+        actor_name: "Administrator",
+        type: "status",
+        action: `ACCOUNT: Updated ${data.email} account status to ${status}.`
+      });
+
+      return res.json({ success: true, user: data });
+    } catch (error: any) {
+      console.error("[update-user-status] Error:", error);
+      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+    }
+  });
+
+  app.post("/api/admin/accept-applicant", async (req, res) => {
+    try {
+      const { callerUser, adminClient } = await requireActiveAdmin(req);
+      const { applicantId } = req.body;
+
+      if (!applicantId) {
+        return res.status(400).json({ error: "Missing applicantId" });
+      }
+
+      const { data: applicant, error: applicantError } = await adminClient
+        .from("applicants")
+        .select("*")
+        .eq("id", applicantId)
+        .single();
+
+      if (applicantError || !applicant) {
+        return res.status(404).json({ error: "Applicant not found", details: applicantError });
+      }
+
+      let userId = applicant.user_id;
+      if (!userId) {
+        const { data: userByEmail } = await adminClient
+          .from("users")
+          .select("*")
+          .eq("email", String(applicant.email).toLowerCase())
+          .maybeSingle();
+        userId = userByEmail?.id || null;
+      }
+
+      if (!userId) {
+        return res.status(409).json({ error: "Applicant has no linked authenticated user profile" });
+      }
+
+      const { error: userUpdateError } = await adminClient
+        .from("users")
+        .update({
+          role: "Staff",
+          status: "Active",
+          full_name: applicant.full_name,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", userId);
+
+      if (userUpdateError) {
+        return res.status(500).json({ error: "Failed to promote user account", details: userUpdateError });
+      }
+
+      const staffPayload = {
+        user_id: userId,
+        applicant_id: applicant.id,
+        full_name: applicant.full_name,
+        email: String(applicant.email).toLowerCase(),
+        phone: applicant.phone || "",
+        address: "",
+        role: applicant.position || "Care Assistant",
+        employment_status: "Active",
+        dbs_status: "Pending",
+        right_to_work: "Pending",
+        training_status: "Pending",
+        joined_date: new Date().toISOString().split("T")[0],
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: staffProfile, error: staffError } = await adminClient
+        .from("staff_profiles")
+        .upsert(staffPayload, { onConflict: "user_id" })
+        .select("*")
+        .single();
+
+      if (staffError) {
+        return res.status(500).json({ error: "Failed to create staff profile", details: staffError });
+      }
+
+      const { data: updatedApplicant, error: updateApplicantError } = await adminClient
+        .from("applicants")
+        .update({
+          status: "Accepted",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", applicant.id)
+        .select("*")
+        .single();
+
+      if (updateApplicantError) {
+        return res.status(500).json({ error: "Failed to update applicant status", details: updateApplicantError });
+      }
+
+      await adminClient.from("documents").update({
+        staff_profile_id: staffProfile.id
+      }).eq("user_id", userId);
+
+      await adminClient.from("activity_logs").insert([
+        {
+          actor_user_id: callerUser.id,
+          actor_name: "Administrator",
+          type: "applicant",
+          action: `RECRUITMENT: Candidate ${applicant.full_name} was accepted.`
+        },
+        {
+          actor_user_id: callerUser.id,
+          actor_name: "Administrator",
+          type: "status",
+          action: `STAFFING: Staff profile was created for ${applicant.full_name}.`
+        }
+      ]);
+
+      return res.json({ success: true, applicant: updatedApplicant, staffProfile });
+    } catch (error: any) {
+      console.error("[accept-applicant] Error:", error);
+      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+    }
   });
 
   app.post("/api/admin/delete-user", async (req, res) => {

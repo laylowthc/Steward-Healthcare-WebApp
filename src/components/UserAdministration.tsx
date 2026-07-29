@@ -8,6 +8,7 @@ import {
   OUTREACH_TEMPLATES, 
   GmailContact 
 } from '../lib/gmailService';
+import { applicantToRow, insertActivityLog } from '../lib/workflowRepository';
 
 interface SystemUser {
   id: string;
@@ -15,7 +16,7 @@ interface SystemUser {
   name: string;
   email: string;
   role: 'admin' | 'staff' | 'applicant' | 'family';
-  status?: 'Active' | 'Deactivated';
+  status?: 'Pending' | 'Active' | 'Suspended';
   permissions?: string[];
 }
 
@@ -93,18 +94,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         handleSyncContacts(result.accessToken);
       }
     } catch (err: any) {
-      console.error('Google Auth Failed, falling back to sandbox mode:', err);
-      // Fallback for restricted sandbox: allow entering mock token
-      const useMock = window.confirm(
-        'Google Workspace sign-in was restricted by Firebase config (admin-restricted-operation).\n\nWould you like to initialize high-fidelity Gmail Sandbox Mode to test the contacts sync and recruitment templates outreach workflow?'
-      );
-      if (useMock) {
-        const mockToken = 'mock_sandbox_token';
-        setGoogleToken(mockToken);
-        sessionStorage.setItem('shc_google_access_token', mockToken);
-        showMessage('Gmail Simulation Engine initialized in Sandbox Mode.', 'success');
-        handleSyncContacts(mockToken);
-      }
+      console.error('Google Auth Failed:', err);
+      showMessage('Google Gmail authorization failed. Check the configured Google/Firebase OAuth settings.', 'error');
     } finally {
       setIsConnecting(false);
     }
@@ -146,9 +137,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     if (!confirmed) return;
 
     try {
-      const newAppId = `app_${Date.now()}`;
       const newApp = {
-        id: newAppId,
         name: contact.name,
         email: contact.email,
         phone: '(Synchronized from Gmail)',
@@ -164,34 +153,18 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         }
       };
 
-      // Set in local storage 'shc_applicants_v2' for local state integration
-      try {
-        const storedApps = localStorage.getItem('shc_applicants_v2');
-        const apps = storedApps ? JSON.parse(storedApps) : [];
-        localStorage.setItem('shc_applicants_v2', JSON.stringify([newApp, ...apps]));
-      } catch (err) {
-        console.error("Failed to save applicant in localStorage:", err);
-      }
+      const { error: insertError } = await supabase.from('applicants').insert(applicantToRow(newApp));
+      if (insertError) throw insertError;
 
       // Update contact status in UI and local storage
       updateLocalContactStatus(contact.id, 'Imported');
       setGmailContacts(prev => prev.map(c => c.id === contact.id ? { ...c, status: 'Imported' as const } : c));
       
-      // Save to activity log in localStorage
-      try {
-        const storedLogs = localStorage.getItem('shc_logs_v2');
-        const logs = storedLogs ? JSON.parse(storedLogs) : [];
-        const newLog = {
-          id: `act_${Date.now()}`,
-          action: `RECRUITMENT OUTREACH: Imported Gmail lead ${contact.name} (${contact.email}) as applicant.`,
-          timestamp: 'Just now',
-          user: 'Admin Outreach',
-          type: 'applicant'
-        };
-        localStorage.setItem('shc_logs_v2', JSON.stringify([newLog, ...logs]));
-      } catch (logErr) {
-        console.error("Failed to add activity log", logErr);
-      }
+      await insertActivityLog({
+        action: `RECRUITMENT OUTREACH: Imported Gmail lead ${contact.name} (${contact.email}) as applicant.`,
+        user: 'Admin Outreach',
+        type: 'applicant'
+      });
 
       showMessage(`Imported ${contact.name} to Applicant Kanban successfully.`, 'success');
     } catch (error) {
@@ -217,21 +190,11 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       updateLocalContactStatus(outreachModalContact.id, 'Contacted');
       setGmailContacts(prev => prev.map(c => c.id === outreachModalContact.id ? { ...c, status: 'Contacted' as const } : c));
 
-      // Save to activity log in localStorage
-      try {
-        const storedLogs = localStorage.getItem('shc_logs_v2');
-        const logs = storedLogs ? JSON.parse(storedLogs) : [];
-        const newLog = {
-          id: `act_${Date.now()}`,
-          action: `GMAIL OUTREACH: Sent email "${emailSubject}" to candidate ${outreachModalContact.name}.`,
-          timestamp: 'Just now',
-          user: 'Admin Outreach',
-          type: 'status'
-        };
-        localStorage.setItem('shc_logs_v2', JSON.stringify([newLog, ...logs]));
-      } catch (logErr) {
-        console.error("Failed to add activity log", logErr);
-      }
+      await insertActivityLog({
+        action: `GMAIL OUTREACH: Sent email "${emailSubject}" to candidate ${outreachModalContact.name}.`,
+        user: 'Admin Outreach',
+        type: 'status'
+      });
 
       showMessage(`Email successfully sent to ${outreachModalContact.email}`, 'success');
       setOutreachModalContact(null);
@@ -260,7 +223,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         name: row.full_name || 'No Name',
         email: row.email,
         role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
-        status: row.status || 'Active',
+        status: row.status || 'Pending',
         permissions: row.permissions || []
       }));
       setUsers(fetchedUsers);
@@ -281,35 +244,31 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     if (!inviteEmail || !inviteName) return;
     try {
       const dbRole = inviteRole === 'admin' ? 'Admin' : (inviteRole === 'staff' ? 'Staff' : 'Applicant');
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
-          full_name: inviteName,
-          email: inviteEmail.toLowerCase(),
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error('Access token not found. Please sign in again.');
+      }
+
+      const response = await fetch('/api/admin/invite-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          fullName: inviteName,
+          email: inviteEmail,
           role: dbRole,
-          status: 'Active',
-          permissions: []
+          status: 'Pending'
         })
-        .select();
-
-      if (error) {
-        throw error;
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create invitation.');
       }
 
-      if (data && data.length > 0) {
-        const created = data[0];
-        const newUser: SystemUser = {
-          id: created.id,
-          uid: created.firebase_uid || created.id,
-          name: created.full_name || inviteName,
-          email: created.email,
-          role: (created.role || inviteRole).toLowerCase() as SystemUser['role'],
-          status: created.status || 'Active',
-          permissions: created.permissions || []
-        };
-        setUsers(prev => [newUser, ...prev]);
-      }
-
+      await fetchUsers();
       showMessage(`Invitation sent to ${inviteEmail}.`, 'success');
       setIsInviting(false);
       setInviteEmail('');
@@ -342,16 +301,24 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   };
 
   const handleToggleStatus = async (user: SystemUser) => {
-    const newStatus = user.status === 'Deactivated' ? 'Active' : 'Deactivated';
+    const newStatus = user.status === 'Active' ? 'Suspended' : 'Active';
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ status: newStatus })
-        .eq('id', user.id);
-
-      if (error) {
-        throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error('Access token not found. Please sign in again.');
       }
+
+      const response = await fetch(`/api/admin/users/${user.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to update account status.');
 
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
       showMessage(`User account ${newStatus.toLowerCase()}.`, 'success');
@@ -430,18 +397,6 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
       console.log("[UserAdministration] Backend administrative deletion successful:", result);
       
-      // Delete any corresponding applicants in local storage
-      try {
-        const storedApps = localStorage.getItem('shc_applicants_v2');
-        if (storedApps) {
-          const apps = JSON.parse(storedApps);
-          const filtered = apps.filter((a: any) => a.email.toLowerCase() !== user.email.toLowerCase());
-          localStorage.setItem('shc_applicants_v2', JSON.stringify(filtered));
-        }
-      } catch (e) {
-        console.error("Error purging matching applicant records from localStorage:", e);
-      }
-
       // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setDeleteConfirmUserId(null);
@@ -625,9 +580,13 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        user.status === 'Deactivated' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                        user.status === 'Suspended'
+                          ? 'bg-rose-100 text-rose-800'
+                          : user.status === 'Pending'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
                       }`}>
-                        {user.status || 'Active'}
+                        {user.status || 'Pending'}
                       </span>
                     </td>
                      <td className="px-4 py-3 text-right">
@@ -667,13 +626,13 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                             <button
                               onClick={() => handleToggleStatus(user)}
                               className={`p-1.5 rounded transition-colors ${
-                                user.status === 'Deactivated' 
+                                user.status !== 'Active'
                                   ? 'text-emerald-500 hover:bg-emerald-50' 
                                   : 'text-amber-500 hover:bg-amber-50'
                               }`}
-                              title={user.status === 'Deactivated' ? 'Reactivate Account' : 'Deactivate Account'}
+                              title={user.status === 'Active' ? 'Suspend Account' : 'Activate Account'}
                             >
-                              {user.status === 'Deactivated' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                              {user.status !== 'Active' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                             </button>
                             <button
                               onClick={() => setDeleteConfirmUserId(user.id)}
@@ -971,7 +930,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
               <span className="text-[10px] text-slate-400 font-bold italic">
-                {googleToken === 'mock_sandbox_token' ? '⚠️ Working in Sandbox Simulation Mode' : '✓ Secure Google API Outbound Transmission'}
+                Secure Google API outbound transmission
               </span>
               <button
                 type="button"
