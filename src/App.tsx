@@ -1595,6 +1595,7 @@ export default function App() {
                   {activeTab === 'dashboard' && (
                     <Dashboard 
                       currentUser={staff.find(s => s.id === currentUserId)}
+                      currentUserProfile={currentUserProfile}
                       currentRole={currentRole}
                       applicants={applicants}
                       staff={staff}

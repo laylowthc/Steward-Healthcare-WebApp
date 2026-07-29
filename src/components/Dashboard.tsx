@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Applicant, Staff, Document, Timesheet, ActivityLog, RoleTemplate, FamilyFeedback } from '../types';
+import { Applicant, Staff, Document, Timesheet, ActivityLog, RoleTemplate, FamilyFeedback, SystemUserProfile } from '../types';
 import { 
   Users, 
   FileText, 
@@ -30,6 +30,7 @@ interface DashboardProps {
   onSelectStaff: (staffId: string) => void;
   templates: RoleTemplate[];
   currentUser?: Staff;
+  currentUserProfile?: SystemUserProfile | null;
   currentRole?: string;
   visibleCards: string[];
   onToggleCard: (cardId: string, visible?: boolean) => void;
@@ -47,6 +48,7 @@ export default function Dashboard({
   onSelectStaff,
   templates,
   currentUser,
+  currentUserProfile,
   currentRole,
   visibleCards,
   onToggleCard,
@@ -72,6 +74,9 @@ export default function Dashboard({
   const compliancePercentage = staff.length > 0 ? Math.round((compliantStaffCount / staff.length) * 100) : 100;
 
   const [isCardFlipped, setIsCardFlipped] = useState(false);
+  const displayName = currentUserProfile?.fullName || currentUser?.name || 'Authenticated User';
+  const displayId = currentUser?.id || currentUserProfile?.id;
+  const displayStatus = currentUserProfile?.status || currentUser?.status || 'Active';
 
   // Calculates Family feedback metrics
   const avgCareQuality = familyFeedbacks.length > 0 
@@ -121,7 +126,7 @@ export default function Dashboard({
                   />
                 ) : (
                   <div className="w-20 h-20 rounded-full bg-purple-100 text-purple-900 border-4 border-white shadow-sm flex items-center justify-center font-bold text-2xl uppercase">
-                    {currentUser?.name ? currentUser.name.substring(0, 2) : (currentRole?.substring(0, 2) || 'AD')}
+                    {displayName.substring(0, 2)}
                   </div>
                 )}
                 <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-sm block"></span>
@@ -129,17 +134,17 @@ export default function Dashboard({
 
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-white leading-tight">
-                  {currentUser?.name || 'Authenticated User'}
+                  {displayName}
                 </h1>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="p-0.5 px-2.5 rounded-full bg-white/10 text-white text-xs font-bold">
                     Role: {currentRole === 'admin' ? 'System Administrator' : currentUser?.role || 'Staff'}
                   </span>
                   <span className="p-0.5 px-2.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
-                    Staff ID: {currentUser?.id || 'ADM-001'}
+                    {currentRole === 'admin' ? 'User ID' : 'Staff ID'}: {displayId || 'Unavailable'}
                   </span>
                   <span className="p-1 px-2.5 rounded-full bg-white/10 text-xs font-bold text-slate-350">
-                    Status: {currentUser?.status || 'Active'}
+                    Status: {displayStatus}
                   </span>
                 </div>
               </div>
@@ -152,6 +157,25 @@ export default function Dashboard({
             style={{ backfaceVisibility: "hidden", transform: "rotateX(180deg)" }}
           >
             <div className="flex items-center space-x-4">
+              {currentRole === 'admin' ? (
+                <>
+                  <div className="flex items-center bg-white/5 p-3 rounded-xl border border-slate-800 shadow-sm flex-1">
+                    <CheckCircle className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                    <div className="ml-3">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Account Type</p>
+                      <p className="text-sm font-bold text-white">Administrator</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center bg-white/5 p-3 rounded-xl border border-slate-800 shadow-sm flex-[2] min-w-0">
+                    <ShieldAlert className="w-6 h-6 text-indigo-400 flex-shrink-0" />
+                    <div className="ml-3 min-w-0">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Signed-in Account</p>
+                      <p className="text-sm font-bold text-white truncate">{currentUserProfile?.email || currentUser?.email || 'Unavailable'}</p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
               <div className="flex items-center bg-white/5 p-3 rounded-xl border border-slate-800 shadow-sm flex-1">
                 <CheckCircle className="w-6 h-6 text-emerald-400 flex-shrink-0" />
                 <div className="ml-3">
@@ -173,6 +197,8 @@ export default function Dashboard({
                   <p className="text-sm font-bold text-white">RGN, BLS, ILS</p>
                 </div>
               </div>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
