@@ -580,7 +580,7 @@ export default function ApplicantKanban({
                                 },
                                 body: JSON.stringify({})
                               });
-                              
+
                               if (!response.ok) {
                                 throw new Error('Google Meet API rejected the request.');
                               }
