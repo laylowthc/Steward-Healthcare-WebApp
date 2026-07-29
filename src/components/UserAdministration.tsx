@@ -8,6 +8,7 @@ import {
   OUTREACH_TEMPLATES, 
   GmailContact 
 } from '../lib/gmailService';
+import { applicantToRow, insertActivityLog } from '../lib/workflowRepository';
 
 interface SystemUser {
   id: string;
@@ -15,7 +16,7 @@ interface SystemUser {
   name: string;
   email: string;
   role: 'admin' | 'staff' | 'applicant' | 'family';
-  status?: 'Active' | 'Deactivated' | 'Pending' | 'Suspended';
+  status?: 'Pending' | 'Active' | 'Suspended';
   permissions?: string[];
 }
 
@@ -93,18 +94,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         handleSyncContacts(result.accessToken);
       }
     } catch (err: any) {
-      console.error('Google Auth Failed, falling back to sandbox mode:', err);
-      // Fallback for restricted sandbox: allow entering mock token
-      const useMock = window.confirm(
-        'Google Workspace sign-in was restricted by Firebase config (admin-restricted-operation).\n\nWould you like to initialize high-fidelity Gmail Sandbox Mode to test the contacts sync and recruitment templates outreach workflow?'
-      );
-      if (useMock) {
-        const mockToken = 'mock_sandbox_token';
-        setGoogleToken(mockToken);
-        sessionStorage.setItem('shc_google_access_token', mockToken);
-        showMessage('Gmail Simulation Engine initialized in Sandbox Mode.', 'success');
-        handleSyncContacts(mockToken);
-      }
+      console.error('Google Auth Failed:', err);
+      showMessage('Google Gmail authorization failed. Check the configured Google/Firebase OAuth settings.', 'error');
     } finally {
       setIsConnecting(false);
     }
@@ -146,9 +137,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     if (!confirmed) return;
 
     try {
-      const newAppId = `app_${Date.now()}`;
       const newApp = {
-        id: newAppId,
         name: contact.name,
         email: contact.email,
         phone: '(Synchronized from Gmail)',
@@ -164,49 +153,17 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         }
       };
 
-      // Save directly to Supabase users & staff_profiles tables
-      await supabase.from('users').upsert({
-        id: newAppId,
-        full_name: contact.name,
-        email: contact.email.toLowerCase(),
-        phone: '(Synchronized from Gmail)',
-        role: 'Applicant',
-        status: 'Pending',
-        firebase_uid: newAppId
-      });
+      const { error: insertError } = await supabase.from('applicants').insert(applicantToRow(newApp));
+      if (insertError) throw insertError;
 
-      await supabase.from('staff_profiles').upsert({
-        user_id: newAppId,
-        job_title: 'Care Assistant',
-        department: 'Applied',
-        staff_number: JSON.stringify({
-          notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`,
-          complianceChecked: {
-            'Passport': 'Missing',
-            'DBS Certificate': 'Missing',
-            'Right to Work': 'Missing',
-            'Training Certificate': 'Missing'
-          }
-        })
-      });
-
-      // Update contact status in UI
+      // Update contact status in UI and local storage
       updateLocalContactStatus(contact.id, 'Imported');
       setGmailContacts(prev => prev.map(c => c.id === contact.id ? { ...c, status: 'Imported' as const } : c));
       
-      // Save to activity log in Supabase
-      await supabase.from('documents').insert({
-        user_id: newAppId,
-        document_name: `Imported Gmail lead ${contact.name}`,
-        category: 'ActivityLog',
-        file_path: '#',
-        notes: JSON.stringify({
-          id: `act_${Date.now()}`,
-          action: `RECRUITMENT OUTREACH: Imported Gmail lead ${contact.name} (${contact.email}) as applicant.`,
-          timestamp: 'Just now',
-          user: 'Admin Outreach',
-          type: 'applicant'
-        })
+      await insertActivityLog({
+        action: `RECRUITMENT OUTREACH: Imported Gmail lead ${contact.name} (${contact.email}) as applicant.`,
+        user: 'Admin Outreach',
+        type: 'applicant'
       });
 
       showMessage(`Imported ${contact.name} to Applicant Kanban successfully.`, 'success');
@@ -233,19 +190,10 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       updateLocalContactStatus(outreachModalContact.id, 'Contacted');
       setGmailContacts(prev => prev.map(c => c.id === outreachModalContact.id ? { ...c, status: 'Contacted' as const } : c));
 
-      // Save to activity log in Supabase
-      await supabase.from('documents').insert({
-        user_id: '310d20c5-3b9a-4519-bf58-a52fd0c04ecb',
-        document_name: `Sent outreach email to ${outreachModalContact.name}`,
-        category: 'ActivityLog',
-        file_path: '#',
-        notes: JSON.stringify({
-          id: `act_${Date.now()}`,
-          action: `GMAIL OUTREACH: Sent email "${emailSubject}" to candidate ${outreachModalContact.name}.`,
-          timestamp: 'Just now',
-          user: 'Admin Outreach',
-          type: 'status'
-        })
+      await insertActivityLog({
+        action: `GMAIL OUTREACH: Sent email "${emailSubject}" to candidate ${outreachModalContact.name}.`,
+        user: 'Admin Outreach',
+        type: 'status'
       });
 
       showMessage(`Email successfully sent to ${outreachModalContact.email}`, 'success');
@@ -275,7 +223,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         name: row.full_name || 'No Name',
         email: row.email,
         role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
-        status: row.status || 'Active',
+        status: row.status || 'Pending',
         permissions: row.permissions || []
       }));
       setUsers(fetchedUsers);
@@ -296,35 +244,31 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     if (!inviteEmail || !inviteName) return;
     try {
       const dbRole = inviteRole === 'admin' ? 'Admin' : (inviteRole === 'staff' ? 'Staff' : 'Applicant');
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
-          full_name: inviteName,
-          email: inviteEmail.toLowerCase(),
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error('Access token not found. Please sign in again.');
+      }
+
+      const response = await fetch('/api/admin/invite-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          fullName: inviteName,
+          email: inviteEmail,
           role: dbRole,
-          status: 'Active',
-          permissions: []
+          status: 'Pending'
         })
-        .select();
-
-      if (error) {
-        throw error;
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create invitation.');
       }
 
-      if (data && data.length > 0) {
-        const created = data[0];
-        const newUser: SystemUser = {
-          id: created.id,
-          uid: created.firebase_uid || created.id,
-          name: created.full_name || inviteName,
-          email: created.email,
-          role: (created.role || inviteRole).toLowerCase() as SystemUser['role'],
-          status: created.status || 'Active',
-          permissions: created.permissions || []
-        };
-        setUsers(prev => [newUser, ...prev]);
-      }
-
+      await fetchUsers();
       showMessage(`Invitation sent to ${inviteEmail}.`, 'success');
       setIsInviting(false);
       setInviteEmail('');
@@ -356,21 +300,30 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     }
   };
 
-  const handleStatusChange = async (user: SystemUser, newStatus: SystemUser['status']) => {
+  const handleToggleStatus = async (user: SystemUser) => {
+    const newStatus = user.status === 'Active' ? 'Suspended' : 'Active';
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ status: newStatus })
-        .eq('id', user.id);
-
-      if (error) {
-        throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error('Access token not found. Please sign in again.');
       }
 
+      const response = await fetch(`/api/admin/users/${user.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to update account status.');
+
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
-      showMessage(`User account status updated to ${newStatus}.`, 'success');
+      showMessage(`User account ${newStatus.toLowerCase()}.`, 'success');
     } catch (error: any) {
-      console.error("Error updating status:", error);
+      console.error("Error toggling status:", error);
       showMessage(`Failed to update account status: ${error.message || error}`, 'error');
     }
   };
@@ -444,8 +397,6 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
       console.log("[UserAdministration] Backend administrative deletion successful:", result);
       
-      // Local storage fallbacks have been removed
-
       // Update the UI state
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setDeleteConfirmUserId(null);
@@ -628,21 +579,15 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <select
-                        value={user.status || 'Active'}
-                        onChange={(e) => handleStatusChange(user, e.target.value as any)}
-                        className={`text-xs font-bold rounded-lg border px-2 py-1 ${
-                          user.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                          user.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                          user.status === 'Suspended' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                          'bg-slate-100 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Suspended">Suspended</option>
-                        <option value="Deactivated">Deactivated</option>
-                      </select>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        user.status === 'Suspended'
+                          ? 'bg-rose-100 text-rose-800'
+                          : user.status === 'Pending'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {user.status || 'Pending'}
+                      </span>
                     </td>
                      <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end space-x-2">
@@ -677,6 +622,17 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                               title="Send Password Reset"
                             >
                               <Key className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleToggleStatus(user)}
+                              className={`p-1.5 rounded transition-colors ${
+                                user.status !== 'Active'
+                                  ? 'text-emerald-500 hover:bg-emerald-50' 
+                                  : 'text-amber-500 hover:bg-amber-50'
+                              }`}
+                              title={user.status === 'Active' ? 'Suspend Account' : 'Activate Account'}
+                            >
+                              {user.status !== 'Active' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                             </button>
                             <button
                               onClick={() => setDeleteConfirmUserId(user.id)}
@@ -974,7 +930,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
               <span className="text-[10px] text-slate-400 font-bold italic">
-                {googleToken === 'mock_sandbox_token' ? '⚠️ Working in Sandbox Simulation Mode' : '✓ Secure Google API Outbound Transmission'}
+                Secure Google API outbound transmission
               </span>
               <button
                 type="button"

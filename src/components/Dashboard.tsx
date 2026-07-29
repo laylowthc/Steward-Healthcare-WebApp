@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Applicant, Staff, Document, Timesheet, ActivityLog, RoleTemplate, FamilyFeedback } from '../types';
-import PassportPhotoUpload from './PassportPhotoUpload';
 import { 
   Users, 
   FileText, 
@@ -55,8 +54,6 @@ export default function Dashboard({
   familyFeedbacks
 }: DashboardProps) {
   const [isCardSelectorOpen, setIsCardSelectorOpen] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [customAvatar, setCustomAvatar] = useState<string | null>(null);
   
   // Calculate dynamic stats from application state
   const totalApplicants = applicants.filter(a => a.status !== 'Accepted' && a.status !== 'Rejected').length;
@@ -115,22 +112,15 @@ export default function Dashboard({
           <div className="absolute inset-0 bg-[#2D0B31] rounded-2xl p-6 text-white" style={{ backfaceVisibility: "hidden" }}>
             <div className="flex items-center space-x-5 h-full">
               {/* Profile Picture */}
-              <div 
-                className="relative cursor-pointer group"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowPhotoModal(true);
-                }}
-                title="Click to upload profile headshot"
-              >
-                {currentUser?.avatarUrl || (currentUser as any)?.photoUrl || customAvatar ? (
+              <div className="relative">
+                {(currentUser as any)?.photoUrl ? (
                   <img
-                    src={customAvatar || currentUser?.avatarUrl || (currentUser as any)?.photoUrl}
-                    alt={currentUser?.name || 'User Profile'}
-                    className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm group-hover:opacity-80 transition-opacity"
+                    src={(currentUser as any).photoUrl}
+                    alt={currentUser.name || 'User Profile'}
+                    className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm"
                   />
                 ) : (
-                  <div className="w-20 h-20 rounded-full bg-purple-100 text-purple-900 border-4 border-white shadow-sm flex items-center justify-center font-bold text-2xl uppercase group-hover:opacity-80 transition-opacity">
+                  <div className="w-20 h-20 rounded-full bg-purple-100 text-purple-900 border-4 border-white shadow-sm flex items-center justify-center font-bold text-2xl uppercase">
                     {currentUser?.name ? currentUser.name.substring(0, 2) : (currentRole?.substring(0, 2) || 'AD')}
                   </div>
                 )}
@@ -139,7 +129,7 @@ export default function Dashboard({
 
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-white leading-tight">
-                  {currentUser?.name || 'Admin'}
+                  {currentUser?.name || 'Authenticated User'}
                 </h1>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="p-0.5 px-2.5 rounded-full bg-white/10 text-white text-xs font-bold">
@@ -803,29 +793,6 @@ export default function Dashboard({
               </div>
             </div>
 
-          </div>
-        </div>
-      )}
-
-      {/* Web ID Card Passport Headshot Modal */}
-      {showPhotoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
-            <button
-              onClick={() => setShowPhotoModal(false)}
-              className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <PassportPhotoUpload
-              currentPhotoUrl={customAvatar || currentUser?.avatarUrl || (currentUser as any)?.photoUrl}
-              userId={currentUser?.id || 'admin_user'}
-              userName={currentUser?.name || 'Admin'}
-              onPhotoUploaded={(url) => {
-                setCustomAvatar(url);
-                setShowPhotoModal(false);
-              }}
-            />
           </div>
         </div>
       )}

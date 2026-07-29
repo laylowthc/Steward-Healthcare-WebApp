@@ -37,13 +37,12 @@ import {
   Timesheet, 
   ActivityLog, 
   ApplicantStatus, 
-  StaffRole, 
   DocumentCategory,
   RoleTemplate,
   FamilyFeedback,
   DocumentStatus,
-  mapCredentialToCategory,
-  ComplianceLevel
+  SystemUserProfile,
+  mapCredentialToCategory
 } from './types';
 
 import { 
@@ -57,6 +56,19 @@ import {
 } from './mockData';
 
 import { supabase } from './lib/supabase';
+import {
+  applicantToRow,
+  createUserProfile,
+  insertActivityLog,
+  loadWorkflowData,
+  mapApplicantRow,
+  mapFeedbackRow,
+  mapStaffRow,
+  mapTimesheetRow,
+  staffToRow,
+  timesheetToRow,
+  getCurrentProfile
+} from './lib/workflowRepository';
 
 // Dynamic Sub-Views Imports
 import Login from './components/Login';
@@ -80,41 +92,24 @@ import StaffDashboard from './components/StaffDashboard';
 export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('admin');
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('applicant');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
   const [userAccountRole, setUserAccountRole] = useState<'admin' | 'staff' | 'family' | 'applicant' | null>(null);
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<any | null>(null);
-  const [currentUserProfile, setCurrentUserProfile] = useState<any | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<SystemUserProfile | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
-  const [accountPendingMessage, setAccountPendingMessage] = useState<string | null>(null);
-  const [accountSuspendedMessage, setAccountSuspendedMessage] = useState<string | null>(null);
 
-  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>([]);
-
-  // Listen for shareable hash modification links (e.g. #family)
-  useEffect(() => {
-    const handleHashCheck = () => {
-      if (window.location.hash === '#family') {
-        setCurrentRole('family');
-        setIsLoggedIn(true);
-      } else if (window.location.hash === '#login') {
-        setIsLoggedIn(false);
-      }
-    };
-    handleHashCheck();
-    window.addEventListener('hashchange', handleHashCheck);
-    return () => window.removeEventListener('hashchange', handleHashCheck);
-  }, []);
+  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(initialFamilyFeedbacks);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
+  const [staff, setStaff] = useState<Staff[]>(initialStaff);
+  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>(initialTimesheets);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
   const [templates, setTemplates] = useState<RoleTemplate[]>(initialRoleTemplates);
 
   // Navigation State
@@ -164,19 +159,16 @@ export default function App() {
     };
   }, []);
 
-  // Separate session profile and data synchronization flow (handles async Supabase database queries)
+  // Separate session profile synchronization flow (handles async Supabase database queries)
   useEffect(() => {
     let active = true;
 
-    const syncProfileAndData = async () => {
-      setProfileSyncError(null);
-      setAccountPendingMessage(null);
-      setAccountSuspendedMessage(null);
-
+    const syncProfile = async () => {
       if (!supabaseUser) {
         setIsLoggedIn(false);
         setUserAccountRole(null);
         setSupabaseUserId(null);
+        setCurrentUserProfile(null);
         return;
       }
 
@@ -186,254 +178,65 @@ export default function App() {
           throw new Error("No email associated with authenticated Supabase user.");
         }
 
-        // Try querying public.users by UUID id first
-        console.log(`[Supabase Auth Profile Query] Checking for user ID: "${supabaseUser.id}" in public.users`);
-        const { data: existingUsers, error: selectError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', supabaseUser.id);
-
-        if (selectError) {
-          console.error('[Supabase Auth Profile Query] Error querying by ID:', JSON.stringify(selectError, null, 2));
-          throw selectError;
-        }
-
-        let sUser = existingUsers && existingUsers.length > 0 ? existingUsers[0] : null;
-
-        // Fallback: If no user found by ID, query by email
-        if (!sUser) {
-          console.log(`[Supabase Auth Profile Query] No user found by ID. Trying email fallback: "${userEmail}"`);
-          const { data: usersByEmail, error: emailError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('email', userEmail);
-
-          if (emailError) {
-            console.error('[Supabase Auth Profile Query] Error querying by email:', JSON.stringify(emailError, null, 2));
-            throw emailError;
-          }
-
-          if (usersByEmail && usersByEmail.length > 0) {
-            sUser = usersByEmail[0];
-            // Sync user details to map to the new ID mapping standard
-            console.log(`[Supabase Auth Profile Query] Mapping email-matched user "${sUser.id}" with firebase_uid: "${supabaseUser.id}"`);
-            const { error: updateError } = await supabase
-              .from('users')
-              .update({ firebase_uid: supabaseUser.id })
-              .eq('id', sUser.id);
-            if (updateError) {
-              console.error('[Supabase Auth Profile Query] Error updating firebase_uid:', JSON.stringify(updateError, null, 2));
-            }
-          }
-        }
+        const profile = await getCurrentProfile(supabaseUser.id, userEmail);
 
         if (!active) return;
 
-        if (sUser) {
-          console.log("Successfully matched Supabase user profile during session restoration:", sUser);
-          
-          if (sUser.status === 'Suspended') {
-             setIsLoggedIn(false);
-             setAccountSuspendedMessage("Your account has been suspended. Please contact administration.");
-             return;
-          }
-
-          if (sUser.status === 'Pending' && sUser.role !== 'Applicant' && sUser.role !== 'Family') {
-             setIsLoggedIn(false);
-             setAccountPendingMessage("Your account is Pending approval. Please wait for an administrator to activate it.");
-             return;
-          }
-
-          setCurrentUserProfile(sUser);
-          setSupabaseUserId(sUser.id);
-          
-          // Map the role from DB to React state
-          const dbRole = (sUser.role || 'Applicant').toLowerCase() as 'admin' | 'staff' | 'family' | 'applicant';
+        if (profile) {
+          setSupabaseUserId(profile.id);
+          setCurrentUserProfile(profile);
+          const dbRole = profile.role;
           setCurrentRole(dbRole);
-          setCurrentUserId(supabaseUser.id); // Map to Supabase UUID
+          setCurrentUserId(profile.id);
           setUserAccountRole(dbRole);
           setIsLoggedIn(true);
+          setProfileSyncError(null);
 
-          // Now fetch all associated data from Supabase!
-          console.log("[Supabase Data Loader] Fetching all database states for role:", dbRole);
-          
-          // 1. Fetch Users
-          let usersData: any[] = [];
-          if (dbRole === 'admin') {
-            const { data, error } = await supabase.from('users').select('*');
-            if (!error && data) usersData = data;
-          } else {
-            const { data, error } = await supabase.from('users').select('*').eq('id', sUser.id);
-            if (!error && data) usersData = data;
+          if (profile.status !== 'Active') {
+            setApplicants([]);
+            setStaff([]);
+            setDocuments([]);
+            setTimesheets([]);
+            setActivityLogs([]);
+            return;
           }
 
-          // 2. Fetch Staff Profiles
-          let profilesData: any[] = [];
-          if (dbRole === 'admin') {
-            const { data, error } = await supabase.from('staff_profiles').select('*');
-            if (!error && data) profilesData = data;
-          } else {
-            const { data, error } = await supabase.from('staff_profiles').select('*').eq('user_id', sUser.id);
-            if (!error && data) profilesData = data;
-          }
-
-          // Self-healing: If a logged in user profile is missing from staff_profiles, create it
-          const profilesMap = new Map(profilesData.map(p => [p.user_id, p]));
-          let userProfile = profilesMap.get(sUser.id);
-          if (!userProfile && sUser.role !== 'Family') {
-            console.log(`[Supabase Data Loader] Self-healing: Creating missing staff_profile row for user "${sUser.id}"`);
-            const defaultTitle = sUser.role === 'Admin' ? 'Administrator' : 'Care Assistant';
-            const defaultDept = sUser.role === 'Applicant' ? 'Applied' : 'Active';
-            const { data: newProfile, error: profileInsError } = await supabase
-              .from('staff_profiles')
-              .insert({
-                user_id: sUser.id,
-                job_title: defaultTitle,
-                department: defaultDept,
-                staff_number: JSON.stringify({})
-              })
-              .select('*')
-              .maybeSingle();
-            if (!profileInsError && newProfile) {
-              userProfile = newProfile;
-              profilesMap.set(sUser.id, newProfile);
-              profilesData.push(newProfile);
-            } else {
-              console.error('[Supabase Data Loader] Failed to self-heal staff_profile row:', profileInsError);
-            }
-          }
-
-          // 3. Fetch Documents (which includes timesheets, logs, feedbacks, templates)
-          let docsData: any[] = [];
-          if (dbRole === 'admin') {
-            const { data, error } = await supabase.from('documents').select('*');
-            if (!error && data) docsData = data;
-          } else {
-            const { data, error } = await supabase.from('documents').select('*').eq('user_id', sUser.id);
-            if (!error && data) docsData = data;
-          }
-
+          const workflow = await loadWorkflowData(profile);
           if (!active) return;
-
-          // Map users to Applicants and Staff
-          const loadedApplicants: Applicant[] = [];
-          const loadedStaff: Staff[] = [];
-
-          usersData.forEach(u => {
-            const uRole = (u.role || 'Applicant').toLowerCase();
-            const profile = profilesMap.get(u.id);
-            
-            if (uRole === 'applicant') {
-              // Extract CV Data from documents if it exists
-              const appDoc = docsData.find(d => d.user_id === u.id && d.category === 'Application Form');
-              let parsedCvData = undefined;
-              if (appDoc && appDoc.notes) {
-                try {
-                  parsedCvData = JSON.parse(appDoc.notes);
-                } catch(e) {}
-              }
-              
-              // Extract compliance from another document or just set it to default since we are moving away from staff_number json
-              const complianceDoc = docsData.find(d => d.user_id === u.id && d.category === 'Compliance Data');
-              let complianceChecked = {};
-              if (complianceDoc && complianceDoc.notes) {
-                try { complianceChecked = JSON.parse(complianceDoc.notes); } catch(e) {}
-              }
-
-              loadedApplicants.push({
-                id: u.id,
-                name: u.full_name || 'Applicant User',
-                email: u.email,
-                phone: u.phone || '',
-                position: profile?.job_title || 'Care Assistant',
-                status: u.status as ApplicantStatus || 'Applied',
-                dateCreated: u.created_at || new Date().toISOString(),
-                notes: '',
-                complianceChecked: complianceChecked,
-                cvData: parsedCvData
-              });
-            } else if (uRole === 'staff' || uRole === 'admin') {
-              // Parse staff metadata from a 'Staff Metadata' document instead of staff_number
-              const metaDoc = docsData.find(d => d.user_id === u.id && d.category === 'Staff Metadata');
-              let metadata: any = {};
-              if (metaDoc && metaDoc.notes) {
-                try { metadata = JSON.parse(metaDoc.notes); } catch(e) {}
-              }
-              
-              loadedStaff.push({
-                id: u.id,
-                name: u.full_name || 'Staff Member',
-                email: u.email,
-                phone: u.phone || '',
-                address: metadata.address || 'Registered Caregiver Address',
-                role: profile?.job_title || (uRole === 'admin' ? 'Administrator' : 'Care Assistant'),
-                status: u.status || 'Active',
-                avatarUrl: metadata.avatarUrl,
-                nmcPin: metadata.nmcPin,
-                nmcExpiry: metadata.nmcExpiry,
-                dbsStatus: metadata.dbsStatus || 'Compliant',
-                dbsNumber: profile?.dbs_number || '',
-                dbsExpiry: profile?.dbs_issue_date || '',
-                rightToWork: metadata.rightToWork || 'Compliant',
-                rightToWorkExpiry: metadata.rightToWorkExpiry || '',
-                trainingStatus: metadata.trainingStatus || 'Compliant',
-                trainingExpiry: metadata.trainingExpiry || '',
-                joinedDate: u.created_at || new Date().toISOString().split('T')[0]
-              });
-            }
-          });
-
-          
-          const loadedDocuments: Document[] = [];
-          const loadedTimesheets: Timesheet[] = [];
-          const loadedLogs: ActivityLog[] = [];
-          const loadedFeedbacks: any[] = [];
-          const loadedTemplates: RoleTemplate[] = [];
-
-          docsData.forEach(d => {
-            if (d.category === 'ActivityLog') {
-              try {
-                loadedLogs.push(JSON.parse(d.notes));
-              } catch(e) {}
-            } else if (d.category === 'Timesheet') {
-              try {
-                loadedTimesheets.push(JSON.parse(d.notes));
-              } catch(e) {}
-            } else if (d.category === 'RoleTemplate') {
-              try {
-                loadedTemplates.push(JSON.parse(d.notes));
-              } catch(e) {}
-            } else if (d.category === 'FamilyFeedback') {
-              try {
-                loadedFeedbacks.push(JSON.parse(d.notes));
-              } catch(e) {}
-            } else if (d.category !== 'Application Form' && d.category !== 'Compliance Data' && d.category !== 'Staff Metadata') {
-              const owner = usersData.find(u => u.id === d.user_id);
-              loadedDocuments.push({
-                id: d.id,
-                name: d.document_name,
-                category: d.category as any,
-                staffId: d.user_id,
-                staffName: owner?.full_name || 'System User',
-                fileUrl: d.file_path,
-                uploadDate: d.upload_date ? new Date(d.upload_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as any,
-                size: d.file_size ? `${(d.file_size / 1024).toFixed(1)} KB` : '1.5 MB'
-              });
-            }
-          });
-          
-          setApplicants(loadedApplicants);
-
-          setStaff(loadedStaff);
-          setDocuments(loadedDocuments);
-          setTimesheets(loadedTimesheets);
-          setActivityLogs(loadedLogs);
-          setFamilyFeedbacks(loadedFeedbacks);
-          if (loadedTemplates.length > 0) {
-            setTemplates(loadedTemplates);
+          setApplicants(workflow.applicants);
+          setStaff(workflow.staff);
+          setTimesheets(workflow.timesheets);
+          if (workflow.templates.length > 0) {
+            setTemplates(workflow.templates);
           }
+          setActivityLogs(workflow.activityLogs);
+          setFamilyFeedbacks(workflow.familyFeedbacks);
 
+          // Fetch documents from Supabase public.documents for the user
+          try {
+            let query = supabase.from('documents').select('*');
+            if (dbRole !== 'admin') {
+              query = query.eq('user_id', profile.id);
+            }
+            const { data: dbDocs, error: docsError } = await query;
+            if (!docsError && dbDocs && active) {
+              const mappedDbDocs: Document[] = dbDocs.map(d => ({
+                id: d.id.toString(),
+                name: d.document_name,
+                category: d.category as DocumentCategory,
+                staffId: d.staff_profile_id || d.applicant_id || d.user_id,
+                staffName: profile.fullName || 'System User',
+                fileUrl: d.file_path,
+                uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
+              }));
+              setDocuments(mappedDbDocs);
+            } else if (docsError) {
+              console.error("Error fetching documents from Supabase:", docsError);
+            }
+          } catch (docFetchErr) {
+            console.error("Error during document query:", docFetchErr);
+          }
         } else {
           // No matching Supabase user profile exists!
           const diagnosticMsg = `No matching Supabase application profile exists in the 'public.users' table for email '${supabaseUser.email}' (UID: ${supabaseUser.id}).`;
@@ -449,7 +252,7 @@ export default function App() {
       }
     };
 
-    syncProfileAndData();
+    syncProfile();
 
     return () => {
       active = false;
@@ -483,6 +286,36 @@ export default function App() {
     setActivityLogs([]);
   };
 
+  const reloadWorkflowState = async (profile = currentUserProfile) => {
+    if (!profile || profile.status !== 'Active') return;
+    const workflow = await loadWorkflowData(profile);
+    setApplicants(workflow.applicants);
+    setStaff(workflow.staff);
+    setTimesheets(workflow.timesheets);
+    if (workflow.templates.length > 0) {
+      setTemplates(workflow.templates);
+    }
+    setActivityLogs(workflow.activityLogs);
+    setFamilyFeedbacks(workflow.familyFeedbacks);
+
+    let query = supabase.from('documents').select('*');
+    if (profile.role !== 'admin') {
+      query = query.eq('user_id', profile.id);
+    }
+    const { data: dbDocs, error: docsError } = await query;
+    if (docsError) throw docsError;
+    setDocuments((dbDocs || []).map(d => ({
+      id: d.id.toString(),
+      name: d.document_name,
+      category: d.category as DocumentCategory,
+      staffId: d.staff_profile_id || d.applicant_id || d.user_id,
+      staffName: profile.fullName || 'System User',
+      fileUrl: d.file_path,
+      uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
+      status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
+    })));
+  };
+
   // Global OAuth Popup close Handler
   useEffect(() => {
     if (window.location.hash && window.location.hash.includes('access_token=') && window.location.hash.includes('state=google_auth_state')) {
@@ -498,29 +331,12 @@ export default function App() {
 
   // Auth Operations
   const handleLoginSuccess = async (role: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => {
+    if (!userId) return;
     setCurrentRole(role);
     setUserAccountRole(role);
-    if (userId) {
-      setCurrentUserId(userId);
-    } else {
-      // Demo accounts or fallback login without userId
-      if (role === 'admin') {
-        setCurrentUserId('admin_demo');
-      } else if (role === 'staff') {
-        setCurrentUserId('staff_1');
-      }
-    }
-    setIsLoggedIn(true);
+    setCurrentUserId(userId);
     setSelectedStaffId(null);
-    if (role === 'family') {
-      window.location.hash = 'family';
-    } else {
-      // Clear hash if logging in as staff/admin so they don't get routed back
-      if (window.location.hash === '#family') {
-        window.location.hash = '';
-      }
-      setActiveTab(role === 'admin' ? 'dashboard' : 'staff_dashboard');
-    }
+    setActiveTab(role === 'admin' ? 'dashboard' : 'staff_dashboard');
   };
 
   const handleLogout = async () => {
@@ -528,212 +344,7 @@ export default function App() {
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
     setProfileSyncError(null);
-    setAccountPendingMessage(null);
-    setAccountSuspendedMessage(null);
-  };
-
-  // --- DATABASE PERSISTENCE HELPERS ---
-  const saveApplicantToSupabase = async (applicant: Applicant) => {
-    try {
-      // 1. Update/Insert in users table
-      const { error: userErr } = await supabase.from('users').upsert({
-        id: applicant.id,
-        full_name: applicant.name,
-        email: applicant.email.toLowerCase(),
-        phone: applicant.phone,
-        role: 'Applicant',
-        status: applicant.status || 'Applied',
-        firebase_uid: applicant.id
-      });
-      if (userErr) console.error("Error upserting applicant in users table:", userErr);
-
-      // 2. Prepare metadata
-      const { error: profileErr } = await supabase.from('staff_profiles').upsert({
-        user_id: applicant.id,
-        job_title: applicant.position,
-        department: 'Applied'
-      });
-      if (profileErr) console.error("Error upserting staff in staff_profiles:", profileErr);
-      
-      // Save CV Data as a document
-      if (applicant.cvData) {
-        const { data: existingAppDoc } = await supabase.from('documents').select('id').eq('user_id', applicant.id).eq('category', 'Application Form').maybeSingle();
-        if (existingAppDoc) {
-          await supabase.from('documents').update({ notes: JSON.stringify(applicant.cvData) }).eq('id', existingAppDoc.id);
-        } else {
-          await supabase.from('documents').insert({
-            user_id: applicant.id,
-            document_name: 'Application Form Data',
-            category: 'Application Form',
-            file_path: '#',
-            notes: JSON.stringify(applicant.cvData)
-          });
-        }
-      }
-      
-      // Save compliance data as a document
-      if (applicant.complianceChecked) {
-        const { data: existingCompDoc } = await supabase.from('documents').select('id').eq('user_id', applicant.id).eq('category', 'Compliance Data').maybeSingle();
-        if (existingCompDoc) {
-          await supabase.from('documents').update({ notes: JSON.stringify(applicant.complianceChecked) }).eq('id', existingCompDoc.id);
-        } else {
-          await supabase.from('documents').insert({
-            user_id: applicant.id,
-            document_name: 'Compliance Checklist',
-            category: 'Compliance Data',
-            file_path: '#',
-            notes: JSON.stringify(applicant.complianceChecked)
-          });
-        }
-      }
-      
-    } catch (e) {
-      console.error("Exception in saveApplicantToSupabase:", e);
-    }
-  };
-
-  const saveStaffToSupabase = async (s: Staff) => {
-    try {
-      const { error: userErr } = await supabase.from('users').upsert({
-        id: s.id,
-        full_name: s.name,
-        email: s.email.toLowerCase(),
-        phone: s.phone,
-        role: s.role === 'Administrator' ? 'Admin' : 'Staff',
-        status: s.status,
-        firebase_uid: s.id
-      });
-      if (userErr) console.error("Error upserting staff in users table:", userErr);
-
-      const metadata = {
-        address: s.address,
-        avatarUrl: s.avatarUrl,
-        nmcPin: s.nmcPin,
-        nmcExpiry: s.nmcExpiry,
-        dbsStatus: s.dbsStatus,
-        rightToWorkExpiry: s.rightToWorkExpiry,
-        trainingStatus: s.trainingStatus,
-        trainingExpiry: s.trainingExpiry
-      };
-      
-      const { error: profileErr } = await supabase.from('staff_profiles').upsert({
-        user_id: s.id,
-        job_title: s.role,
-        department: 'Staff'
-      });
-      if (profileErr) console.error("Error upserting staff in staff_profiles:", profileErr);
-      
-      // Save Staff metadata as a document
-      const { data: existingMetaDoc } = await supabase.from('documents').select('id').eq('user_id', s.id).eq('category', 'Staff Metadata').maybeSingle();
-      if (existingMetaDoc) {
-        await supabase.from('documents').update({ notes: JSON.stringify(metadata) }).eq('id', existingMetaDoc.id);
-      } else {
-        await supabase.from('documents').insert({
-          user_id: s.id,
-          document_name: 'Staff Metadata',
-          category: 'Staff Metadata',
-          file_path: '#',
-          notes: JSON.stringify(metadata)
-        });
-      }
-    } catch (e) {
-      console.error("Exception in saveStaffToSupabase:", e);
-    }
-  };
-
-  const saveTimesheetToSupabase = async (t: Timesheet) => {
-    try {
-      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      // Do not use the custom local ID which might not be a valid UUID. Instead let Supabase insert new ones.
-      // Timesheets are usually append-only in this demo.
-      const { error } = await supabase.from('documents').insert({
-        user_id: adminUser,
-        document_name: `Timesheet for ${t.staffName}`,
-        category: 'Timesheet',
-        file_path: t.fileUrl || '#',
-        verification_status: t.approvalStatus,
-        notes: JSON.stringify(t)
-      });
-      if (error) console.error("Error saving timesheet to Supabase:", error);
-    } catch (e) {
-      console.error("Exception in saveTimesheetToSupabase:", e);
-    }
-  };
-
-  const saveActivityLogToSupabase = async (log: ActivityLog) => {
-    try {
-      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { error } = await supabase.from('documents').insert({
-        user_id: adminUser,
-        document_name: log.action,
-        category: 'ActivityLog',
-        file_path: '#',
-        notes: JSON.stringify(log)
-      });
-      if (error) console.error("Error saving activity log to Supabase:", error);
-    } catch (e) {
-      console.error("Exception in saveActivityLogToSupabase:", e);
-    }
-  };
-
-  const saveFamilyFeedbackToSupabase = async (f: FamilyFeedback) => {
-    try {
-      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { error } = await supabase.from('documents').insert({
-        user_id: adminUser,
-        document_name: `Feedback from ${f.familyRepresentative}`,
-        category: 'FamilyFeedback',
-        file_path: '#',
-        notes: JSON.stringify(f)
-      });
-      if (error) console.error("Error saving feedback to Supabase:", error);
-    } catch (e) {
-      console.error("Exception in saveFamilyFeedbackToSupabase:", e);
-    }
-  };
-
-  const saveRoleTemplateToSupabase = async (rt: RoleTemplate) => {
-    try {
-      const adminUser = supabaseUserId || currentUserId || '310d20c5-3b9a-4519-bf58-a52fd0c04ecb';
-      const { data: existingTemplate } = await supabase.from('documents').select('id').eq('category', 'RoleTemplate').eq('document_name', `Template: ${rt.role}`).maybeSingle();
-      
-      if (existingTemplate) {
-        await supabase.from('documents').update({ notes: JSON.stringify(rt) }).eq('id', existingTemplate.id);
-      } else {
-        await supabase.from('documents').insert({
-          user_id: adminUser,
-          document_name: `Template: ${rt.role}`,
-          category: 'RoleTemplate',
-          file_path: '#',
-          notes: JSON.stringify(rt)
-        });
-      }
-    } catch (e) {
-      console.error("Exception in saveRoleTemplateToSupabase:", e);
-    }
-  };
-
-  const handleUpdateTemplates = async (newTemplates: RoleTemplate[]) => {
-    setTemplates(newTemplates);
-    for (const rt of newTemplates) {
-      await saveRoleTemplateToSupabase(rt);
-    }
-  };
-
-  const handleUpdateFeedbackStatus = async (id: string, newStatus: any) => {
-    setFamilyFeedbacks(prev => prev.map(f => {
-      if (f.id === id) {
-        const updated = { ...f, status: newStatus };
-        saveFamilyFeedbackToSupabase(updated);
-        return updated;
-      }
-      return f;
-    }));
-  };
-
-  const handleDeleteFeedback = async (id: string) => {
-    setFamilyFeedbacks(prev => prev.filter(f => f.id !== id));
-    await handleDeleteDocument(id);
+    setCurrentUserProfile(null);
   };
 
   // State mutation callbacks passed to children components
@@ -741,147 +352,135 @@ export default function App() {
     const targetApplicant = applicants.find(a => a.id === id);
     if (!targetApplicant) return;
 
-    const updatedApplicant = { ...targetApplicant, status: newStatus };
-    setApplicants(prev => prev.map(a => a.id === id ? updatedApplicant : a));
-    await saveApplicantToSupabase(updatedApplicant);
-
-    if (newStatus === 'Accepted') {
-      const alreadyExists = staff.some(s => s.email.toLowerCase() === targetApplicant.email.toLowerCase());
-      if (!alreadyExists) {
-        const newStaffId = targetApplicant.id;
-        const newStaffMember: Staff = {
-          id: newStaffId,
-          name: targetApplicant.name,
-          email: targetApplicant.email,
-          phone: targetApplicant.phone,
-          address: 'Registered Candidate Address',
-          role: targetApplicant.position as StaffRole,
-          status: 'Active',
-          dbsStatus: 'Compliant',
-          dbsNumber: `001${Math.floor(10000000 + Math.random() * 90000000)}`,
-          dbsExpiry: new Date(Date.now() + 3 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          rightToWork: 'Compliant',
-          rightToWorkExpiry: new Date(Date.now() + 4 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          trainingStatus: 'Compliant',
-          trainingExpiry: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          joinedDate: new Date().toISOString().split('T')[0]
-        };
-        setStaff(prevStaff => [...prevStaff, newStaffMember]);
-        await saveStaffToSupabase(newStaffMember);
-
-        const placeholderDoc: Document = {
-          id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}_pass`,
-          name: `${targetApplicant.name.replace(/\s+/g, '_')}_Compliance_Profile.pdf`,
-          category: 'Passport',
-          staffId: newStaffMember.id,
-          staffName: targetApplicant.name,
-          uploadDate: new Date().toISOString().split('T')[0],
-          status: 'Approved',
-          size: '1.5 MB'
-        };
-        setDocuments(prevDocs => [placeholderDoc, ...prevDocs]);
-        
-        const { error: docError } = await supabase.from('documents').insert({
-          user_id: newStaffMember.id,
-          document_name: placeholderDoc.name,
-          category: placeholderDoc.category,
-          file_path: '#',
-          verification_status: 'Approved',
-          file_size: 1572864,
-          file_type: 'application/pdf'
-        });
-        if (docError) console.error("Error creating Accepted compliance doc in Supabase:", docError);
-
-        const { error: userUpdateErr } = await supabase.from('users').update({ status: 'Active', role: 'Staff' }).eq('id', targetApplicant.id);
-        if (userUpdateErr) console.error("Failed to update user role/status in Supabase:", userUpdateErr);
-
-        const logs: ActivityLog[] = [
-          {
-            id: `act_${Date.now()}_1`,
-            action: `RECRUITMENT: Candidate ${targetApplicant.name} reached Accepted stage.`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'applicant'
-          },
-          {
-            id: `act_${Date.now()}_2`,
-            action: `STAFFING: Automatically created Active Staff record for ${targetApplicant.name} (Staff ID: ${newStaffId}).`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'status'
-          },
-          {
-            id: `act_${Date.now()}_3`,
-            action: `COMPLIANCE: Automatically assigned Compliance Profile and Document Folder to ${targetApplicant.name}.`,
-            timestamp: 'Just now',
-            user: 'Agency Automation',
-            type: 'compliance'
-          }
-        ];
-        setActivityLogs(prevLogs => [...logs, ...prevLogs]);
-        for (const l of logs) {
-          await saveActivityLogToSupabase(l);
+    try {
+      if (newStatus === 'Accepted') {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) {
+          alert('Your session has expired. Please sign in again before accepting this applicant.');
+          return;
         }
+
+        const response = await fetch('/api/admin/accept-applicant', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ applicantId: id })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          alert(`Applicant acceptance failed: ${result.error || 'Unknown server error'}`);
+          return;
+        }
+        await reloadWorkflowState();
+        return;
       }
+
+      const { data, error } = await supabase
+        .from('applicants')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === id ? mapApplicantRow(data) : a));
+      const log = await insertActivityLog({
+        action: `RECRUITMENT: Candidate ${targetApplicant.name} moved to ${newStatus}.`,
+        user: currentUserProfile?.fullName || 'Authenticated User',
+        type: 'applicant'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to update applicant status:', error);
+      alert(error.message || 'Failed to update applicant status.');
     }
   };
 
-  const handleAddApplicant = (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
-    const newId = specificId || `app_${Date.now()}`;
-    const newApp: Applicant = {
-      ...applicant,
-      id: newId,
-      dateCreated: new Date().toISOString().split('T')[0]
-    };
+  const handleAddApplicant = async (applicant: Omit<Applicant, 'id' | 'dateCreated'>, specificId?: string) => {
+    try {
+      const payload = applicantToRow({
+        ...applicant,
+        id: specificId,
+        userId: specificId
+      });
+      const { data, error } = await supabase
+        .from('applicants')
+        .insert(payload)
+        .select('*')
+        .single();
 
-    setApplicants(prev => [newApp, ...prev]);
-    saveApplicantToSupabase(newApp);
-
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
-      timestamp: 'Just now',
-      user: 'System Bot',
-      type: 'applicant'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    saveActivityLogToSupabase(log);
-    return newApp.id;
+      if (error) throw error;
+      const newApp = mapApplicantRow(data);
+      setApplicants(prev => [newApp, ...prev]);
+      const log = await insertActivityLog({
+        action: `REGISTRY: New candidate applicant ${applicant.name} registered successfully as ${applicant.position}`,
+        user: currentUserProfile?.fullName || 'System',
+        type: 'applicant'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+      return newApp.id;
+    } catch (error: any) {
+      console.error('Failed to add applicant:', error);
+      alert(error.message || 'Failed to add applicant.');
+      return '';
+    }
   };
 
   const handleUpdateApplicantCompliance = async (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
-    setApplicants(prev => prev.map(a => {
-      if (a.id === applicantId) {
-        const updated = { ...a, complianceChecked };
-        saveApplicantToSupabase(updated);
-        return updated;
-      }
-      return a;
-    }));
+    try {
+      const { data, error } = await supabase
+        .from('applicants')
+        .update({ compliance_checked: complianceChecked, updated_at: new Date().toISOString() })
+        .eq('id', applicantId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === applicantId ? mapApplicantRow(data) : a));
+    } catch (error) {
+      console.error('Failed to update applicant compliance:', error);
+    }
   };
 
   const handleUpdateApplicantDetails = async (id: string, fields: Partial<Applicant>) => {
-    setApplicants(prev => prev.map(a => {
-      if (a.id === id) {
-        const updated = { ...a, ...fields };
-        saveApplicantToSupabase(updated);
-        return updated;
-      }
-      return a;
-    }));
+    try {
+      const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (fields.name !== undefined) updatePayload.full_name = fields.name;
+      if (fields.email !== undefined) updatePayload.email = fields.email.toLowerCase();
+      if (fields.phone !== undefined) updatePayload.phone = fields.phone;
+      if (fields.position !== undefined) updatePayload.position = fields.position;
+      if (fields.status !== undefined) updatePayload.status = fields.status;
+      if (fields.notes !== undefined) updatePayload.notes = fields.notes;
+      if (fields.complianceChecked !== undefined) updatePayload.compliance_checked = fields.complianceChecked;
+      if (fields.interviewTime !== undefined) updatePayload.interview_time = fields.interviewTime || null;
+      if (fields.interviewMeetUrl !== undefined) updatePayload.interview_meet_url = fields.interviewMeetUrl || null;
+      if (fields.cvData !== undefined) updatePayload.cv_data = fields.cvData;
+
+      const { data, error } = await supabase
+        .from('applicants')
+        .update(updatePayload)
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setApplicants(prev => prev.map(a => a.id === id ? mapApplicantRow(data) : a));
+    } catch (error: any) {
+      console.error('Failed to update applicant details:', error);
+      alert(error.message || 'Failed to update applicant details.');
+    }
   };
 
-  const handleSaveCVData = async (applicantId: string, cvData: any) => {
-    await handleUpdateApplicantDetails(applicantId, { cvData });
-    const log: ActivityLog = {
+  const handleSaveCVData = (applicantId: string, cvData: any) => {
+    handleUpdateApplicantDetails(applicantId, { cvData });
+    setActivityLogs(prev => [{
       id: `act_${Date.now()}_cv`,
       action: `CV Builder data updated for applicant.`,
       timestamp: 'Just now',
       user: 'Applicant Portal',
       type: 'applicant'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    await saveActivityLogToSupabase(log);
+    }, ...prev]);
   };
 
   const handleGenerateCVPdf = (applicantId: string, pdfBlob: Blob) => {
@@ -905,6 +504,7 @@ export default function App() {
       return;
     }
     try {
+      // 1. Reset React states
       setApplicants([]);
       setStaff([]);
       setDocuments([]);
@@ -912,9 +512,11 @@ export default function App() {
       setActivityLogs([]);
       setFamilyFeedbacks([]);
 
+      // 2. Clear client caches
       localStorage.clear();
       sessionStorage.clear();
 
+      // 3. Sign out
       await supabase.auth.signOut();
       setIsLoggedIn(false);
       setUserAccountRole(null);
@@ -935,6 +537,7 @@ export default function App() {
 
       console.log(`[handleDeleteApplicant] Beginning persistent delete workflow for applicant: "${targetApplicant.name}" (${id})`);
 
+      // Find user profile in Supabase 'users' table
       const { data: matchedUsers, error: findError } = await supabase
         .from('users')
         .select('id, email')
@@ -972,7 +575,7 @@ export default function App() {
         if (!response.ok) {
           console.error("[handleDeleteApplicant] Backend user deletion failed:", result);
           alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
-          return;
+          return; // STOP! Do not update React state
         }
 
         console.log("[handleDeleteApplicant] Backend user deletion successful:", result);
@@ -980,19 +583,20 @@ export default function App() {
         console.log(`[handleDeleteApplicant] No active database profile was found for ID/Email. This is a local-only candidate record.`);
       }
 
+      // Database deletion verified successful -> now safely update React local state
       setApplicants(prev => prev.filter(a => a.id !== id));
       setDocuments(prev => prev.filter(d => d.staffId !== id));
       setTimesheets(prev => prev.filter(t => t.staffName !== targetApplicant.name));
 
+      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `DELETION: Administrator permanently purged candidate "${targetApplicant.name}" along with all files, credentials, timesheets, and historical logs.`,
         timestamp: 'Just now',
-        user: 'Admin',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'applicant'
       };
       setActivityLogs(prev => [log, ...prev]);
-      await saveActivityLogToSupabase(log);
 
       if (targetUserId) {
         alert(`SUCCESS:\nCandidate "${targetApplicant.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
@@ -1007,36 +611,60 @@ export default function App() {
   };
 
   const handleUpdateStaffDetails = async (updatedStaff: Staff) => {
-    setStaff(prev => prev.map(s => s.id === updatedStaff.id ? updatedStaff : s));
-    await saveStaffToSupabase(updatedStaff);
+    try {
+      const { data, error } = await supabase
+        .from('staff_profiles')
+        .update(staffToRow(updatedStaff))
+        .eq('id', updatedStaff.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? mapStaffRow(data) : s));
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
-      timestamp: 'Just now',
-      user: 'System Bot',
-      type: 'compliance'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    await saveActivityLogToSupabase(log);
+      const log = await insertActivityLog({
+        action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
+        user: currentUserProfile?.fullName || 'Authenticated User',
+        type: 'compliance'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to update staff profile:', error);
+      alert(error.message || 'Failed to update staff profile.');
+    }
   };
 
   const handleAddStaff = async (newStaff: Staff) => {
     try {
-      setStaff(prev => [...prev, newStaff]);
-      await saveStaffToSupabase(newStaff);
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .upsert({
+          email: newStaff.email.toLowerCase(),
+          full_name: newStaff.name,
+          role: 'Staff',
+          status: 'Pending',
+          permissions: []
+        }, { onConflict: 'email' })
+        .select('*')
+        .single();
+      if (userError) throw userError;
 
-      const log: ActivityLog = {
-        id: `act_${Date.now()}`,
+      const { data, error } = await supabase
+        .from('staff_profiles')
+        .insert(staffToRow({ ...newStaff, userId: userData.id }))
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setStaff(prev => [mapStaffRow(data), ...prev]);
+      const log = await insertActivityLog({
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
-        timestamp: 'Just now',
-        user: 'Admin',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'compliance'
-      };
+      }, currentUserProfile?.id);
       setActivityLogs(prev => [log, ...prev]);
-      await saveActivityLogToSupabase(log);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error manual registering staff:", err);
+      alert(err.message || 'Failed to register staff.');
     }
   };
 
@@ -1047,6 +675,7 @@ export default function App() {
 
       console.log(`[handleDeleteStaff] Beginning persistent delete workflow for staff member: "${target.name}" (${staffId})`);
 
+      // Find user profile in Supabase 'users' table
       const { data: matchedUsers, error: findError } = await supabase
         .from('users')
         .select('id, email')
@@ -1084,7 +713,7 @@ export default function App() {
         if (!response.ok) {
           console.error("[handleDeleteStaff] Backend user deletion failed:", result);
           alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
-          return;
+          return; // STOP! Do not update React state
         }
 
         console.log("[handleDeleteStaff] Backend user deletion successful:", result);
@@ -1092,6 +721,7 @@ export default function App() {
         console.log(`[handleDeleteStaff] No active database profile was found for ID/Email. This is a local-only staff record.`);
       }
 
+      // Database deletion verified successful -> now safely update React local state
       setStaff(prev => prev.filter(s => s.id !== staffId));
       if (selectedStaffId === staffId) {
         setSelectedStaffId(null);
@@ -1099,15 +729,15 @@ export default function App() {
       setDocuments(prev => prev.filter(d => d.staffId !== staffId));
       setTimesheets(prev => prev.filter(t => t.staffName !== target.name));
 
+      // Activity Log
       const log: ActivityLog = {
         id: `act_${Date.now()}`,
         action: `STAFF DELETION: Permanently deleted staff member "${target.name}" and purged all associated compliance records.`,
         timestamp: 'Just now',
-        user: 'Admin',
+        user: currentUserProfile?.fullName || 'Administrator',
         type: 'compliance'
       };
       setActivityLogs(prev => [log, ...prev]);
-      await saveActivityLogToSupabase(log);
 
       if (targetUserId) {
         alert(`SUCCESS:\nStaff member "${target.name}" and all associated credentials/files have been successfully purged via secure backend deletion.`);
@@ -1121,18 +751,26 @@ export default function App() {
     }
   };
 
-  const handleUpdateDocument = (updatedDoc: Document) => {
-    setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
+  const handleUpdateDocument = async (updatedDoc: Document) => {
+    try {
+      const updatePayload = {
+        document_name: updatedDoc.name,
+        category: mapCredentialToCategory(updatedDoc.category),
+        verification_status: updatedDoc.status === 'Awaiting Review' ? 'Pending' : updatedDoc.status,
+        file_path: updatedDoc.fileUrl || null
+      };
+      await supabase.from('documents').update(updatePayload).eq('id', updatedDoc.id);
+      setDocuments(prev => prev.map(doc => doc.id === updatedDoc.id ? updatedDoc : doc));
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `COMPLIANCE: Online form completed and e-signed: '${updatedDoc.category}' for ${updatedDoc.staffName}`,
-      timestamp: 'Just now',
-      user: updatedDoc.staffName || 'System Bot',
-      type: 'document'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    saveActivityLogToSupabase(log);
+      const log = await insertActivityLog({
+        action: `COMPLIANCE: Online form completed and e-signed: '${updatedDoc.category}' for ${updatedDoc.staffName}`,
+        user: updatedDoc.staffName || currentUserProfile?.fullName || 'System',
+        type: 'document'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error) {
+      console.error('Failed to update document:', error);
+    }
   };
 
   const handleUploadDocument = async (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => {
@@ -1143,6 +781,7 @@ export default function App() {
       let uploadedToStorage = false;
 
       try {
+        // 1. Upload the file into the private Supabase Storage bucket named: documents
         console.log("=== SUPABASE UPLOAD VERIFICATION ===");
         console.log("Uploaded Storage bucket name: 'documents'");
         console.log("Exact upload path:", filePath);
@@ -1161,9 +800,14 @@ export default function App() {
         }
 
         uploadedToStorage = true;
+
+        // 2. Use relative storage path for local state consistency
         finalFileUrl = filePath;
 
-        let targetSupabaseId = null;
+        // Determine target user's Supabase UUID
+        let targetSupabaseId: string | null = null;
+        let targetApplicantId: string | null = null;
+        let targetStaffProfileId: string | null = null;
         const targetFirebaseUid = doc.staffId || currentUserId;
         
         if (targetFirebaseUid === currentUserId && supabaseUserId) {
@@ -1175,48 +819,47 @@ export default function App() {
           const name = targetApplicant?.name || targetStaff?.name || 'Unknown User';
           
           try {
-            let { data: uData, error: uError } = await supabase
-              .from('users')
-              .select('id')
-              .eq('firebase_uid', targetFirebaseUid)
-              .maybeSingle();
+            if (targetApplicant) {
+              const { data: appRow } = await supabase
+                .from('applicants')
+                .select('id, user_id')
+                .eq('id', targetApplicant.id)
+                .maybeSingle();
+              if (appRow) {
+                targetApplicantId = appRow.id;
+                targetSupabaseId = appRow.user_id;
+              }
+            }
 
-            if (!uData) {
+            if (!targetSupabaseId && targetStaff) {
+              const { data: staffRow } = await supabase
+                .from('staff_profiles')
+                .select('id, user_id')
+                .eq('id', targetStaff.id)
+                .maybeSingle();
+              if (staffRow) {
+                targetStaffProfileId = staffRow.id;
+                targetSupabaseId = staffRow.user_id;
+              }
+            }
+
+            if (!targetSupabaseId && email !== 'unknown@example.com') {
               const { data: eData } = await supabase
                 .from('users')
                 .select('id')
                 .eq('email', email.toLowerCase())
                 .maybeSingle();
-              uData = eData;
-            }
-
-            if (uData) {
-              targetSupabaseId = uData.id;
-            } else {
-              const { data: newUData, error: insError } = await supabase
-                .from('users')
-                .insert({
-                  firebase_uid: targetFirebaseUid,
-                  full_name: name,
-                  email: email.toLowerCase(),
-                  role: 'Applicant',
-                  status: 'Pending'
-                })
-                .select('id')
-                .single();
-              if (newUData) {
-                targetSupabaseId = newUData.id;
-              } else {
-                console.error("Failed to create new Supabase user on-the-fly for upload sync:", insError);
-              }
+              targetSupabaseId = eData?.id || null;
             }
           } catch (userErr) {
             console.error("Error looking up/syncing user in Supabase for upload:", userErr);
           }
         }
 
+        // Map category to a database check-constraint-compliant value
         const mappedCategory = mapCredentialToCategory(doc.category);
 
+        // Prepare the payload for exact verification logging
         const insertPayload = {
           user_id: targetSupabaseId,
           document_name: file.name,
@@ -1225,14 +868,19 @@ export default function App() {
           file_size: file.size,
           file_type: file.type,
           upload_date: new Date().toISOString().split('T')[0],
-          verification_status: 'Pending'
+          verification_status: 'Pending',
+          applicant_id: targetApplicantId,
+          staff_profile_id: targetStaffProfileId
         };
 
+        // Verbose verification logging immediately before insertion
         console.log("=== SUPABASE PRE-INSERT VERIFICATION ===");
         console.log("Table: public.documents");
         console.log("Payload:", JSON.stringify(insertPayload, null, 2));
+        console.log("Category Value Checked:", insertPayload.category);
         console.log("========================================");
 
+        // 3. Create a row in the existing documents PostgreSQL table
         const { data: dbData, error: dbError } = await supabase
           .from('documents')
           .insert(insertPayload);
@@ -1243,6 +891,7 @@ export default function App() {
       } catch (e: any) {
         console.error("Failed to upload/register with Supabase:", e);
         
+        // Rollback uploaded storage file if metadata creation failed
         if (uploadedToStorage) {
           try {
             await supabase.storage
@@ -1254,8 +903,9 @@ export default function App() {
           }
         }
 
+        // Display the real error to the user
         alert(e.message || e);
-        return;
+        return; // Halt execution and do not add to local application state/UI
       }
     }
 
@@ -1277,63 +927,63 @@ export default function App() {
       type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
-    saveActivityLogToSupabase(log);
   };
 
-  const handleAssignDocument = (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
+  const handleAssignDocument = async (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
     const targetStaff = staff.find(s => s.id === targetStaffId);
     const staffMemberName = targetStaff?.name || 'Unknown';
     const staffEmail = targetStaff?.email || 'staff@example.com';
-    const docId = `doc_assigned_${Date.now()}`;
-    const secureLink = `https://shc.test/sign/${docId}`;
+    if (!targetStaff) return;
 
-    const newAssigned: Document = {
-      id: docId,
-      name: docName,
-      category: docCategory,
-      staffId: targetStaffId,
-      staffName: staffMemberName,
-      uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Sent',
-      assignedByAdmin: true,
-      size: '420 KB'
-    };
-    setDocuments(prev => [newAssigned, ...prev]);
+    try {
+      const { data: staffRow } = await supabase
+        .from('staff_profiles')
+        .select('id, user_id')
+        .eq('id', targetStaffId)
+        .maybeSingle();
 
-    const subject = encodeURIComponent(`Action Required: E-Signature Request for ${docName}`);
-    const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease review and sign your document here:\n${secureLink}\n\nThank you.`);
-    window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
+      const { data, error } = await supabase
+        .from('documents')
+        .insert({
+          user_id: staffRow?.user_id || null,
+          staff_profile_id: targetStaffId,
+          document_name: docName,
+          category: mapCredentialToCategory(docCategory),
+          upload_date: new Date().toISOString().split('T')[0],
+          verification_status: 'Pending Signature'
+        })
+        .select('*')
+        .single();
 
-    const logSent: ActivityLog = {
-      id: `act_${Date.now()}_sent`,
-      action: `E-SIGNATURE SENT: Secure link emailed to ${staffMemberName} (${staffEmail}) for ${docName}`,
-      timestamp: 'Just now',
-      user: 'System Workflow',
-      type: 'document'
-    };
-    setActivityLogs(prev => [logSent, ...prev]);
-    saveActivityLogToSupabase(logSent);
+      if (error) throw error;
 
-    const simulateStatus = (status: DocumentStatus, actionMsg: string, delayMs: number) => {
-      setTimeout(() => {
-        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status } : d));
-        setActivityLogs(prev => {
-          const logItem = {
-            id: `act_${Date.now()}_${status.toLowerCase()}`,
-            action: actionMsg,
-            timestamp: 'Just now',
-            user: 'System Workflow',
-            type: 'document' as const
-          };
-          saveActivityLogToSupabase(logItem);
-          return [logItem, ...prev];
-        });
-      }, delayMs);
-    };
+      const newAssigned: Document = {
+        id: data.id.toString(),
+        name: data.document_name,
+        category: data.category as DocumentCategory,
+        staffId: targetStaffId,
+        staffName: staffMemberName,
+        uploadDate: data.upload_date || new Date().toISOString().split('T')[0],
+        status: 'Pending Signature',
+        assignedByAdmin: true
+      };
+      setDocuments(prev => [newAssigned, ...prev]);
 
-    simulateStatus('Opened', `E-SIGNATURE OPENED: ${staffMemberName} viewed ${docName}`, 4000);
-    simulateStatus('Signed', `E-SIGNATURE SIGNED: ${staffMemberName} electronically signed ${docName}`, 8000);
-    simulateStatus('Completed', `E-SIGNATURE COMPLETED: Workflow finished for ${docName}. Locked & encrypted.`, 12000);
+      // Open email client
+      const subject = encodeURIComponent(`Action Required: Document Request for ${docName}`);
+      const body = encodeURIComponent(`Hello ${staffMemberName},\n\nPlease sign in to SHC StaffHub to review and complete your pending document: ${docName}\n\nThank you.`);
+      window.location.href = `mailto:${staffEmail}?subject=${subject}&body=${body}`;
+
+      const logSent = await insertActivityLog({
+        action: `DOCUMENT REQUEST: ${docName} assigned to ${staffMemberName} (${staffEmail}).`,
+        user: currentUserProfile?.fullName || 'Administrator',
+        type: 'document'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [logSent, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to assign document:', error);
+      alert(error.message || 'Failed to assign document.');
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -1351,7 +1001,7 @@ export default function App() {
       if (error) {
         console.error("[handleDeleteDocument] Failed to delete from Supabase:", JSON.stringify(error, null, 2));
         alert(`Failed to delete document from database: ${error.message}`);
-        return;
+        return; // Abort
       }
 
       setDocuments(prev => prev.filter(d => d.id !== docId));
@@ -1362,61 +1012,64 @@ export default function App() {
   };
 
   const handleUpdateTimesheetStatus = async (timesheetId: string, status: 'Approved' | 'Rejected' | 'Paid') => {
-    let target: Timesheet | undefined;
-    setTimesheets(prev => prev.map(t => {
-      if (t.id === timesheetId) {
-        const updated = { 
-          ...t, 
-          approvalStatus: status,
-          reviewer: 'Admin'
-        };
-        target = updated;
-        saveTimesheetToSupabase(updated);
-        return updated;
+    try {
+      const reviewer = currentUserProfile?.fullName || 'Administrator';
+      const { data, error } = await supabase
+        .from('timesheets')
+        .update({ approval_status: status, reviewer, updated_at: new Date().toISOString() })
+        .eq('id', timesheetId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setTimesheets(prev => prev.map(t => t.id === timesheetId ? mapTimesheetRow(data) : t));
+
+      const target = timesheets.find(t => t.id === timesheetId);
+      if (target) {
+        const log = await insertActivityLog({
+          action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
+          user: reviewer,
+          type: 'timesheet'
+        }, currentUserProfile?.id);
+        setActivityLogs(prev => [log, ...prev]);
       }
-      return t;
-    }));
-
-    if (target) {
-      const { error: docErr } = await supabase.from('documents').update({
-        verification_status: status
-      }).eq('id', timesheetId);
-      if (docErr) console.error("Error updating timesheet status in documents table:", docErr);
-
-      const log: ActivityLog = {
-        id: `act_${Date.now()}`,
-        action: `FINANCE AUDIT: Timesheet submission for ${target.staffName} (${target.hoursWorked} hrs) marked as '${status}'`,
-        timestamp: 'Just now',
-        user: 'Admin',
-        type: 'timesheet'
-      };
-      setActivityLogs(prev => [log, ...prev]);
-      saveActivityLogToSupabase(log);
+    } catch (error: any) {
+      console.error('Failed to update timesheet status:', error);
+      alert(error.message || 'Failed to update timesheet status.');
     }
   };
 
   const handleAddTimesheet = async (timesheet: Omit<Timesheet, 'id' | 'uploadDate'>) => {
-    const newTime: Timesheet = {
-      ...timesheet,
-      id: `time_${Date.now()}`,
-      uploadDate: new Date().toISOString().split('T')[0]
-    };
-    setTimesheets(prev => [newTime, ...prev]);
-    await saveTimesheetToSupabase(newTime);
+    try {
+      const targetStaff = staff.find(s => s.name === timesheet.staffName);
+      const { data, error } = await supabase
+        .from('timesheets')
+        .insert(timesheetToRow({
+          ...timesheet,
+          userId: currentRole === 'staff' ? currentUserId : undefined,
+          staffProfileId: targetStaff?.id
+        }))
+        .select('*')
+        .single();
+      if (error) throw error;
+      const newTime = mapTimesheetRow(data);
+      setTimesheets(prev => [newTime, ...prev]);
 
-    const log: ActivityLog = {
-      id: `act_${Date.now()}`,
-      action: `SHIFT CLAIM: Shift claim log reported directly by ${timesheet.staffName}: ${timesheet.hoursWorked} registered hours`,
-      timestamp: 'Just now',
-      user: timesheet.staffName,
-      type: 'timesheet'
-    };
-    setActivityLogs(prev => [log, ...prev]);
-    saveActivityLogToSupabase(log);
+      const log = await insertActivityLog({
+        action: `SHIFT CLAIM: Shift claim log reported directly by ${timesheet.staffName}: ${timesheet.hoursWorked} registered hours`,
+        user: timesheet.staffName,
+        type: 'timesheet'
+      }, currentUserProfile?.id);
+      setActivityLogs(prev => [log, ...prev]);
+    } catch (error: any) {
+      console.error('Failed to add timesheet:', error);
+      alert(error.message || 'Failed to add timesheet.');
+    }
   };
 
   // Helper selectors
-  const activeStaffMember = staff.find(s => s.id === (selectedStaffId || currentUserId));
+  const activeStaffMember = selectedStaffId
+    ? staff.find(s => s.id === selectedStaffId)
+    : staff.find(s => s.id === currentUserId || s.email.toLowerCase() === (currentUserProfile?.email || '').toLowerCase());
 
   // Navigation Links & Icons configuration
   const navigationTabs = [
@@ -1435,66 +1088,6 @@ export default function App() {
   // Auth Guard
   if (isAuthRestoring) {
     return <div className="flex h-screen items-center justify-center font-sans"><span className="text-slate-500 font-bold">Restoring user session...</span></div>;
-  }
-
-  if (accountPendingMessage) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Visual background accents */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
-        
-        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
-          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 text-blue-600 mb-4">
-              <Clock className="h-6 w-6" />
-            </div>
-            
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Account Pending Approval</h2>
-            <p className="text-sm text-slate-500 mb-6">
-              {accountPendingMessage}
-            </p>
-
-            <button
-              onClick={handleLogout}
-              className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Logout and Return
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (accountSuspendedMessage) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Visual background accents */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-rose-100 rounded-full blur-3xl opacity-60 transform translate-x-20 -translate-y-20"></div>
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-amber-100 rounded-full blur-3xl opacity-60 transform -translate-x-20 translate-y-20"></div>
-        
-        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
-          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-rose-100 text-rose-600 mb-4">
-              <ShieldAlert className="h-6 w-6" />
-            </div>
-            
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Account Suspended</h2>
-            <p className="text-sm text-slate-500 mb-6">
-              {accountSuspendedMessage}
-            </p>
-
-            <button
-              onClick={handleLogout}
-              className="w-full flex justify-center items-center px-4 py-2.5 border border-transparent rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#9C1F60]"
-            >
-              Logout and Return
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   if (profileSyncError) {
@@ -1540,6 +1133,40 @@ export default function App() {
   
   if (!isLoggedIn) {
     return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} onSystemReset={handleSystemReset} />;
+  }
+
+  if (currentUserProfile && currentUserProfile.status !== 'Active') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-account-status-view">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md z-10 flex flex-col items-center justify-center">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-2xl sm:px-10 border border-slate-100 w-full text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-amber-100 text-amber-700 mb-4">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
+              {currentUserProfile.status === 'Pending' ? 'Account Pending Approval' : 'Account Suspended'}
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {currentUserProfile.status === 'Pending'
+                ? 'Your account is authenticated, but an administrator must activate it before you can enter StaffHub.'
+                : 'Your account is authenticated, but access is currently suspended.'}
+            </p>
+            <div className="bg-slate-50 rounded-xl p-4 mb-6 border border-slate-200 text-left">
+              <p className="text-[11px] font-bold text-slate-500 uppercase">Signed in as</p>
+              <p className="text-sm font-bold text-slate-900 mt-1">{currentUserProfile.fullName}</p>
+              <p className="text-xs text-slate-500">{currentUserProfile.email}</p>
+              <p className="text-xs text-slate-500 mt-2">Status: <span className="font-bold">{currentUserProfile.status}</span></p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center items-center px-4 py-2.5 rounded-xl shadow-sm text-xs font-bold text-white bg-[#9C1F60] hover:bg-[#80194E] transition-colors"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Family & Client Feedback Portal: Clean Isolated Perspective
@@ -1636,14 +1263,14 @@ export default function App() {
           handleUploadDocument({
             name: file.name,
             category: category as any,
-            staffId: currentUserId || undefined,
+            staffId: currentUserId,
             staffName: activeApplicant.name,
             status: 'Awaiting Review',
           }, file);
         }}
         onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
         onSaveCVData={handleSaveCVData}
-        onSaveDocument={handleUploadDocument}
+        onGenerateCVPdf={handleGenerateCVPdf}
         onLogout={handleLogout}
       />
     );
@@ -1686,7 +1313,7 @@ export default function App() {
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] font-sans font-semibold text-slate-800">
-            <span className="truncate max-w-[130px]">{currentUserProfile?.full_name || 'System User'}</span>
+            <span className="truncate max-w-[180px]">{currentUserProfile?.fullName || activeStaffMember?.name || 'Authenticated User'}</span>
           </div>
         </div>
 
@@ -1897,26 +1524,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
-            
             {/* Profile badge with popup settings */}
             <div className="relative">
               <button 
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
-                {localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`) ? (
-                  <img
-                    src={localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`)!}
-                    alt="Profile"
-                    className="h-7 w-7 rounded-lg object-cover"
-                  />
-                ) : (
-                  <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs uppercase">
-                    {currentUserProfile?.full_name ? currentUserProfile.full_name.substring(0,2) : 'US'}
-                  </div>
-                )}
+                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
+                  {(currentUserProfile?.fullName || activeStaffMember?.name || 'US').substring(0,2).toUpperCase()}
+                </div>
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
-                  {currentUserProfile?.full_name || 'System User'}
+                  {currentUserProfile?.fullName || activeStaffMember?.name}
                 </span>
                 <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
               </button>
@@ -1924,21 +1542,22 @@ export default function App() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-50 text-xs text-slate-700 font-medium">
                   <div className="px-3 py-2 border-b border-slate-50">
-                    <p className="font-extrabold text-slate-900 leading-none truncate">{currentUserProfile?.full_name || 'User'}</p>
-                    <p className="text-[10px] text-slate-400 mt-1 leading-none truncate">{currentUserProfile?.email || 'email@example.com'}</p>
+                    <p className="font-extrabold text-slate-900 leading-none">{currentUserProfile?.fullName || 'Authenticated User'}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-none">{currentUserProfile?.email || supabaseUser?.email}</p>
                   </div>
                   
-                  <button 
-                    onClick={() => {
-                      setCurrentRole('admin');
-                      setSelectedStaffId(null);
-                      setActiveTab('system');
-                      setProfileDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
-                  >
-                    <span>System Architecture Spec</span>
-                  </button>
+                  {currentRole === 'admin' && (
+                    <button 
+                      onClick={() => {
+                        setSelectedStaffId(null);
+                        setActiveTab('system');
+                        setProfileDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
+                    >
+                      <span>System Architecture Spec</span>
+                    </button>
+                  )}
 
                   <button 
                     onClick={handleLogout}
@@ -1976,20 +1595,7 @@ export default function App() {
                   {/* Dashboard Tab */}
                   {activeTab === 'dashboard' && (
                     <Dashboard 
-                      currentUser={staff.find(s => s.id === currentUserId) || {
-                        id: currentUserId || 'ADM-001',
-                        name: currentUserProfile?.full_name || 'System Admin',
-                        email: currentUserProfile?.email || '',
-                        phone: '',
-                        address: '',
-                        role: 'Administrator',
-                        status: currentUserProfile?.status || 'Active',
-                        avatarUrl: localStorage.getItem(`shc_avatar_${currentUserId || 'admin'}`) || undefined,
-                        dbsStatus: 'Compliant',
-                        rightToWork: 'Compliant',
-                        trainingStatus: 'Compliant',
-                        joinedDate: new Date().toISOString()
-                      } as Staff}
+                      currentUser={staff.find(s => s.id === currentUserId)}
                       currentRole={currentRole}
                       applicants={applicants}
                       staff={staff}
@@ -2104,7 +1710,7 @@ export default function App() {
                       onAddApplicant={handleAddApplicant}
                       onUploadDocument={handleUploadDocument}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
-                      onAddLog={(action, type) => {
+                      onAddLog={async (action, type) => {
                         let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'document';
                         if (type === 'recruitment') logType = 'applicant';
                         else if (type === 'staff') logType = 'status';
@@ -2112,13 +1718,11 @@ export default function App() {
                         else if (type === 'timesheet') logType = 'timesheet';
                         else if (type === 'document') logType = 'document';
 
-                        const log: ActivityLog = {
-                          id: `act_${Date.now()}`,
+                        const log = await insertActivityLog({
                           action,
-                          timestamp: 'Just now',
-                          user: 'Admin',
+                          user: currentUserProfile?.fullName || 'Administrator',
                           type: logType
-                        };
+                        }, currentUserProfile?.id);
                         setActivityLogs(prev => [log, ...prev]);
                       }}
                     />
@@ -2134,18 +1738,16 @@ export default function App() {
                       onDeleteFeedback={(id) => {
                         setFamilyFeedbacks(prev => prev.filter(f => f.id !== id));
                       }}
-                      onAddLog={(action, type) => {
+                      onAddLog={async (action, type) => {
                         let logType: 'applicant' | 'document' | 'compliance' | 'timesheet' | 'status' = 'compliance';
                         if (type === 'recruitment') logType = 'applicant';
                         else if (type === 'staff') logType = 'status';
                         else if (type === 'timesheet') logType = 'timesheet';
-                        const log: ActivityLog = {
-                          id: `act_${Date.now()}`,
+                        const log = await insertActivityLog({
                           action,
-                          timestamp: 'Just now',
-                          user: 'Admin',
+                          user: currentUserProfile?.fullName || 'Administrator',
                           type: logType
-                        };
+                        }, currentUserProfile?.id);
                         setActivityLogs(prev => [log, ...prev]);
                       }}
                     />
