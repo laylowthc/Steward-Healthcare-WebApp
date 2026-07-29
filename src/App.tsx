@@ -1546,7 +1546,7 @@ export default function App() {
                   </div>
                   
                   {currentRole === 'admin' && (
-                    <button 
+                    <button
                       onClick={() => {
                         setSelectedStaffId(null);
                         setActiveTab('system');

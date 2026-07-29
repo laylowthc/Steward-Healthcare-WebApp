@@ -627,7 +627,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                               onClick={() => handleToggleStatus(user)}
                               className={`p-1.5 rounded transition-colors ${
                                 user.status !== 'Active'
-                                  ? 'text-emerald-500 hover:bg-emerald-50' 
+                                  ? 'text-emerald-500 hover:bg-emerald-50'
                                   : 'text-amber-500 hover:bg-amber-50'
                               }`}
                               title={user.status === 'Active' ? 'Suspend Account' : 'Activate Account'}
