@@ -276,9 +276,17 @@ export default function StaffDirectory({
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-3">
-                        <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-purple-900 border border-slate-200 uppercase">
-                          {person.name.split(' ').map(n => n[0]).join('')}
-                        </div>
+                        {person.avatarUrl ? (
+                          <img
+                            src={person.avatarUrl}
+                            alt={`${person.name} profile`}
+                            className="h-8 w-8 rounded-full object-cover border border-slate-200"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-purple-900 border border-slate-200 uppercase">
+                            {person.name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2)}
+                          </div>
+                        )}
                         <div>
                           <div className="font-bold text-slate-800 flex items-center">
                             {person.name}
@@ -288,7 +296,7 @@ export default function StaffDirectory({
                           </div>
                           <div className="text-[10px] text-slate-500 flex items-center mt-0.5">
                             <MapPin className="w-3 h-3 mr-0.5 shrink-0" />
-                            <span className="truncate max-w-[150px]">{person.address.split(',')[1] || person.address}</span>
+                            <span className="truncate max-w-[150px]">{person.address ? (person.address.split(',')[1] || person.address) : 'Address not recorded'}</span>
                           </div>
                         </div>
                       </div>
@@ -297,7 +305,9 @@ export default function StaffDirectory({
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
                         <span className="font-semibold text-slate-900 text-xs">{person.role}</span>
-                        <span className="text-[9px] font-black text-slate-400 mt-0.5">{getRoleAbbr(person.role)} PROFILE</span>
+                        {getRoleAbbr(person.role) && (
+                          <span className="text-[9px] font-black text-slate-400 mt-0.5">{getRoleAbbr(person.role)} PROFILE</span>
+                        )}
                       </div>
                     </td>
 
@@ -308,7 +318,9 @@ export default function StaffDirectory({
                           <span className="text-[9px] text-slate-400 font-sans">Exp: {person.nmcExpiry}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-400 text-[10px] font-sans italic">Not Applicable</span>
+                        <span className="text-slate-400 text-[10px] font-sans italic">
+                          {person.role === 'Nurse' ? 'Not recorded' : 'Not required'}
+                        </span>
                       )}
                     </td>
 

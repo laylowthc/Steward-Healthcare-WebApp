@@ -73,25 +73,36 @@ export const applicantToRow = (applicant: Omit<Applicant, 'id' | 'dateCreated'> 
   updated_at: new Date().toISOString()
 });
 
-export const mapStaffRow = (row: any): Staff => ({
-  id: row.id,
-  name: row.full_name || row.email || 'Staff Member',
-  email: (row.email || '').toLowerCase(),
-  phone: row.phone || '',
-  address: row.address || '',
-  role: (row.role || 'Care Assistant') as StaffRole,
-  status: row.employment_status || 'Active',
-  nmcPin: row.nmc_pin || undefined,
-  nmcExpiry: row.nmc_expiry || undefined,
-  dbsStatus: (row.dbs_status || 'Pending') as ComplianceLevel | 'Pending',
-  dbsNumber: row.dbs_number || undefined,
-  dbsExpiry: row.dbs_expiry || undefined,
-  rightToWork: (row.right_to_work || 'Non-Compliant') as ComplianceLevel,
-  rightToWorkExpiry: row.right_to_work_expiry || undefined,
-  trainingStatus: (row.training_status || 'Non-Compliant') as ComplianceLevel,
-  trainingExpiry: row.training_expiry || undefined,
-  joinedDate: row.joined_date || (row.created_at || new Date().toISOString()).split('T')[0]
-});
+export const mapStaffRow = (row: any): Staff => {
+  const user = Array.isArray(row.user) ? row.user[0] : row.user;
+  const profileRole = row.job_title || row.role;
+  const resolvedRole = profileRole && profileRole !== 'Staff'
+    ? profileRole
+    : user?.role && user.role !== 'Staff'
+      ? user.role
+      : 'Role not assigned';
+
+  return {
+    id: row.id,
+    name: user?.full_name || row.full_name || user?.email || row.email || 'Unnamed staff profile',
+    email: (user?.email || row.email || '').toLowerCase(),
+    phone: row.phone || user?.phone || '',
+    address: row.address || '',
+    role: resolvedRole as StaffRole,
+    status: row.employment_status || 'Active',
+    nmcPin: row.nmc_pin || undefined,
+    nmcExpiry: row.nmc_expiry || undefined,
+    dbsStatus: (row.dbs_status || 'Pending') as ComplianceLevel | 'Pending',
+    dbsNumber: row.dbs_number || undefined,
+    dbsExpiry: row.dbs_expiry || undefined,
+    rightToWork: (row.right_to_work || 'Non-Compliant') as ComplianceLevel,
+    rightToWorkExpiry: row.right_to_work_expiry || undefined,
+    trainingStatus: (row.training_status || 'Non-Compliant') as ComplianceLevel,
+    trainingExpiry: row.training_expiry || undefined,
+    joinedDate: row.joined_date || (row.created_at || new Date().toISOString()).split('T')[0],
+    avatarUrl: user?.avatar_url || row.avatar_url || undefined
+  };
+};
 
 export const staffToRow = (staff: Staff & { userId?: string; applicantId?: string }) => ({
   user_id: staff.userId || null,
@@ -241,9 +252,19 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
     ? supabase.from('applicants').select('*').order('created_at', { ascending: false })
     : supabase.from('applicants').select('*').eq('user_id', profile.id).order('created_at', { ascending: false });
 
+  const staffSelect = `
+    *,
+    user:users!staff_profiles_user_id_fkey (
+      full_name,
+      email,
+      phone,
+      role,
+      avatar_url
+    )
+  `;
   const staffQuery = isAdmin
-    ? supabase.from('staff_profiles').select('*').order('created_at', { ascending: false })
-    : supabase.from('staff_profiles').select('*').eq('user_id', profile.id).order('created_at', { ascending: false });
+    ? supabase.from('staff_profiles').select(staffSelect).order('created_at', { ascending: false })
+    : supabase.from('staff_profiles').select(staffSelect).eq('user_id', profile.id).order('created_at', { ascending: false });
 
   const timesheetQuery = isAdmin
     ? supabase.from('timesheets').select('*').order('created_at', { ascending: false })
