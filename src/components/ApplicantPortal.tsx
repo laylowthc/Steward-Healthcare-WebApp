@@ -7,6 +7,7 @@ import {
 import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
+import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
 import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 
@@ -252,14 +253,17 @@ export default function ApplicantPortal({
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <BrandedLogo layout="horizontal" size="xs" />
+            <div>
+              <div className="flex items-center space-x-2">
               <span className="px-2 py-0.5 bg-purple-100 text-purple-900 border border-purple-200 text-[10px] font-black uppercase rounded">
                 Candidate Portal
               </span>
               <span className="text-xs text-slate-500 font-semibold">• Position: {applicant.position}</span>
+              </div>
+              <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
             </div>
-            <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

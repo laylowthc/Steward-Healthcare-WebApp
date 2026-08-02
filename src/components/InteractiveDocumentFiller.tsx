@@ -5,6 +5,7 @@ import {
   Trash2, Clock, ClipboardList, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle
 } from 'lucide-react';
 import { Document, Staff } from '../types';
+import BrandedLogo from './BrandedLogo';
 
 interface InteractiveDocumentFillerProps {
   document: Document;
@@ -462,17 +463,7 @@ export default function InteractiveDocumentFiller({
 
             {/* BRAND HEADER STATIONARY */}
             <div className="text-center border-b-2 border-purple-900 pb-5 mb-6">
-              <div className="inline-flex items-center space-x-2.5 text-purple-950 font-serif mb-1 font-black tracking-widest">
-                {/* S2 logo symbol emulation redrawn with simple tailwind */}
-                <div className="w-9 h-9 rounded-full bg-purple-900 text-white flex items-center justify-center font-bold tracking-tighter text-base border-2 border-white font-sans shadow-md">
-                  S2
-                </div>
-                <div className="text-left">
-                  <h1 className="text-lg font-black leading-none text-purple-950">Steward Health Care</h1>
-                  <h2 className="text-[12px] font-extrabold tracking-widest text-[#a21caf] leading-none mt-1">247 Professionals</h2>
-                </div>
-              </div>
-              <p className="text-[10px] text-slate-505 font-mono uppercase tracking-wide mt-1.5 font-bold">Redefining Care — National Clinical Staffing Portal</p>
+              <BrandedLogo layout="horizontal" size="sm" className="mx-auto mb-2" />
               <p className="text-[9px] text-slate-400 font-mono mt-1">Devonshire Business Centre, Letchworth Garden City • CQC Registered Provider • manager@stewardhealthcare.co.uk</p>
               
               <div className="mt-4 bg-[#310d59] p-2 text-white font-black text-xs uppercase tracking-wider rounded">
