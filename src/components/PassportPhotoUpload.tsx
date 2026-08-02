@@ -55,40 +55,52 @@ export default function PassportPhotoUpload({
           upsert: true
         });
 
-      let finalUrl = localUrl;
-
-      if (!storageError && uploadData) {
-        // Get public or relative path for avatar
-        const { data: publicUrlData } = supabase.storage
-          .from('documents')
-          .getPublicUrl(fileName);
-
-        if (publicUrlData?.publicUrl) {
-          finalUrl = publicUrlData.publicUrl;
-        } else {
-          finalUrl = fileName;
-        }
-      } else {
-        console.warn("Storage upload notice (falling back to blob URL/metadata):", storageError);
+      if (storageError || !uploadData) {
+        URL.revokeObjectURL(localUrl);
+        throw storageError || new Error('Profile photo upload did not return a storage path.');
       }
 
-      // 3. Save avatarUrl in staff_profiles or users table in Supabase
-      try {
-        const { error: profileErr } = await supabase
-          .from('staff_profiles')
-          .update({
-            staff_number: JSON.stringify({ avatarUrl: finalUrl })
-          })
-          .eq('user_id', userId);
+      const { data: existingPhoto, error: lookupError } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('category', 'Profile Photo')
+        .order('upload_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        if (profileErr) {
-          console.error("Error saving avatar URL to staff_profiles:", profileErr);
-        }
-      } catch (dbErr) {
-        console.error("DB update exception:", dbErr);
+      if (lookupError) throw lookupError;
+
+      const photoRecord = {
+        user_id: userId,
+        document_name: `${userName} passport headshot`,
+        category: 'Profile Photo',
+        file_path: fileName,
+        file_size: file.size,
+        file_type: file.type,
+        uploaded_by: userId,
+        upload_date: new Date().toISOString(),
+        verification_status: 'Approved'
+      };
+
+      const recordResult = existingPhoto
+        ? await supabase.from('documents').update(photoRecord).eq('id', existingPhoto.id)
+        : await supabase.from('documents').insert(photoRecord);
+
+      if (recordResult.error) {
+        await supabase.storage.from('documents').remove([fileName]);
+        throw recordResult.error;
       }
 
-      onPhotoUploaded(finalUrl);
+      const { data: signedPhoto, error: signedUrlError } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(fileName, 60 * 60);
+
+      if (signedUrlError || !signedPhoto?.signedUrl) throw signedUrlError || new Error('Could not display the uploaded photo.');
+
+      URL.revokeObjectURL(localUrl);
+      setPreviewUrl(signedPhoto.signedUrl);
+      onPhotoUploaded(signedPhoto.signedUrl);
     } catch (err: any) {
       console.error("Error uploading profile photo:", err);
       setUploadError("Failed to upload profile photo. Please retry.");

@@ -4,6 +4,8 @@ import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check,
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
 import { getSignedUrlForDocument } from '../lib/supabase';
+import { getSubjectDocuments } from '../lib/profileState';
+import PassportPhotoUpload from './PassportPhotoUpload';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -14,6 +16,7 @@ interface StaffProfileProps {
   onUpdateDocument?: (doc: Document) => void;
   onDeleteStaff?: (staffId: string) => void;
   currentRole?: 'admin' | 'staff' | 'family' | 'applicant';
+  onProfilePhotoUploaded?: () => Promise<void> | void;
 }
 
 export default function StaffProfile({
@@ -24,7 +27,8 @@ export default function StaffProfile({
   onUploadDocument,
   onUpdateDocument,
   onDeleteStaff,
-  currentRole
+  currentRole,
+  onProfilePhotoUploaded
 }: StaffProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
@@ -68,9 +72,6 @@ export default function StaffProfile({
   
   const [role, setRole] = useState<any>(staffMember?.role || 'Care Assistant');
   const [status, setStatus] = useState<any>(staffMember?.status || 'Active');
-  const [dbsStatus, setDbsStatus] = useState<any>(staffMember?.dbsStatus || 'Pending');
-  const [rightToWork, setRightToWork] = useState<any>(staffMember?.rightToWork || 'Pending');
-  const [trainingStatus, setTrainingStatus] = useState<any>(staffMember?.trainingStatus || 'Pending');
   const [avatarUrl, setAvatarUrl] = useState(staffMember?.avatarUrl || '');
 
   if (!staffMember) {
@@ -83,7 +84,11 @@ export default function StaffProfile({
   }
 
   // Filter documents belonging to this staff member
-  const staffDocs = documents.filter(d => d.staffId === staffMember.id);
+  const staffDocs = getSubjectDocuments(documents, {
+    userId: staffMember.userId,
+    applicantId: staffMember.applicantId,
+    staffProfileId: staffMember.id
+  });
 
   const handleDetailsSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,9 +100,6 @@ export default function StaffProfile({
       address,
       role,
       status,
-      dbsStatus,
-      rightToWork,
-      trainingStatus,
       avatarUrl,
       nmcPin: role === 'Nurse' ? nmcPin : undefined,
       nmcExpiry: role === 'Nurse' ? nmcExpiry : undefined,
@@ -225,15 +227,12 @@ export default function StaffProfile({
             {/* Roster state block */}
             <div className="text-xs text-right mt-1 mr-4">
               <span className="block text-[10px] font-bold text-slate-400 uppercase">ROSTER PERMISSION</span>
-              {staffMember.status === 'Active' ? (
-                <span className="font-extrabold text-emerald-700 text-sm flex items-center mt-0.5 justify-end">
-                  🟢 Deployable Active
-                </span>
-              ) : (
-                <span className="font-extrabold text-rose-700 text-sm flex items-center mt-0.5 justify-end">
-                  🔴 Suspended
-                </span>
-              )}
+              <span className={`font-extrabold text-sm flex items-center mt-0.5 justify-end ${
+                staffMember.rosterStatus === 'Deployable' ? 'text-emerald-700' :
+                staffMember.rosterStatus === 'Suspended' ? 'text-rose-700' : 'text-amber-700'
+              }`}>
+                {staffMember.rosterStatus}
+              </span>
             </div>
           </div>
         </div>
@@ -342,17 +341,21 @@ export default function StaffProfile({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Profile Photo URL (Passport-Style Headshot)</label>
-                  <input
-                    type="url"
-                    value={avatarUrl}
-                    onChange={(e) => setAvatarUrl(e.target.value)}
-                    placeholder="https://example.com/photo.jpg"
-                    className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
-                  />
-                  <p className="text-[9px] text-slate-400 mt-1">Must be a recent, clear, passport-style headshot.</p>
-                </div>
+                {staffMember.userId && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Passport-Style Headshot</label>
+                    <PassportPhotoUpload
+                      compact
+                      currentPhotoUrl={avatarUrl}
+                      userId={staffMember.userId}
+                      userName={staffMember.name}
+                      onPhotoUploaded={async url => {
+                        setAvatarUrl(url);
+                        await onProfilePhotoUploaded?.();
+                      }}
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase">Role / Designation</label>
                   <select
@@ -367,14 +370,13 @@ export default function StaffProfile({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Account Status</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Employment Status</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                     className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
                   >
                     <option value="Active">Active</option>
-                    <option value="Pending">Pending</option>
                     <option value="Suspended">Suspended</option>
                     <option value="Non-Compliant">Non-Compliant</option>
                   </select>
@@ -383,7 +385,7 @@ export default function StaffProfile({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">DBS Status</label>
-                    <select value={dbsStatus} onChange={(e) => setDbsStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                    <select disabled value={staffMember.dbsStatus} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>
@@ -392,7 +394,7 @@ export default function StaffProfile({
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Right to Work</label>
-                    <select value={rightToWork} onChange={(e) => setRightToWork(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                    <select disabled value={staffMember.rightToWork} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>
@@ -401,7 +403,7 @@ export default function StaffProfile({
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Training</label>
-                    <select value={trainingStatus} onChange={(e) => setTrainingStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
+                    <select disabled value={staffMember.trainingStatus} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>

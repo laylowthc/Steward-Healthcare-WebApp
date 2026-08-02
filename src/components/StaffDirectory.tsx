@@ -31,14 +31,6 @@ export default function StaffDirectory({
   const [newStaffNmcPin, setNewStaffNmcPin] = useState('');
   const [newStaffNmcExpiry, setNewStaffNmcExpiry] = useState('');
   
-  const [newStaffDbsStatus, setNewStaffDbsStatus] = useState<'Compliant' | 'Pending' | 'Non-Compliant'>('Compliant');
-  const [newStaffDbsNumber, setNewStaffDbsNumber] = useState('');
-  const [newStaffDbsExpiry, setNewStaffDbsExpiry] = useState('');
-  const [newStaffRightToWork, setNewStaffRightToWork] = useState<'Compliant' | 'Expiring' | 'Non-Compliant'>('Compliant');
-  const [newStaffRightToWorkExpiry, setNewStaffRightToWorkExpiry] = useState('');
-  const [newStaffTrainingStatus, setNewStaffTrainingStatus] = useState<'Compliant' | 'Expiring' | 'Non-Compliant'>('Compliant');
-  const [newStaffTrainingExpiry, setNewStaffTrainingExpiry] = useState('');
-
   const [formError, setFormError] = useState('');
 
   const handleAddStaffSubmit = (e: React.FormEvent) => {
@@ -75,16 +67,15 @@ export default function StaffDirectory({
       phone: newStaffPhone,
       address: newStaffAddress,
       role: newStaffRole,
-      status: (newStaffDbsStatus === 'Non-Compliant' || newStaffRightToWork === 'Non-Compliant' || newStaffTrainingStatus === 'Non-Compliant') ? 'Non-Compliant' : 'Active',
+      status: 'Active',
+      accountStatus: 'Pending',
+      rosterStatus: 'Pending',
       nmcPin: newStaffRole === 'Nurse' ? newStaffNmcPin : undefined,
       nmcExpiry: newStaffRole === 'Nurse' ? (newStaffNmcExpiry || new Date(Date.now() + 365*24*3600*1000).toISOString().split('T')[0]) : undefined,
-      dbsStatus: newStaffDbsStatus,
-      dbsNumber: newStaffDbsNumber || `001${Math.floor(10000000 + Math.random() * 90000000)}`,
-      dbsExpiry: newStaffDbsExpiry || new Date(Date.now() + 3*365*24*3600*1000).toISOString().split('T')[0],
-      rightToWork: newStaffRightToWork,
-      rightToWorkExpiry: newStaffRightToWorkExpiry || new Date(Date.now() + 4*365*24*3600*1000).toISOString().split('T')[0],
-      trainingStatus: newStaffTrainingStatus,
-      trainingExpiry: newStaffTrainingExpiry || new Date(Date.now() + 365*24*3600*1000).toISOString().split('T')[0],
+      dbsStatus: 'Pending',
+      rightToWork: 'Non-Compliant',
+      trainingStatus: 'Non-Compliant',
+      referenceStatus: 'Pending',
       joinedDate: new Date().toISOString().split('T')[0]
     };
 
@@ -100,13 +91,6 @@ export default function StaffDirectory({
     setNewStaffRole('Care Assistant');
     setNewStaffNmcPin('');
     setNewStaffNmcExpiry('');
-    setNewStaffDbsStatus('Compliant');
-    setNewStaffDbsNumber('');
-    setNewStaffDbsExpiry('');
-    setNewStaffRightToWork('Compliant');
-    setNewStaffRightToWorkExpiry('');
-    setNewStaffTrainingStatus('Compliant');
-    setNewStaffTrainingExpiry('');
     setIsAddModalOpen(false);
   };
 
@@ -119,13 +103,8 @@ export default function StaffDirectory({
     const matchesRole = roleFilter === 'All' || member.role === roleFilter;
 
     let matchesStatus = true;
-    if (statusFilter === 'Active') {
-      matchesStatus = member.status === 'Active';
-    } else if (statusFilter === 'Non-Compliant') {
-      matchesStatus = member.status === 'Non-Compliant' || 
-                      member.dbsStatus === 'Non-Compliant' || 
-                      member.rightToWork === 'Non-Compliant' || 
-                      member.trainingStatus === 'Non-Compliant';
+    if (statusFilter !== 'All') {
+      matchesStatus = member.rosterStatus === statusFilter;
     }
 
     return matchesSearch && matchesRole && matchesStatus;
@@ -209,8 +188,10 @@ export default function StaffDirectory({
               className="block w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
             >
               <option value="All">Status: All Records</option>
-              <option value="Active">Operational (Active)</option>
-              <option value="Non-Compliant">Non-Compliant Alerts</option>
+              <option value="Deployable">Deployable</option>
+              <option value="Active">Active, not deployable</option>
+              <option value="Pending">Pending</option>
+              <option value="Suspended">Suspended</option>
             </select>
           </div>
         </div>
@@ -239,10 +220,10 @@ export default function StaffDirectory({
             HCA Assist ({staff.filter(s => s.role === 'Care Assistant').length})
           </button>
           <button
-            onClick={() => { setStatusFilter('Non-Compliant'); }}
-            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all border-rose-200 hover:border-rose-350 ${statusFilter === 'Non-Compliant' ? 'bg-rose-700 text-white border-rose-700' : 'bg-rose-50/50 text-rose-700'}`}
+            onClick={() => { setStatusFilter('Suspended'); }}
+            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all border-rose-200 hover:border-rose-350 ${statusFilter === 'Suspended' ? 'bg-rose-700 text-white border-rose-700' : 'bg-rose-50/50 text-rose-700'}`}
           >
-            ⚠️ Flagged Alerts ({staff.filter(s => s.status === 'Non-Compliant' || s.dbsStatus === 'Non-Compliant' || s.rightToWork === 'Non-Compliant' || s.trainingStatus === 'Non-Compliant').length})
+            ⚠️ Suspended ({staff.filter(s => s.rosterStatus === 'Suspended').length})
           </button>
         </div>
       </div>
@@ -263,10 +244,7 @@ export default function StaffDirectory({
             </thead>
             <tbody className="bg-white divide-y divide-slate-102 text-xs">
               {filteredStaff.map((person) => {
-                const hasOverallViolation = person.status === 'Non-Compliant' || 
-                                           person.dbsStatus === 'Non-Compliant' || 
-                                           person.rightToWork === 'Non-Compliant' || 
-                                           person.trainingStatus === 'Non-Compliant';
+                const hasOverallViolation = person.rosterStatus === 'Suspended';
 
                 return (
                   <tr
@@ -329,15 +307,14 @@ export default function StaffDirectory({
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {hasOverallViolation ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
-                          🔴 Suspended
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          🟢 Active Deploy
-                        </span>
-                      )}
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                        person.rosterStatus === 'Deployable' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                        person.rosterStatus === 'Suspended' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                        person.rosterStatus === 'Active' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                        'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {person.rosterStatus}
+                      </span>
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-semibold pr-8">
@@ -507,7 +484,7 @@ export default function StaffDirectory({
               )}
 
               {/* Compliance Initial Setup */}
-              <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/30">
+              <div className="hidden" aria-hidden="true">
                 <h4 className="text-xs font-bold text-slate-800">Initial Compliance Profile</h4>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -515,8 +492,8 @@ export default function StaffDirectory({
                   <div className="space-y-1">
                     <label className="block text-[9px] font-black uppercase text-slate-500">Enhanced DBS</label>
                     <select
-                      value={newStaffDbsStatus}
-                      onChange={(e) => setNewStaffDbsStatus(e.target.value as any)}
+                      value="Pending"
+                      onChange={() => undefined}
                       className="block w-full px-2 py-1.5 border border-slate-300 rounded-lg text-slate-800 bg-white text-xs"
                     >
                       <option value="Compliant">🟢 Compliant</option>
@@ -529,8 +506,8 @@ export default function StaffDirectory({
                   <div className="space-y-1">
                     <label className="block text-[9px] font-black uppercase text-slate-500">Right to Work</label>
                     <select
-                      value={newStaffRightToWork}
-                      onChange={(e) => setNewStaffRightToWork(e.target.value as any)}
+                      value="Non-Compliant"
+                      onChange={() => undefined}
                       className="block w-full px-2 py-1.5 border border-slate-300 rounded-lg text-slate-800 bg-white text-xs"
                     >
                       <option value="Compliant">🟢 Compliant</option>
@@ -543,8 +520,8 @@ export default function StaffDirectory({
                   <div className="space-y-1">
                     <label className="block text-[9px] font-black uppercase text-slate-500">Mandatory Training</label>
                     <select
-                      value={newStaffTrainingStatus}
-                      onChange={(e) => setNewStaffTrainingStatus(e.target.value as any)}
+                      value="Non-Compliant"
+                      onChange={() => undefined}
                       className="block w-full px-2 py-1.5 border border-slate-300 rounded-lg text-slate-800 bg-white text-xs"
                     >
                       <option value="Compliant">🟢 Compliant</option>
@@ -559,8 +536,8 @@ export default function StaffDirectory({
                     <label className="block text-[9px] font-black uppercase text-slate-500 mb-0.5">DBS Number</label>
                     <input
                       type="text"
-                      value={newStaffDbsNumber}
-                      onChange={(e) => setNewStaffDbsNumber(e.target.value)}
+                      value=""
+                      onChange={() => undefined}
                       placeholder="Optional"
                       className="block w-full px-2 py-1 border border-slate-300 rounded-lg text-slate-850 text-xs"
                     />
@@ -569,8 +546,8 @@ export default function StaffDirectory({
                     <label className="block text-[9px] font-black uppercase text-slate-500 mb-0.5">DBS Expiry</label>
                     <input
                       type="date"
-                      value={newStaffDbsExpiry}
-                      onChange={(e) => setNewStaffDbsExpiry(e.target.value)}
+                      value=""
+                      onChange={() => undefined}
                       className="block w-full px-2 py-1 border border-slate-300 rounded-lg text-slate-850 text-xs"
                     />
                   </div>
@@ -578,8 +555,8 @@ export default function StaffDirectory({
                     <label className="block text-[9px] font-black uppercase text-slate-500 mb-0.5">Right to Work Expiry</label>
                     <input
                       type="date"
-                      value={newStaffRightToWorkExpiry}
-                      onChange={(e) => setNewStaffRightToWorkExpiry(e.target.value)}
+                      value=""
+                      onChange={() => undefined}
                       className="block w-full px-2 py-1 border border-slate-300 rounded-lg text-slate-850 text-xs"
                     />
                   </div>

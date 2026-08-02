@@ -8,13 +8,13 @@ import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
+import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl } from '../lib/profileState';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
   templates: RoleTemplate[];
   documents: Document[];
   onUploadDocument: (file: File, category: string) => void;
-  onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onLogout: () => void;
   onSaveCVData?: (applicantId: string, cvData: any) => void;
   onSaveDocument?: (doc: Document) => void;
@@ -25,7 +25,6 @@ export default function ApplicantPortal({
   templates,
   documents,
   onUploadDocument,
-  onUpdateApplicantCompliance,
   onLogout,
   onSaveCVData,
   onSaveDocument
@@ -44,7 +43,13 @@ export default function ApplicantPortal({
   const [activeFillingDoc, setActiveFillingDoc] = useState<Document | null>(null);
 
   // Profile avatar photo url state
-  const [avatarUrl, setAvatarUrl] = useState<string>(applicant.cvData?.personalDetails?.avatarUrl || '');
+  const applicantIdentity = { userId: applicant.userId, applicantId: applicant.id };
+  const resolvedAvatarUrl = resolveAvatarUrl(documents, applicantIdentity, applicant.cvData?.personalDetails?.avatarUrl);
+  const [avatarUrl, setAvatarUrl] = useState<string>(resolvedAvatarUrl || '');
+
+  useEffect(() => {
+    setAvatarUrl(resolvedAvatarUrl || '');
+  }, [resolvedAvatarUrl]);
 
   useEffect(() => {
     let active = true;
@@ -71,21 +76,12 @@ export default function ApplicantPortal({
   const reqs = jobTemplate?.requiredCredentials || ['Passport', 'DBS Certificate', 'Right to Work', 'Training Certificate'];
 
   // Documents for this applicant
-  const applicantDocs = documents.filter(d => d.staffId === applicant.id);
+  const applicantDocs = getSubjectDocuments(documents, applicantIdentity);
 
   // Derive compliance checklist status
   const statusChecklist: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'> = {};
   reqs.forEach(req => {
-    const doc = applicantDocs.find(d => d.category.toLowerCase().includes(req.toLowerCase()) || req.toLowerCase().includes(d.category.toLowerCase()));
-    if (doc) {
-      if (doc.status === 'Approved' || doc.status === 'Signed') {
-        statusChecklist[req] = 'Compliant';
-      } else {
-        statusChecklist[req] = 'Awaiting Review';
-      }
-    } else {
-      statusChecklist[req] = 'Missing';
-    }
+    statusChecklist[req] = deriveRequirementStatus(applicantDocs, req);
   });
 
   const handleUpload = async () => {
@@ -118,7 +114,6 @@ export default function ApplicantPortal({
           emergencyName: formData.emergencyName,
           emergencyRelation: formData.emergencyRelation,
           emergencyPhone: formData.emergencyPhone,
-          avatarUrl: avatarUrl
         },
         employmentHistory: formData.employmentHistory,
         qualifications: formData.educationHistory,
@@ -220,18 +215,22 @@ export default function ApplicantPortal({
     setActiveFillingDoc(null);
   };
 
-  // Convert applicant to mock Staff object for InteractiveDocumentFiller compatibility
+  const applicantCompliance = deriveCompliance(applicantDocs, applicantIdentity);
+
+  // Adapter required by the shared document filler; values come from the applicant's records.
   const applicantAsStaff: Staff = {
     id: applicant.id,
+    userId: applicant.userId,
+    applicantId: applicant.id,
     name: applicant.name,
     email: applicant.email,
     phone: applicant.phone,
-    address: applicant.cvData?.personalDetails?.address || 'Registered Candidate Address',
+    address: applicant.cvData?.personalDetails?.address || '',
     role: applicant.position as any,
     status: 'Active',
-    dbsStatus: 'Compliant',
-    rightToWork: 'Compliant',
-    trainingStatus: 'Compliant',
+    accountStatus: 'Active',
+    rosterStatus: 'Pending',
+    ...applicantCompliance,
     avatarUrl: avatarUrl,
     joinedDate: applicant.dateCreated
   };
@@ -343,17 +342,9 @@ export default function ApplicantPortal({
             {/* Passport Photo Upload Component */}
             <PassportPhotoUpload
               currentPhotoUrl={avatarUrl}
-              userId={applicant.id}
+              userId={applicant.userId || applicant.id}
               userName={applicant.name}
-              onPhotoUploaded={(url) => {
-                setAvatarUrl(url);
-                if (onSaveCVData) {
-                  onSaveCVData(applicant.id, {
-                    ...applicant.cvData,
-                    personalDetails: { ...applicant.cvData?.personalDetails, avatarUrl: url }
-                  });
-                }
-              }}
+              onPhotoUploaded={setAvatarUrl}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

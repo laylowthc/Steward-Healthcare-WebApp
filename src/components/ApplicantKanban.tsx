@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Applicant, ApplicantStatus, RoleTemplate, CVData } from '../types';
+import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../types';
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
+import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
   onUpdateApplicantStatus: (id: string, newStatus: ApplicantStatus) => void;
   onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => Promise<string>;
   templates: RoleTemplate[];
-  onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
+  documents: Document[];
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
   onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
   onSaveCVData?: (applicantId: string, cvData: CVData) => void;
@@ -20,7 +21,7 @@ export default function ApplicantKanban({
   onUpdateApplicantStatus,
   onAddApplicant,
   templates,
-  onUpdateApplicantCompliance,
+  documents,
   onUpdateApplicantDetails,
   onUploadDocument,
   onSaveCVData,
@@ -205,16 +206,19 @@ export default function ApplicantKanban({
                         </button>
 
                         <button
-                          disabled={applicant.status === 'Rejected'}
+                          disabled={applicant.status === 'Rejected' || applicant.status === 'Accepted'}
                           onClick={() => {
-                            if (applicant.status === 'Accepted') {
-                              // If shifting active, mark rejected
-                              onUpdateApplicantStatus(applicant.id, 'Rejected');
-                            } else if (applicant.status === 'Applied') {
+                            if (applicant.status === 'Applied') {
                               // Require checklist completed before moving to screening
                               const template = templates.find(t => t.role === applicant.position);
                               const reqs = template?.requiredCredentials || [];
-                              const allCompliant = reqs.length > 0 && reqs.every(req => applicant.complianceChecked && applicant.complianceChecked[req] === 'Compliant');
+                              const candidateDocuments = getSubjectDocuments(documents, {
+                                userId: applicant.userId,
+                                applicantId: applicant.id
+                              });
+                              const allCompliant = reqs.length > 0 && reqs.every(req =>
+                                deriveRequirementStatus(candidateDocuments, req) === 'Compliant'
+                              );
                               
                               if (!allCompliant && reqs.length > 0) {
                                 alert("Documentation incomplete. Please open the applicant's profile to upload documents and complete the compliance checklist first.");
@@ -228,7 +232,7 @@ export default function ApplicantKanban({
                           }}
                           className="p-1 px-2 rounded hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 text-[10px] font-bold flex items-center cursor-pointer transition-all"
                         >
-                          <span>{applicant.status === 'Accepted' ? 'Reject' : 'Next'}</span>
+                          <span>{applicant.status === 'Accepted' ? 'Approved' : 'Next'}</span>
                           <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                         </button>
                       </div>
@@ -343,7 +347,10 @@ export default function ApplicantKanban({
       {selectedApplicant && (() => {
         // Find matching job template
         const jobTemplate = templates.find(t => t.role.toLowerCase() === selectedApplicant.position.toLowerCase()) || templates[0];
-        const statusChecklist = selectedApplicant.complianceChecked || {};
+        const applicantDocuments = getSubjectDocuments(documents, {
+          userId: selectedApplicant.userId,
+          applicantId: selectedApplicant.id
+        });
 
         return (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex justify-end">
@@ -422,7 +429,7 @@ export default function ApplicantKanban({
                       </p>
                       <div className="space-y-2">
                         {jobTemplate.requiredCredentials.map((cred) => {
-                          const currentStatus = statusChecklist[cred] || 'Missing';
+                          const currentStatus = deriveRequirementStatus(applicantDocuments, cred);
                           return (
                             <div key={cred} className="p-2.5 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col gap-2">
                               <div className="flex justify-between items-start">
@@ -449,40 +456,10 @@ export default function ApplicantKanban({
                                       if (file && onUploadDocument) {
                                         onUploadDocument(file, cred, selectedApplicant.id, selectedApplicant.name);
                                       }
-                                      
-                                      const nextChecklist = { ...statusChecklist, [cred]: 'Awaiting Review' };
-                                      onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
-                                      setSelectedApplicant({ ...selectedApplicant, complianceChecked: nextChecklist });
                                     }} 
                                   />
                                 </label>
-                                <div className="flex gap-1 border-l pl-2 border-slate-200">
-                                  {(['Missing', 'Awaiting Review', 'Compliant'] as const).map(opt => (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => {
-                                        const nextChecklist = { ...statusChecklist, [cred]: opt };
-                                        onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
-                                        setSelectedApplicant({
-                                          ...selectedApplicant,
-                                          complianceChecked: nextChecklist
-                                        });
-                                      }}
-                                      className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
-                                        currentStatus === opt
-                                          ? opt === 'Compliant'
-                                            ? 'bg-emerald-600 text-white shadow-sm'
-                                            : opt === 'Awaiting Review'
-                                            ? 'bg-amber-500 text-slate-900 shadow-sm'
-                                            : 'bg-rose-600 text-white shadow-sm'
-                                          : 'bg-white text-slate-600 hover:bg-slate-100 border'
-                                      }`}
-                                    >
-                                      {opt === 'Awaiting Review' ? 'Review' : opt}
-                                    </button>
-                                  ))}
-                                </div>
+                                <span className="text-[9px] text-slate-400 font-semibold">Derived from verified documents</span>
                               </div>
                             </div>
                           );

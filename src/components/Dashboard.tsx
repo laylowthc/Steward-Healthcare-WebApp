@@ -59,18 +59,13 @@ export default function Dashboard({
   
   // Calculate dynamic stats from application state
   const totalApplicants = applicants.filter(a => a.status !== 'Accepted' && a.status !== 'Rejected').length;
-  const activeStaff = staff.filter(s => s.status === 'Active').length;
+  const activeStaff = staff.filter(s => s.rosterStatus === 'Deployable').length;
   const awaitingReviewDocs = documents.filter(d => d.status === 'Awaiting Review').length;
-  const complianceAlerts = staff.filter(
-    s => s.status === 'Non-Compliant' || 
-    s.dbsStatus === 'Expiring' || s.dbsStatus === 'Non-Compliant' ||
-    s.rightToWork === 'Expiring' || s.rightToWork === 'Non-Compliant' ||
-    s.trainingStatus === 'Expiring' || s.trainingStatus === 'Non-Compliant'
-  ).length;
+  const complianceAlerts = staff.filter(s => s.rosterStatus !== 'Deployable').length;
   const expiringDBS = staff.filter(s => s.dbsStatus === 'Expiring').length;
 
   // Compliance percentage widget
-  const compliantStaffCount = staff.filter(s => s.status === 'Active' && s.dbsStatus === 'Compliant' && s.rightToWork === 'Compliant' && s.trainingStatus === 'Compliant').length;
+  const compliantStaffCount = staff.filter(s => s.rosterStatus === 'Deployable').length;
   const compliancePercentage = staff.length > 0 ? Math.round((compliantStaffCount / staff.length) * 100) : 100;
 
   const [isCardFlipped, setIsCardFlipped] = useState(false);
@@ -386,13 +381,13 @@ export default function Dashboard({
                       <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
                         <span>NMC Registrations (Nurses)</span>
                         <span className="font-bold text-slate-800">
-                          {staff.filter(s => s.role === 'Nurse' && s.status === 'Active').length}/{staff.filter(s => s.role === 'Nurse').length}
+                          {staff.filter(s => s.role === 'Nurse' && s.rosterStatus === 'Deployable').length}/{staff.filter(s => s.role === 'Nurse').length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(staff.filter(s => s.role === 'Nurse' && s.status === 'Active').length / (staff.filter(s => s.role === 'Nurse').length || 1) * 100)}%` }}
+                          style={{ width: `${(staff.filter(s => s.role === 'Nurse' && s.rosterStatus === 'Deployable').length / (staff.filter(s => s.role === 'Nurse').length || 1) * 100)}%` }}
                         ></div>
                       </div>
                     </div>

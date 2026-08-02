@@ -18,6 +18,7 @@ interface SystemUser {
   role: 'admin' | 'staff' | 'applicant' | 'family';
   status?: 'Pending' | 'Active' | 'Suspended';
   permissions?: string[];
+  avatarUrl?: string;
 }
 
 interface UserAdministrationProps {
@@ -145,13 +146,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         position: 'Care Assistant',
         status: 'Applied' as const,
         dateCreated: new Date().toISOString().split('T')[0],
-        notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`,
-        complianceChecked: {
-          'Passport': 'Missing' as const,
-          'DBS Certificate': 'Missing' as const,
-          'Right to Work': 'Missing' as const,
-          'Training Certificate': 'Missing' as const
-        }
+        notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`
       };
 
       const { error: insertError } = await supabase.from('applicants').insert(applicantToRow(newApp));
@@ -210,13 +205,26 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*');
+      const [{ data, error }, { data: photoRows, error: photoError }] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase
+          .from('documents')
+          .select('user_id, file_path, upload_date')
+          .eq('category', 'Profile Photo')
+          .order('upload_date', { ascending: false })
+      ]);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
+      if (photoError) throw photoError;
+
+      const avatarEntries = await Promise.all((photoRows || []).map(async row => {
+        if (!row.user_id || !row.file_path) return null;
+        const { data: signedPhoto } = await supabase.storage
+          .from('documents')
+          .createSignedUrl(row.file_path, 60 * 60);
+        return signedPhoto?.signedUrl ? [row.user_id, signedPhoto.signedUrl] as const : null;
+      }));
+      const avatarsByUserId = new Map(avatarEntries.filter(Boolean) as Array<readonly [string, string]>);
 
       const fetchedUsers: SystemUser[] = (data || []).map(row => ({
         id: row.id,
@@ -225,7 +233,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         email: row.email,
         role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
         status: row.status || 'Pending',
-        permissions: row.permissions || []
+        permissions: row.permissions || [],
+        avatarUrl: avatarsByUserId.get(row.id)
       }));
       setUsers(fetchedUsers);
     } catch (error) {
@@ -562,9 +571,13 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                   <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
-                          {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
-                        </div>
+                        {user.avatarUrl ? (
+                          <img src={user.avatarUrl} alt={`${user.name} profile`} className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
+                            {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                          </div>
+                        )}
                         <div>
                           <div className="font-bold text-slate-900">{user.name || 'Unknown User'}</div>
                           <div className="text-xs text-slate-500">{user.email}</div>

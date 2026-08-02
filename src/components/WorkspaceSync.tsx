@@ -479,8 +479,7 @@ export default function WorkspaceSync({
           email: email.trim(),
           phone: phone.trim(),
           position: position.trim(),
-          status: statusInput.trim() as any,
-          complianceChecked: {}
+          status: statusInput.trim() as any
         });
         successCount++;
       }

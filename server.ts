@@ -6,6 +6,7 @@ import multer from "multer";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { AdminAccountStatusError, updateAccountStatus } from "./src/server/adminAccountStatus";
+import { AcceptApplicantError, acceptApplicant } from "./src/server/acceptApplicant";
 
 dotenv.config();
 
@@ -170,114 +171,15 @@ async function startServer() {
 
   app.post("/api/admin/accept-applicant", async (req, res) => {
     try {
-      const { callerUser, adminClient } = await requireActiveAdmin(req);
-      const { applicantId } = req.body;
-
-      if (!applicantId) {
-        return res.status(400).json({ error: "Missing applicantId" });
-      }
-
-      const { data: applicant, error: applicantError } = await adminClient
-        .from("applicants")
-        .select("*")
-        .eq("id", applicantId)
-        .single();
-
-      if (applicantError || !applicant) {
-        return res.status(404).json({ error: "Applicant not found", details: applicantError });
-      }
-
-      let userId = applicant.user_id;
-      if (!userId) {
-        const { data: userByEmail } = await adminClient
-          .from("users")
-          .select("*")
-          .eq("email", String(applicant.email).toLowerCase())
-          .maybeSingle();
-        userId = userByEmail?.id || null;
-      }
-
-      if (!userId) {
-        return res.status(409).json({ error: "Applicant has no linked authenticated user profile" });
-      }
-
-      const { error: userUpdateError } = await adminClient
-        .from("users")
-        .update({
-          role: "Staff",
-          status: "Active",
-          full_name: applicant.full_name,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", userId);
-
-      if (userUpdateError) {
-        return res.status(500).json({ error: "Failed to promote user account", details: userUpdateError });
-      }
-
-      const staffPayload = {
-        user_id: userId,
-        applicant_id: applicant.id,
-        full_name: applicant.full_name,
-        email: String(applicant.email).toLowerCase(),
-        phone: applicant.phone || "",
-        address: "",
-        role: applicant.position || "Care Assistant",
-        employment_status: "Active",
-        dbs_status: "Pending",
-        right_to_work: "Pending",
-        training_status: "Pending",
-        joined_date: new Date().toISOString().split("T")[0],
-        updated_at: new Date().toISOString()
-      };
-
-      const { data: staffProfile, error: staffError } = await adminClient
-        .from("staff_profiles")
-        .upsert(staffPayload, { onConflict: "user_id" })
-        .select("*")
-        .single();
-
-      if (staffError) {
-        return res.status(500).json({ error: "Failed to create staff profile", details: staffError });
-      }
-
-      const { data: updatedApplicant, error: updateApplicantError } = await adminClient
-        .from("applicants")
-        .update({
-          status: "Accepted",
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", applicant.id)
-        .select("*")
-        .single();
-
-      if (updateApplicantError) {
-        return res.status(500).json({ error: "Failed to update applicant status", details: updateApplicantError });
-      }
-
-      await adminClient.from("documents").update({
-        staff_profile_id: staffProfile.id
-      }).eq("user_id", userId);
-
-      await adminClient.from("activity_logs").insert([
-        {
-          actor_user_id: callerUser.id,
-          actor_name: "Administrator",
-          type: "applicant",
-          action: `RECRUITMENT: Candidate ${applicant.full_name} was accepted.`
-        },
-        {
-          actor_user_id: callerUser.id,
-          actor_name: "Administrator",
-          type: "status",
-          action: `STAFFING: Staff profile was created for ${applicant.full_name}.`
-        }
-      ]);
-
-      return res.json({ success: true, applicant: updatedApplicant, staffProfile });
+      const result = await acceptApplicant({
+        authorization: req.headers.authorization,
+        applicantId: req.body.applicantId
+      });
+      return res.json({ success: true, ...result });
     } catch (error: any) {
       console.error("[accept-applicant] Error:", error);
-      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+      const statusCode = error instanceof AcceptApplicantError ? error.statusCode : 500;
+      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
     }
   });
 

@@ -12,6 +12,7 @@ export interface CVData {
 
 export interface Applicant {
   id: string;
+  userId?: string;
   name: string;
   email: string;
   phone: string;
@@ -19,7 +20,6 @@ export interface Applicant {
   status: ApplicantStatus;
   dateCreated: string;
   notes?: string;
-  complianceChecked?: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>; // Individual check marks for role's required docs
   interviewTime?: string;
   interviewMeetUrl?: string;
   cvData?: CVData;
@@ -27,23 +27,29 @@ export interface Applicant {
 
 export type StaffRole = 'Nurse' | 'Care Assistant' | 'Senior Care Assistant' | 'Deputy Manager' | string;
 export type ComplianceLevel = 'Compliant' | 'Expiring' | 'Non-Compliant';
+export type RosterStatus = 'Active' | 'Suspended' | 'Deployable' | 'Pending';
 
 export interface Staff {
   id: string;
+  userId?: string;
+  applicantId?: string;
   name: string;
   email: string;
   phone: string;
   address: string;
   role: StaffRole;
   status: 'Active' | 'Non-Compliant' | 'Suspended';
+  accountStatus?: AccountStatus;
+  rosterStatus: RosterStatus;
   nmcPin?: string;
   nmcExpiry?: string;
   dbsStatus: ComplianceLevel | 'Pending';
   dbsNumber?: string;
   dbsExpiry?: string;
-  rightToWork: ComplianceLevel;
+  rightToWork: ComplianceLevel | 'Pending';
   rightToWorkExpiry?: string;
-  trainingStatus: ComplianceLevel;
+  trainingStatus: ComplianceLevel | 'Pending';
+  referenceStatus: ComplianceLevel | 'Pending';
   trainingExpiry?: string;
   joinedDate: string;
   avatarUrl?: string;
@@ -59,6 +65,7 @@ export interface SystemUserProfile {
 }
 
 export type DocumentCategory = 
+  | 'Profile Photo'
   | 'Passport'
   | 'Right To Work'
   | 'DBS Certificate'
@@ -82,6 +89,9 @@ export interface Document {
   name: string;
   category: DocumentCategory;
   staffId?: string;
+  userId?: string;
+  applicantId?: string;
+  staffProfileId?: string;
   staffName?: string;
   fileUrl?: string;
   uploadDate: string;
@@ -141,6 +151,7 @@ export interface ActivityLog {
 
 export const mapCredentialToCategory = (cred: string): DocumentCategory => {
   const norm = cred.trim().toLowerCase();
+  if (norm.includes('profile photo') || norm.includes('passport headshot')) return 'Profile Photo';
   if (norm.includes('dbs')) return 'DBS Certificate';
   if (norm.includes('right to work')) return 'Right To Work';
   if (norm.includes('reference 1') || norm.includes('reference 2') || norm.includes('reference')) return 'Reference';

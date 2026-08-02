@@ -130,7 +130,6 @@ export async function updateAccountStatus(input: {
           position: 'Care Assistant',
           status: 'Applied',
           notes: 'Applicant profile created during account activation.',
-          compliance_checked: {}
         });
 
         if (createApplicantError) {

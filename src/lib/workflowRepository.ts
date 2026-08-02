@@ -5,6 +5,9 @@ import {
   Applicant,
   ApplicantStatus,
   ComplianceLevel,
+  Document,
+  DocumentCategory,
+  DocumentStatus,
   FamilyFeedback,
   RoleTemplate,
   Staff,
@@ -12,6 +15,7 @@ import {
   SystemUserProfile,
   Timesheet
 } from '../types';
+import { enrichStaffFromRecords } from './profileState';
 
 type AppRole = 'admin' | 'staff' | 'family' | 'applicant';
 
@@ -44,6 +48,7 @@ export const mapUserRow = (row: any): SystemUserProfile => ({
 
 export const mapApplicantRow = (row: any): Applicant => ({
   id: row.id,
+  userId: row.user_id || undefined,
   name: row.full_name || row.email || 'Applicant',
   email: (row.email || '').toLowerCase(),
   phone: row.phone || '',
@@ -51,7 +56,6 @@ export const mapApplicantRow = (row: any): Applicant => ({
   status: (row.status || 'Applied') as ApplicantStatus,
   dateCreated: (row.created_at || new Date().toISOString()).split('T')[0],
   notes: row.notes || undefined,
-  complianceChecked: row.compliance_checked || undefined,
   interviewTime: row.interview_time || undefined,
   interviewMeetUrl: row.interview_meet_url || undefined,
   cvData: row.cv_data || undefined
@@ -66,7 +70,6 @@ export const applicantToRow = (applicant: Omit<Applicant, 'id' | 'dateCreated'> 
   position: applicant.position || 'Care Assistant',
   status: applicant.status || 'Applied',
   notes: applicant.notes || null,
-  compliance_checked: applicant.complianceChecked || {},
   interview_time: applicant.interviewTime || null,
   interview_meet_url: applicant.interviewMeetUrl || null,
   cv_data: applicant.cvData || null,
@@ -97,12 +100,16 @@ export const mapStaffRow = (row: any): Staff => {
 
   return {
     id: row.id,
+    userId: row.user_id || undefined,
+    applicantId: row.applicant_id || undefined,
     name: user?.full_name || row.full_name || user?.email || row.email || 'Unnamed staff profile',
     email: (user?.email || row.email || '').toLowerCase(),
     phone: row.phone || user?.phone || '',
     address: row.address || '',
     role: resolvedRole as StaffRole,
     status: row.employment_status || 'Active',
+    accountStatus: toAccountStatus(user?.status),
+    rosterStatus: 'Pending',
     nmcPin: row.nmc_pin || undefined,
     nmcExpiry: row.nmc_expiry || undefined,
     dbsStatus: (row.dbs_status || 'Pending') as ComplianceLevel | 'Pending',
@@ -111,11 +118,43 @@ export const mapStaffRow = (row: any): Staff => {
     rightToWork: (row.right_to_work || 'Non-Compliant') as ComplianceLevel,
     rightToWorkExpiry: row.right_to_work_expiry || undefined,
     trainingStatus: (row.training_status || 'Non-Compliant') as ComplianceLevel,
+    referenceStatus: 'Pending',
     trainingExpiry: row.training_expiry || undefined,
     joinedDate: row.joined_date || (row.created_at || new Date().toISOString()).split('T')[0],
     avatarUrl: getAvatarUrlFromStaffNumber(row.staff_number)
   };
 };
+
+export const mapDocumentRow = (row: any): Document => ({
+  id: String(row.id),
+  name: row.document_name,
+  category: row.category as DocumentCategory,
+  userId: row.user_id || undefined,
+  applicantId: row.applicant_id || undefined,
+  staffProfileId: row.staff_profile_id || undefined,
+  staffId: row.staff_profile_id || row.applicant_id || row.user_id || undefined,
+  fileUrl: row.file_path || undefined,
+  uploadDate: row.upload_date || new Date().toISOString().split('T')[0],
+  expiryDate: row.expiry_date || undefined,
+  status: (row.verification_status === 'Pending' ? 'Awaiting Review' : row.verification_status) as DocumentStatus
+});
+
+const resolveProfilePhotoUrls = async (documents: Document[]) => Promise.all(documents.map(async document => {
+  if (document.category !== 'Profile Photo' || !document.fileUrl || /^https?:\/\//i.test(document.fileUrl)) {
+    return document;
+  }
+
+  const { data, error } = await supabase.storage
+    .from('documents')
+    .createSignedUrl(document.fileUrl, 60 * 60);
+
+  if (error || !data?.signedUrl) {
+    console.error('Failed to resolve profile photo:', error);
+    return { ...document, fileUrl: undefined };
+  }
+
+  return { ...document, fileUrl: data.signedUrl };
+}));
 
 export const staffToRow = (staff: Staff & { userId?: string; applicantId?: string }) => ({
   user_id: staff.userId || null,
@@ -128,12 +167,9 @@ export const staffToRow = (staff: Staff & { userId?: string; applicantId?: strin
   employment_status: staff.status,
   nmc_pin: staff.nmcPin || null,
   nmc_expiry: staff.nmcExpiry || null,
-  dbs_status: staff.dbsStatus || 'Pending',
   dbs_number: staff.dbsNumber || null,
   dbs_expiry: staff.dbsExpiry || null,
-  right_to_work: staff.rightToWork || 'Non-Compliant',
   right_to_work_expiry: staff.rightToWorkExpiry || null,
-  training_status: staff.trainingStatus || 'Non-Compliant',
   training_expiry: staff.trainingExpiry || null,
   joined_date: staff.joinedDate || new Date().toISOString().split('T')[0],
   updated_at: new Date().toISOString()
@@ -271,7 +307,8 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
       full_name,
       email,
       phone,
-      role
+      role,
+      status
     )
   `;
   const staffQuery = isAdmin
@@ -282,9 +319,14 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
     ? supabase.from('timesheets').select('*').order('created_at', { ascending: false })
     : supabase.from('timesheets').select('*').eq('user_id', profile.id).order('created_at', { ascending: false });
 
-  const [applicantResult, staffResult, timesheetResult, templateResult, logResult, feedbackResult] = await Promise.all([
+  const documentQuery = isAdmin
+    ? supabase.from('documents').select('*').order('upload_date', { ascending: false })
+    : supabase.from('documents').select('*').eq('user_id', profile.id).order('upload_date', { ascending: false });
+
+  const [applicantResult, staffResult, documentResult, timesheetResult, templateResult, logResult, feedbackResult] = await Promise.all([
     applicantQuery,
     staffQuery,
+    documentQuery,
     timesheetQuery,
     supabase.from('role_templates').select('*').order('role'),
     isAdmin
@@ -295,12 +337,23 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
       : Promise.resolve({ data: [], error: null } as any)
   ]);
 
-  const firstError = applicantResult.error || staffResult.error || timesheetResult.error || templateResult.error || logResult.error || feedbackResult.error;
+  const firstError = applicantResult.error || staffResult.error || documentResult.error || timesheetResult.error || templateResult.error || logResult.error || feedbackResult.error;
   if (firstError) throw firstError;
+
+  const documents = await resolveProfilePhotoUrls((documentResult.data || []).map(mapDocumentRow));
+  const staff = (staffResult.data || [])
+    .filter((row: any) => {
+      const user = Array.isArray(row.user) ? row.user[0] : row.user;
+      if (String(user?.role || '').toLowerCase() !== 'admin') return true;
+      return Boolean(row.applicant_id);
+    })
+    .map(mapStaffRow)
+    .map((member: Staff) => enrichStaffFromRecords(member, documents));
 
   return {
     applicants: (applicantResult.data || []).map(mapApplicantRow),
-    staff: (staffResult.data || []).map(mapStaffRow),
+    staff,
+    documents,
     timesheets: (timesheetResult.data || []).map(mapTimesheetRow),
     templates: (templateResult.data || []).map(mapTemplateRow),
     activityLogs: (logResult.data || []).map(mapLogRow),

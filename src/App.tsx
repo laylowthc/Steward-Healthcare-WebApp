@@ -45,16 +45,6 @@ import {
   mapCredentialToCategory
 } from './types';
 
-import { 
-  initialApplicants, 
-  initialStaff, 
-  initialDocuments, 
-  initialTimesheets, 
-  initialActivityLogs,
-  initialRoleTemplates,
-  initialFamilyFeedbacks
-} from './mockData';
-
 import { supabase } from './lib/supabase';
 import {
   applicantToRow,
@@ -102,15 +92,15 @@ export default function App() {
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
 
-  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>(initialFamilyFeedbacks);
+  const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>([]);
 
   // Global Core Data Persistence State
-  const [applicants, setApplicants] = useState<Applicant[]>(initialApplicants);
-  const [staff, setStaff] = useState<Staff[]>(initialStaff);
-  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
-  const [timesheets, setTimesheets] = useState<Timesheet[]>(initialTimesheets);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
-  const [templates, setTemplates] = useState<RoleTemplate[]>(initialRoleTemplates);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [templates, setTemplates] = useState<RoleTemplate[]>([]);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -205,6 +195,7 @@ export default function App() {
           if (!active) return;
           setApplicants(workflow.applicants);
           setStaff(workflow.staff);
+          setDocuments(workflow.documents);
           setTimesheets(workflow.timesheets);
           if (workflow.templates.length > 0) {
             setTemplates(workflow.templates);
@@ -212,31 +203,6 @@ export default function App() {
           setActivityLogs(workflow.activityLogs);
           setFamilyFeedbacks(workflow.familyFeedbacks);
 
-          // Fetch documents from Supabase public.documents for the user
-          try {
-            let query = supabase.from('documents').select('*');
-            if (dbRole !== 'admin') {
-              query = query.eq('user_id', profile.id);
-            }
-            const { data: dbDocs, error: docsError } = await query;
-            if (!docsError && dbDocs && active) {
-              const mappedDbDocs: Document[] = dbDocs.map(d => ({
-                id: d.id.toString(),
-                name: d.document_name,
-                category: d.category as DocumentCategory,
-                staffId: d.staff_profile_id || d.applicant_id || d.user_id,
-                staffName: profile.fullName || 'System User',
-                fileUrl: d.file_path,
-                uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
-                status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
-              }));
-              setDocuments(mappedDbDocs);
-            } else if (docsError) {
-              console.error("Error fetching documents from Supabase:", docsError);
-            }
-          } catch (docFetchErr) {
-            console.error("Error during document query:", docFetchErr);
-          }
         } else {
           // No matching Supabase user profile exists!
           const diagnosticMsg = `No matching Supabase application profile exists in the 'public.users' table for email '${supabaseUser.email}' (UID: ${supabaseUser.id}).`;
@@ -291,6 +257,7 @@ export default function App() {
     const workflow = await loadWorkflowData(profile);
     setApplicants(workflow.applicants);
     setStaff(workflow.staff);
+    setDocuments(workflow.documents);
     setTimesheets(workflow.timesheets);
     if (workflow.templates.length > 0) {
       setTemplates(workflow.templates);
@@ -298,22 +265,6 @@ export default function App() {
     setActivityLogs(workflow.activityLogs);
     setFamilyFeedbacks(workflow.familyFeedbacks);
 
-    let query = supabase.from('documents').select('*');
-    if (profile.role !== 'admin') {
-      query = query.eq('user_id', profile.id);
-    }
-    const { data: dbDocs, error: docsError } = await query;
-    if (docsError) throw docsError;
-    setDocuments((dbDocs || []).map(d => ({
-      id: d.id.toString(),
-      name: d.document_name,
-      category: d.category as DocumentCategory,
-      staffId: d.staff_profile_id || d.applicant_id || d.user_id,
-      staffName: profile.fullName || 'System User',
-      fileUrl: d.file_path,
-      uploadDate: d.upload_date || new Date().toISOString().split('T')[0],
-      status: (d.verification_status === 'Pending' ? 'Awaiting Review' : d.verification_status) as DocumentStatus,
-    })));
   };
 
   // Global OAuth Popup close Handler
@@ -429,21 +380,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateApplicantCompliance = async (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => {
-    try {
-      const { data, error } = await supabase
-        .from('applicants')
-        .update({ compliance_checked: complianceChecked, updated_at: new Date().toISOString() })
-        .eq('id', applicantId)
-        .select('*')
-        .single();
-      if (error) throw error;
-      setApplicants(prev => prev.map(a => a.id === applicantId ? mapApplicantRow(data) : a));
-    } catch (error) {
-      console.error('Failed to update applicant compliance:', error);
-    }
-  };
-
   const handleUpdateApplicantDetails = async (id: string, fields: Partial<Applicant>) => {
     try {
       const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -453,7 +389,6 @@ export default function App() {
       if (fields.position !== undefined) updatePayload.position = fields.position;
       if (fields.status !== undefined) updatePayload.status = fields.status;
       if (fields.notes !== undefined) updatePayload.notes = fields.notes;
-      if (fields.complianceChecked !== undefined) updatePayload.compliance_checked = fields.complianceChecked;
       if (fields.interviewTime !== undefined) updatePayload.interview_time = fields.interviewTime || null;
       if (fields.interviewMeetUrl !== undefined) updatePayload.interview_meet_url = fields.interviewMeetUrl || null;
       if (fields.cvData !== undefined) updatePayload.cv_data = fields.cvData;
@@ -619,7 +554,7 @@ export default function App() {
         .select('*')
         .single();
       if (error) throw error;
-      setStaff(prev => prev.map(s => s.id === updatedStaff.id ? mapStaffRow(data) : s));
+      await reloadWorkflowState();
 
       const log = await insertActivityLog({
         action: `COMPLIANCE: Personal details updated directly for staff member ${updatedStaff.name}`,
@@ -655,7 +590,7 @@ export default function App() {
         .single();
 
       if (error) throw error;
-      setStaff(prev => [mapStaffRow(data), ...prev]);
+      await reloadWorkflowState();
       const log = await insertActivityLog({
         action: `STAFF REGISTRATION: Manually registered new staff member "${newStaff.name}" (${newStaff.role}) into the active registry.`,
         user: currentUserProfile?.fullName || 'Administrator',
@@ -1069,7 +1004,7 @@ export default function App() {
   // Helper selectors
   const activeStaffMember = selectedStaffId
     ? staff.find(s => s.id === selectedStaffId)
-    : staff.find(s => s.id === currentUserId || s.email.toLowerCase() === (currentUserProfile?.email || '').toLowerCase());
+    : staff.find(s => s.userId === currentUserId || s.email.toLowerCase() === (currentUserProfile?.email || '').toLowerCase());
 
   // Navigation Links & Icons configuration
   const navigationTabs = [
@@ -1268,7 +1203,6 @@ export default function App() {
             status: 'Awaiting Review',
           }, file);
         }}
-        onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
         onSaveCVData={handleSaveCVData}
         onLogout={handleLogout}
       />
@@ -1585,6 +1519,7 @@ export default function App() {
               onUpdateDocument={handleUpdateDocument}
               onDeleteStaff={handleDeleteStaff}
               currentRole={currentRole}
+              onProfilePhotoUploaded={() => reloadWorkflowState()}
             />
           ) : (
             // --- TABBED WORKSPACE CONTENT FOR ACTIVE SELECTIONS ---
@@ -1619,7 +1554,7 @@ export default function App() {
                       onUpdateApplicantStatus={handleUpdateApplicantStatus}
                       onAddApplicant={handleAddApplicant}
                       templates={templates}
-                      onUpdateApplicantCompliance={handleUpdateApplicantCompliance}
+                      documents={documents}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}
                       onSaveCVData={handleSaveCVData}
                       onGenerateCVPdf={handleGenerateCVPdf}
@@ -1776,6 +1711,7 @@ export default function App() {
                         onUploadDocument={handleUploadDocument}
                         onUpdateDocument={handleUpdateDocument}
                         currentRole={currentRole}
+                        onProfilePhotoUploaded={() => reloadWorkflowState()}
                       />
                     </div>
                   )}
@@ -1799,7 +1735,7 @@ export default function App() {
                             <h4 className="font-bold text-slate-800 text-xs mb-3">Report Shifts Log</h4>
                             <TimesheetManager
                               timesheets={timesheets.filter(t => t.staffName === activeStaffMember?.name)}
-                              staff={staff.filter(s => s.id === currentUserId)}
+                              staff={staff.filter(s => s.userId === currentUserId)}
                               onUpdateTimesheetStatus={() => {}} // Disabled for caregiver
                               onAddTimesheet={handleAddTimesheet}
                               isAdmin={false}
