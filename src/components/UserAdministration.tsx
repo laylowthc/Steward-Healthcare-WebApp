@@ -8,7 +8,8 @@ import {
   OUTREACH_TEMPLATES, 
   GmailContact 
 } from '../lib/gmailService';
-import { applicantToRow, insertActivityLog } from '../lib/workflowRepository';
+import { applicantToRow, getAvatarUrlFromStaffNumber, insertActivityLog } from '../lib/workflowRepository';
+import { resolvePreferredAvatarUrl } from '../lib/profileState';
 
 interface SystemUser {
   id: string;
@@ -205,17 +206,23 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const [{ data, error }, { data: photoRows, error: photoError }] = await Promise.all([
+      const [
+        { data, error },
+        { data: photoRows, error: photoError },
+        { data: profileRows, error: profileError }
+      ] = await Promise.all([
         supabase.from('users').select('*'),
         supabase
           .from('documents')
           .select('user_id, file_path, upload_date')
           .eq('category', 'Profile Photo')
-          .order('upload_date', { ascending: false })
+          .order('upload_date', { ascending: false }),
+        supabase.from('staff_profiles').select('user_id, staff_number')
       ]);
 
       if (error) throw error;
       if (photoError) throw photoError;
+      if (profileError) throw profileError;
 
       const avatarEntries = await Promise.all((photoRows || []).map(async row => {
         if (!row.user_id || !row.file_path) return null;
@@ -225,6 +232,9 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         return signedPhoto?.signedUrl ? [row.user_id, signedPhoto.signedUrl] as const : null;
       }));
       const avatarsByUserId = new Map(avatarEntries.filter(Boolean) as Array<readonly [string, string]>);
+      const legacyAvatarsByUserId = new Map(
+        (profileRows || []).map(row => [row.user_id, getAvatarUrlFromStaffNumber(row.staff_number)] as const)
+      );
 
       const fetchedUsers: SystemUser[] = (data || []).map(row => ({
         id: row.id,
@@ -234,7 +244,10 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
         status: row.status || 'Pending',
         permissions: row.permissions || [],
-        avatarUrl: avatarsByUserId.get(row.id)
+        avatarUrl: resolvePreferredAvatarUrl(
+          avatarsByUserId.get(row.id),
+          legacyAvatarsByUserId.get(row.id)
+        )
       }));
       setUsers(fetchedUsers);
     } catch (error) {

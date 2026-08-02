@@ -34,6 +34,9 @@ const categoryMatches = (category: string, terms: string[]) => {
 const newestFirst = (left: Document, right: Document) =>
   new Date(right.uploadDate).getTime() - new Date(left.uploadDate).getTime();
 
+export const resolvePreferredAvatarUrl = (documentUrl?: string, legacyUrl?: string) =>
+  documentUrl || legacyUrl || undefined;
+
 export const resolveAvatarUrl = (
   documents: Document[],
   ids: SubjectIds,
@@ -44,7 +47,7 @@ export const resolveAvatarUrl = (
     .sort(newestFirst)
     .find(document => Boolean(document.fileUrl));
 
-  return photo?.fileUrl || legacyUrl || undefined;
+  return resolvePreferredAvatarUrl(photo?.fileUrl, legacyUrl);
 };
 
 const documentCompliance = (documents: Document[], terms: string[]): ComplianceLevel | 'Pending' => {
