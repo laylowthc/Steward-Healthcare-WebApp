@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabase';
 interface PassportPhotoUploadProps {
   currentPhotoUrl?: string;
   userId: string;
+  applicantId?: string;
+  staffProfileId?: string;
   userName: string;
   onPhotoUploaded: (photoUrl: string) => void;
   compact?: boolean;
@@ -13,6 +15,8 @@ interface PassportPhotoUploadProps {
 export default function PassportPhotoUpload({
   currentPhotoUrl,
   userId,
+  applicantId,
+  staffProfileId,
   userName,
   onPhotoUploaded,
   compact = false
@@ -77,6 +81,8 @@ export default function PassportPhotoUpload({
 
       const photoRecord = {
         user_id: userId,
+        applicant_id: applicantId || null,
+        staff_profile_id: staffProfileId || null,
         document_name: `${userName} passport headshot`,
         category: 'Profile Photo',
         file_path: fileName,

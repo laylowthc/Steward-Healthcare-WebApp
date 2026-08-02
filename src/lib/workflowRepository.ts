@@ -15,7 +15,7 @@ import {
   SystemUserProfile,
   Timesheet
 } from '../types';
-import { enrichStaffFromRecords, resolveDisplayAvatarUrl } from './profileState';
+import { enrichStaffFromRecords, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from './profileState';
 
 type AppRole = 'admin' | 'staff' | 'family' | 'applicant';
 
@@ -341,6 +341,10 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
   if (firstError) throw firstError;
 
   const documents = await resolveProfilePhotoUrls((documentResult.data || []).map(mapDocumentRow));
+  const applicants = (applicantResult.data || []).map(mapApplicantRow);
+  const applicantAvatarById = new Map(
+    applicants.map(applicant => [applicant.id, applicant.cvData?.personalDetails?.avatarUrl] as const)
+  );
   const enrichedStaff = (staffResult.data || [])
     .filter((row: any) => {
       const user = Array.isArray(row.user) ? row.user[0] : row.user;
@@ -348,14 +352,21 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
       return Boolean(row.applicant_id);
     })
     .map(mapStaffRow)
-    .map((member: Staff) => enrichStaffFromRecords(member, documents));
+    .map((member: Staff) => enrichStaffFromRecords(member, documents))
+    .map((member: Staff) => ({
+      ...member,
+      avatarUrl: resolvePreferredAvatarUrl(
+        applicantAvatarById.get(member.applicantId || ''),
+        member.avatarUrl
+      )
+    }));
   const staff = await Promise.all(enrichedStaff.map(async member => ({
     ...member,
     avatarUrl: await resolveDisplayAvatarUrl(member.avatarUrl)
   })));
 
   return {
-    applicants: (applicantResult.data || []).map(mapApplicantRow),
+    applicants,
     staff,
     documents,
     timesheets: (timesheetResult.data || []).map(mapTimesheetRow),

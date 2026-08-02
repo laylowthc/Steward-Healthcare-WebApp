@@ -348,6 +348,8 @@ export default function StaffProfile({
                       compact
                       currentPhotoUrl={avatarUrl}
                       userId={staffMember.userId}
+                      applicantId={staffMember.applicantId}
+                      staffProfileId={staffMember.id}
                       userName={staffMember.name}
                       onPhotoUploaded={async url => {
                         setAvatarUrl(url);

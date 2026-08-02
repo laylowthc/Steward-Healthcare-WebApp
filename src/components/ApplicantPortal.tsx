@@ -8,10 +8,11 @@ import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
-import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl } from '../lib/profileState';
+import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
+  authenticatedUserId: string;
   templates: RoleTemplate[];
   documents: Document[];
   onUploadDocument: (file: File, category: string) => void;
@@ -22,6 +23,7 @@ interface ApplicantPortalProps {
 
 export default function ApplicantPortal({
   applicant,
+  authenticatedUserId,
   templates,
   documents,
   onUploadDocument,
@@ -43,8 +45,12 @@ export default function ApplicantPortal({
   const [activeFillingDoc, setActiveFillingDoc] = useState<Document | null>(null);
 
   // Profile avatar photo url state
-  const applicantIdentity = { userId: applicant.userId, applicantId: applicant.id };
-  const resolvedAvatarUrl = resolveAvatarUrl(documents, applicantIdentity, applicant.cvData?.personalDetails?.avatarUrl);
+  const applicantIdentity = { userId: authenticatedUserId, applicantId: applicant.id };
+  const applicationAvatarUrl = applicant.cvData?.personalDetails?.avatarUrl;
+  const resolvedAvatarUrl = resolvePreferredAvatarUrl(
+    applicationAvatarUrl,
+    resolveAvatarUrl(documents, applicantIdentity)
+  );
   const [avatarUrl, setAvatarUrl] = useState<string>(resolvedAvatarUrl || '');
 
   useEffect(() => {
@@ -348,9 +354,19 @@ export default function ApplicantPortal({
             {/* Passport Photo Upload Component */}
             <PassportPhotoUpload
               currentPhotoUrl={avatarUrl}
-              userId={applicant.userId || applicant.id}
+              userId={authenticatedUserId}
+              applicantId={applicant.id}
               userName={applicant.name}
-              onPhotoUploaded={setAvatarUrl}
+              onPhotoUploaded={url => {
+                setAvatarUrl(url);
+                onSaveCVData?.(applicant.id, {
+                  ...(applicant.cvData || {}),
+                  personalDetails: {
+                    ...(applicant.cvData?.personalDetails || {}),
+                    avatarUrl: url
+                  }
+                });
+              }}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

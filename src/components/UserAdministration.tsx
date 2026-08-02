@@ -209,7 +209,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       const [
         { data, error },
         { data: photoRows, error: photoError },
-        { data: profileRows, error: profileError }
+        { data: profileRows, error: profileError },
+        { data: applicantRows, error: applicantError }
       ] = await Promise.all([
         supabase.from('users').select('*'),
         supabase
@@ -217,12 +218,14 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
           .select('user_id, file_path, upload_date')
           .eq('category', 'Profile Photo')
           .order('upload_date', { ascending: false }),
-        supabase.from('staff_profiles').select('user_id, staff_number')
+        supabase.from('staff_profiles').select('user_id, staff_number'),
+        supabase.from('applicants').select('user_id, email, cv_data')
       ]);
 
       if (error) throw error;
       if (photoError) throw photoError;
       if (profileError) throw profileError;
+      if (applicantError) throw applicantError;
 
       const avatarEntries = await Promise.all((photoRows || []).map(async row => {
         if (!row.user_id || !row.file_path) return null;
@@ -235,6 +238,14 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
       const legacyAvatarsByUserId = new Map(
         (profileRows || []).map(row => [row.user_id, getAvatarUrlFromStaffNumber(row.staff_number)] as const)
       );
+      const applicantAvatarByUserId = new Map<string, string>();
+      const applicantAvatarByEmail = new Map<string, string>();
+      (applicantRows || []).forEach(row => {
+        const avatarUrl = row.cv_data?.personalDetails?.avatarUrl;
+        if (!avatarUrl) return;
+        if (row.user_id) applicantAvatarByUserId.set(row.user_id, avatarUrl);
+        if (row.email) applicantAvatarByEmail.set(row.email.toLowerCase(), avatarUrl);
+      });
 
       const fetchedUsers: SystemUser[] = await Promise.all((data || []).map(async row => ({
         id: row.id,
@@ -245,8 +256,11 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         status: row.status || 'Pending',
         permissions: row.permissions || [],
         avatarUrl: await resolveDisplayAvatarUrl(resolvePreferredAvatarUrl(
-          avatarsByUserId.get(row.id),
-          legacyAvatarsByUserId.get(row.id)
+          applicantAvatarByUserId.get(row.id) || applicantAvatarByEmail.get(row.email.toLowerCase()),
+          resolvePreferredAvatarUrl(
+            avatarsByUserId.get(row.id),
+            legacyAvatarsByUserId.get(row.id)
+          )
         ))
       })));
       setUsers(fetchedUsers);

@@ -1192,6 +1192,7 @@ export default function App() {
     return (
       <ApplicantPortal 
         applicant={activeApplicant}
+        authenticatedUserId={supabaseUser?.id || currentUserId}
         templates={templates}
         documents={documents}
         onUploadDocument={(file, category) => {
