@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { AdminAccountStatusError, updateAccountStatus } from '../../src/server/adminAccountStatus';
+import { AdminAccountStatusError, updateAccountStatus } from '../../src/server/adminAccountStatus.js';
 
 export default async function handler(req: Request, res: Response) {
   if (req.method !== 'PATCH') {
