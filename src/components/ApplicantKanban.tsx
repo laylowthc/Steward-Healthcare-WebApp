@@ -16,6 +16,60 @@ interface ApplicantKanbanProps {
   onDeleteApplicant?: (id: string) => void;
 }
 
+const formatApplicationLabel = (key: string) => key
+  .replace(/([a-z])([A-Z])/g, '$1 $2')
+  .replace(/_/g, ' ')
+  .replace(/^./, character => character.toUpperCase());
+
+function ApplicationValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') {
+    return <span className="text-slate-400">Not provided</span>;
+  }
+  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-slate-400">Not provided</span>;
+    return (
+      <div className="space-y-2">
+        {value.map((item, index) => (
+          <div key={index} className="rounded-lg border border-emerald-100 bg-white p-2">
+            <ApplicationValue value={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== 'avatarUrl');
+    if (entries.length === 0) return <span className="text-slate-400">Not provided</span>;
+    return (
+      <dl className="grid grid-cols-1 gap-2">
+        {entries.map(([key, nestedValue]) => (
+          <div key={key} className="grid grid-cols-[minmax(90px,0.8fr)_1.2fr] gap-2">
+            <dt className="font-bold text-slate-500">{formatApplicationLabel(key)}</dt>
+            <dd className="min-w-0 break-words text-slate-800"><ApplicationValue value={nestedValue} /></dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  return <span className="break-words">{String(value)}</span>;
+}
+
+function ApplicationDataView({ data }: { data: CVData }) {
+  const sections = Object.entries(data).filter(([key]) => key !== 'avatarUrl');
+  return (
+    <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-emerald-100 bg-white p-3 text-[10px] text-slate-700">
+      {sections.map(([key, value]) => (
+        <section key={key} className="space-y-1.5">
+          <h5 className="font-black uppercase tracking-wide text-emerald-900">{formatApplicationLabel(key)}</h5>
+          <ApplicationValue value={value} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export default function ApplicantKanban({
   applicants,
   onUpdateApplicantStatus,
@@ -393,9 +447,7 @@ export default function ApplicantKanban({
                         <h4 className="text-[10px] font-black text-emerald-900 uppercase flex items-center">
                           <FileBadge className="w-3.5 h-3.5 mr-1" /> Submitted Application Form Data
                         </h4>
-                        <div className="max-h-40 overflow-y-auto text-[10px] text-emerald-800 font-mono bg-white p-2 rounded border border-emerald-100">
-                           {JSON.stringify(selectedApplicant.cvData, null, 2)}
-                        </div>
+                        <ApplicationDataView data={selectedApplicant.cvData} />
                       </div>
                     </div>
                   )}

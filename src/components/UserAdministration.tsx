@@ -9,7 +9,7 @@ import {
   GmailContact 
 } from '../lib/gmailService';
 import { applicantToRow, getAvatarUrlFromStaffNumber, insertActivityLog } from '../lib/workflowRepository';
-import { resolvePreferredAvatarUrl } from '../lib/profileState';
+import { resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 
 interface SystemUser {
   id: string;
@@ -236,7 +236,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         (profileRows || []).map(row => [row.user_id, getAvatarUrlFromStaffNumber(row.staff_number)] as const)
       );
 
-      const fetchedUsers: SystemUser[] = (data || []).map(row => ({
+      const fetchedUsers: SystemUser[] = await Promise.all((data || []).map(async row => ({
         id: row.id,
         uid: row.firebase_uid || row.id,
         name: row.full_name || 'No Name',
@@ -244,11 +244,11 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         role: (row.role || 'Applicant').toLowerCase() as SystemUser['role'],
         status: row.status || 'Pending',
         permissions: row.permissions || [],
-        avatarUrl: resolvePreferredAvatarUrl(
+        avatarUrl: await resolveDisplayAvatarUrl(resolvePreferredAvatarUrl(
           avatarsByUserId.get(row.id),
           legacyAvatarsByUserId.get(row.id)
-        )
-      }));
+        ))
+      })));
       setUsers(fetchedUsers);
     } catch (error) {
       console.error("Error fetching users:", error);

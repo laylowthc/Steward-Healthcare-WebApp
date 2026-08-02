@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Camera, Upload, Check, AlertCircle, RefreshCw, User, Image } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -21,6 +21,10 @@ export default function PassportPhotoUpload({
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentPhotoUrl || null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPreviewUrl(currentPhotoUrl || null);
+  }, [currentPhotoUrl]);
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

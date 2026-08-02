@@ -15,7 +15,7 @@ import {
   SystemUserProfile,
   Timesheet
 } from '../types';
-import { enrichStaffFromRecords } from './profileState';
+import { enrichStaffFromRecords, resolveDisplayAvatarUrl } from './profileState';
 
 type AppRole = 'admin' | 'staff' | 'family' | 'applicant';
 
@@ -341,7 +341,7 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
   if (firstError) throw firstError;
 
   const documents = await resolveProfilePhotoUrls((documentResult.data || []).map(mapDocumentRow));
-  const staff = (staffResult.data || [])
+  const enrichedStaff = (staffResult.data || [])
     .filter((row: any) => {
       const user = Array.isArray(row.user) ? row.user[0] : row.user;
       if (String(user?.role || '').toLowerCase() !== 'admin') return true;
@@ -349,6 +349,10 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
     })
     .map(mapStaffRow)
     .map((member: Staff) => enrichStaffFromRecords(member, documents));
+  const staff = await Promise.all(enrichedStaff.map(async member => ({
+    ...member,
+    avatarUrl: await resolveDisplayAvatarUrl(member.avatarUrl)
+  })));
 
   return {
     applicants: (applicantResult.data || []).map(mapApplicantRow),

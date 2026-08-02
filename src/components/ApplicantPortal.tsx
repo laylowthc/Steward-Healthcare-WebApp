@@ -8,7 +8,7 @@ import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
-import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl } from '../lib/profileState';
+import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl } from '../lib/profileState';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -48,7 +48,13 @@ export default function ApplicantPortal({
   const [avatarUrl, setAvatarUrl] = useState<string>(resolvedAvatarUrl || '');
 
   useEffect(() => {
-    setAvatarUrl(resolvedAvatarUrl || '');
+    let active = true;
+    resolveDisplayAvatarUrl(resolvedAvatarUrl).then(url => {
+      if (active) setAvatarUrl(url || '');
+    });
+    return () => {
+      active = false;
+    };
   }, [resolvedAvatarUrl]);
 
   useEffect(() => {

@@ -5,6 +5,7 @@ import {
   RosterStatus,
   Staff
 } from '../types';
+import { getSignedUrlForDocument } from './supabase';
 
 const APPROVED_DOCUMENT_STATUSES = new Set(['Approved', 'Signed', 'Completed']);
 const EXPIRING_WINDOW_MS = 35 * 24 * 60 * 60 * 1000;
@@ -36,6 +37,11 @@ const newestFirst = (left: Document, right: Document) =>
 
 export const resolvePreferredAvatarUrl = (documentUrl?: string, legacyUrl?: string) =>
   documentUrl || legacyUrl || undefined;
+
+export const resolveDisplayAvatarUrl = async (avatarUrl?: string) => {
+  if (!avatarUrl) return undefined;
+  return (await getSignedUrlForDocument(avatarUrl)) || undefined;
+};
 
 export const resolveAvatarUrl = (
   documents: Document[],
