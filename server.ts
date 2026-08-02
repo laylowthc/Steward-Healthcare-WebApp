@@ -5,6 +5,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import multer from "multer";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import { AdminAccountStatusError, updateAccountStatus } from "./src/server/adminAccountStatus";
 
 dotenv.config();
 
@@ -139,36 +140,31 @@ async function startServer() {
 
   app.patch("/api/admin/users/:id/status", async (req, res) => {
     try {
-      const { callerUser, adminClient } = await requireActiveAdmin(req);
-      const { id } = req.params;
-      const { status } = req.body;
-
-      if (!["Pending", "Active", "Suspended"].includes(status)) {
-        return res.status(400).json({ error: "Invalid account status" });
-      }
-
-      const { data, error } = await adminClient
-        .from("users")
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .select("*")
-        .single();
-
-      if (error) {
-        return res.status(500).json({ error: "Failed to update account status", details: error });
-      }
-
-      await adminClient.from("activity_logs").insert({
-        actor_user_id: callerUser.id,
-        actor_name: "Administrator",
-        type: "status",
-        action: `ACCOUNT: Updated ${data.email} account status to ${status}.`
+      const user = await updateAccountStatus({
+        authorization: req.headers.authorization,
+        targetUserId: req.params.id,
+        status: req.body.status
       });
-
-      return res.json({ success: true, user: data });
+      return res.json({ success: true, user });
     } catch (error: any) {
       console.error("[update-user-status] Error:", error);
-      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+      const statusCode = error instanceof AdminAccountStatusError ? error.statusCode : 500;
+      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
+    }
+  });
+
+  app.patch("/api/admin/user-status", async (req, res) => {
+    try {
+      const user = await updateAccountStatus({
+        authorization: req.headers.authorization,
+        targetUserId: req.body.targetUserId,
+        status: req.body.status
+      });
+      return res.json({ success: true, user });
+    } catch (error: any) {
+      console.error("[update-user-status] Error:", error);
+      const statusCode = error instanceof AdminAccountStatusError ? error.statusCode : 500;
+      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
     }
   });
 

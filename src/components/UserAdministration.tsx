@@ -37,6 +37,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   
   const [isManagingPermissions, setIsManagingPermissions] = useState<SystemUser | null>(null);
   const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<string | null>(null);
+  const [statusUpdatingUserId, setStatusUpdatingUserId] = useState<string | null>(null);
   
   const availablePermissions = ['View Reports', 'Manage Documents', 'Approve Timesheets', 'Manage Roster'];
 
@@ -300,8 +301,10 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     }
   };
 
-  const handleToggleStatus = async (user: SystemUser) => {
-    const newStatus = user.status === 'Active' ? 'Suspended' : 'Active';
+  const handleUpdateStatus = async (user: SystemUser, newStatus: NonNullable<SystemUser['status']>) => {
+    if ((user.status || 'Pending') === newStatus) return;
+
+    setStatusUpdatingUserId(user.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -309,22 +312,28 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         throw new Error('Access token not found. Please sign in again.');
       }
 
-      const response = await fetch(`/api/admin/users/${user.id}/status`, {
+      const response = await fetch('/api/admin/user-status', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ targetUserId: user.id, status: newStatus })
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Account status endpoint returned ${response.status} ${contentType || 'without a content type'}.`);
+      }
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to update account status.');
 
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
       showMessage(`User account ${newStatus.toLowerCase()}.`, 'success');
     } catch (error: any) {
-      console.error("Error toggling status:", error);
+      console.error("Error updating status:", error);
       showMessage(`Failed to update account status: ${error.message || error}`, 'error');
+    } finally {
+      setStatusUpdatingUserId(null);
     }
   };
 
@@ -579,15 +588,23 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        user.status === 'Suspended'
-                          ? 'bg-rose-100 text-rose-800'
-                          : user.status === 'Pending'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {user.status || 'Pending'}
-                      </span>
+                      <select
+                        aria-label={`Account status for ${user.name || user.email}`}
+                        value={user.status || 'Pending'}
+                        disabled={statusUpdatingUserId === user.id}
+                        onChange={(event) => handleUpdateStatus(user, event.target.value as NonNullable<SystemUser['status']>)}
+                        className={`text-xs font-bold p-1 rounded border disabled:cursor-wait disabled:opacity-60 ${
+                          user.status === 'Suspended'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : user.status === 'Pending'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Active">Active</option>
+                        <option value="Suspended">Suspended</option>
+                      </select>
                     </td>
                      <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end space-x-2">
@@ -622,17 +639,6 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                               title="Send Password Reset"
                             >
                               <Key className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleToggleStatus(user)}
-                              className={`p-1.5 rounded transition-colors ${
-                                user.status !== 'Active'
-                                  ? 'text-emerald-500 hover:bg-emerald-50'
-                                  : 'text-amber-500 hover:bg-amber-50'
-                              }`}
-                              title={user.status === 'Active' ? 'Suspend Account' : 'Activate Account'}
-                            >
-                              {user.status !== 'Active' ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                             </button>
                             <button
                               onClick={() => setDeleteConfirmUserId(user.id)}
