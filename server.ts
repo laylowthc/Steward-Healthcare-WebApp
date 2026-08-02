@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { AdminAccountStatusError, updateAccountStatus } from "./src/server/adminAccountStatus";
 import { AcceptApplicantError, acceptApplicant } from "./src/server/acceptApplicant";
+import { InviteUserError, inviteUser } from "./src/server/inviteUser";
 
 dotenv.config();
 
@@ -80,62 +81,25 @@ async function startServer() {
 
   app.post("/api/admin/invite-user", async (req, res) => {
     try {
-      const { callerUser, adminClient } = await requireActiveAdmin(req);
-      const { email, fullName, role = "Applicant", status = "Pending" } = req.body;
-
-      if (!email || !fullName) {
-        return res.status(400).json({ error: "Missing email or fullName" });
-      }
-
-      const normalizedEmail = String(email).toLowerCase();
-      const dbRole = ["Admin", "Staff", "Applicant", "Family"].includes(role) ? role : "Applicant";
-      const dbStatus = ["Pending", "Active", "Suspended"].includes(status) ? status : "Pending";
-
-      let authUserId: string | null = null;
-      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
-        data: { full_name: fullName, role: dbRole }
+      const result = await inviteUser({
+        authorization: req.headers.authorization,
+        email: req.body?.email,
+        fullName: req.body?.fullName,
+        role: req.body?.role,
+        redirectTo: `${req.protocol}://${req.get('host')}`
       });
-
-      if (inviteError) {
-        console.error("[invite-user] Auth invite failed; continuing with profile upsert if user already exists:", inviteError);
-      } else {
-        authUserId = inviteData.user?.id || null;
-      }
-
-      const profilePayload: Record<string, any> = {
-        email: normalizedEmail,
-        full_name: fullName,
-        role: dbRole,
-        status: dbStatus,
-        permissions: [],
-        updated_at: new Date().toISOString()
-      };
-      if (authUserId) {
-        profilePayload.id = authUserId;
-        profilePayload.firebase_uid = authUserId;
-      }
-
-      const { data: profile, error: profileError } = await adminClient
-        .from("users")
-        .upsert(profilePayload, { onConflict: "email" })
-        .select("*")
-        .single();
-
-      if (profileError) {
-        return res.status(500).json({ error: "Failed to create user profile", details: profileError });
-      }
-
-      await adminClient.from("activity_logs").insert({
-        actor_user_id: callerUser.id,
-        actor_name: "Administrator",
-        type: "status",
-        action: `ACCOUNT: Created ${dbStatus} ${dbRole} account profile for ${fullName} (${normalizedEmail}).`
+      return res.json({
+        success: true,
+        message: `Invitation sent to ${result.user.email}.`,
+        ...result
       });
-
-      return res.json({ success: true, user: profile, inviteSent: !inviteError, inviteError: inviteError?.message || null });
     } catch (error: any) {
       console.error("[invite-user] Error:", error);
-      return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
+      const status = error instanceof InviteUserError ? error.statusCode : 500;
+      return res.status(status).json({
+        success: false,
+        message: error.message || "Internal Server Error"
+      });
     }
   });
 

@@ -280,7 +280,13 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     e.preventDefault();
     if (!inviteEmail || !inviteName) return;
     try {
-      const dbRole = inviteRole === 'admin' ? 'Admin' : (inviteRole === 'staff' ? 'Staff' : 'Applicant');
+      const dbRole = inviteRole === 'admin'
+        ? 'Admin'
+        : inviteRole === 'staff'
+          ? 'Staff'
+          : inviteRole === 'family'
+            ? 'Family'
+            : 'Applicant';
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
@@ -300,13 +306,28 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
           status: 'Pending'
         })
       });
-      const result = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      const responseText = await response.text();
+      let result: { success?: boolean; message?: string; error?: string } = {};
+
+      if (contentType.includes('application/json')) {
+        try {
+          result = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`Invitation service returned malformed JSON (HTTP ${response.status}).`);
+        }
+      } else {
+        throw new Error(
+          `Invitation service returned ${contentType || 'an unknown response type'} (HTTP ${response.status}).`
+        );
+      }
+
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to create invitation.');
+        throw new Error(result.message || result.error || `Failed to create invitation (HTTP ${response.status}).`);
       }
 
       await fetchUsers();
-      showMessage(`Invitation sent to ${inviteEmail}.`, 'success');
+      showMessage(result.message || `Invitation sent to ${inviteEmail}.`, 'success');
       setIsInviting(false);
       setInviteEmail('');
       setInviteName('');
