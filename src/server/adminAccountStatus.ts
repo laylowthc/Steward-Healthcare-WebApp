@@ -76,6 +76,70 @@ export async function updateAccountStatus(input: {
     throw new AdminAccountStatusError('Administrators cannot suspend or deactivate their own account', 400);
   }
 
+  const { data: targetUser, error: targetUserError } = await adminClient
+    .from('users')
+    .select('id, full_name, email, phone, role')
+    .eq('id', targetUserId)
+    .single();
+
+  if (targetUserError || !targetUser) {
+    throw new AdminAccountStatusError('Target user was not found', 404);
+  }
+
+  if (status === 'Active' && String(targetUser.role).toLowerCase() === 'applicant') {
+    const { data: linkedApplicant, error: linkedApplicantError } = await adminClient
+      .from('applicants')
+      .select('id')
+      .eq('user_id', targetUserId)
+      .limit(1)
+      .maybeSingle();
+
+    if (linkedApplicantError) {
+      throw new AdminAccountStatusError(`Failed to verify applicant profile: ${linkedApplicantError.message}`, 500);
+    }
+
+    if (!linkedApplicant) {
+      const normalizedEmail = String(targetUser.email || '').toLowerCase();
+      const { data: applicantByEmail, error: applicantByEmailError } = await adminClient
+        .from('applicants')
+        .select('id, user_id')
+        .ilike('email', normalizedEmail)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (applicantByEmailError) {
+        throw new AdminAccountStatusError(`Failed to resolve applicant profile: ${applicantByEmailError.message}`, 500);
+      }
+
+      if (applicantByEmail) {
+        const { error: linkError } = await adminClient
+          .from('applicants')
+          .update({ user_id: targetUserId, updated_at: new Date().toISOString() })
+          .eq('id', applicantByEmail.id);
+
+        if (linkError) {
+          throw new AdminAccountStatusError(`Failed to link applicant profile: ${linkError.message}`, 500);
+        }
+      } else {
+        const { error: createApplicantError } = await adminClient.from('applicants').insert({
+          user_id: targetUserId,
+          full_name: targetUser.full_name || normalizedEmail || 'Applicant',
+          email: normalizedEmail,
+          phone: targetUser.phone || '',
+          position: 'Care Assistant',
+          status: 'Applied',
+          notes: 'Applicant profile created during account activation.',
+          compliance_checked: {}
+        });
+
+        if (createApplicantError) {
+          throw new AdminAccountStatusError(`Failed to create applicant profile: ${createApplicantError.message}`, 500);
+        }
+      }
+    }
+  }
+
   const { data: updatedUser, error: updateError } = await adminClient
     .from('users')
     .update({ status, updated_at: new Date().toISOString() })
