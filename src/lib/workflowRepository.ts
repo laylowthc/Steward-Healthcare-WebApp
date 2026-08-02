@@ -73,6 +73,19 @@ export const applicantToRow = (applicant: Omit<Applicant, 'id' | 'dateCreated'> 
   updated_at: new Date().toISOString()
 });
 
+export const getAvatarUrlFromStaffNumber = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || !value.trim().startsWith('{')) return undefined;
+
+  try {
+    const metadata = JSON.parse(value);
+    return typeof metadata?.avatarUrl === 'string' && metadata.avatarUrl.trim()
+      ? metadata.avatarUrl
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export const mapStaffRow = (row: any): Staff => {
   const user = Array.isArray(row.user) ? row.user[0] : row.user;
   const profileRole = row.job_title || row.role;
@@ -100,7 +113,7 @@ export const mapStaffRow = (row: any): Staff => {
     trainingStatus: (row.training_status || 'Non-Compliant') as ComplianceLevel,
     trainingExpiry: row.training_expiry || undefined,
     joinedDate: row.joined_date || (row.created_at || new Date().toISOString()).split('T')[0],
-    avatarUrl: user?.avatar_url || row.avatar_url || undefined
+    avatarUrl: getAvatarUrlFromStaffNumber(row.staff_number)
   };
 };
 
@@ -258,8 +271,7 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
       full_name,
       email,
       phone,
-      role,
-      avatar_url
+      role
     )
   `;
   const staffQuery = isAdmin
