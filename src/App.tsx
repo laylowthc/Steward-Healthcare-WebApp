@@ -78,8 +78,21 @@ import FamilyPortal from './components/FamilyPortal';
 import FamilyFeedbackAdmin from './components/FamilyFeedbackAdmin';
 import ApplicantPortal from './components/ApplicantPortal';
 import StaffDashboard from './components/StaffDashboard';
+import SHCLoader from './components/SHCLoader';
+import SHCSplashScreen from './components/SHCSplashScreen';
 
 export default function App() {
+  const [startupReady, setStartupReady] = useState(false);
+
+  return (
+    <>
+      <AppShell onStartupReady={setStartupReady} />
+      <SHCSplashScreen ready={startupReady} />
+    </>
+  );
+}
+
+function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void }) {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentRole, setCurrentRole] = useState<'admin' | 'staff' | 'family' | 'applicant'>('applicant');
@@ -90,6 +103,7 @@ export default function App() {
   const [currentUserProfile, setCurrentUserProfile] = useState<SystemUserProfile | null>(null);
 
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
+  const [isProfileSyncing, setIsProfileSyncing] = useState(true);
   const [profileSyncError, setProfileSyncError] = useState<string | null>(null);
 
   const [familyFeedbacks, setFamilyFeedbacks] = useState<FamilyFeedback[]>([]);
@@ -159,9 +173,11 @@ export default function App() {
         setUserAccountRole(null);
         setSupabaseUserId(null);
         setCurrentUserProfile(null);
+        setIsProfileSyncing(false);
         return;
       }
 
+      setIsProfileSyncing(true);
       try {
         const userEmail = supabaseUser.email?.toLowerCase();
         if (!userEmail) {
@@ -215,6 +231,8 @@ export default function App() {
         console.error("Critical error restoring user session with Supabase:", err);
         setProfileSyncError(`Failed to restore session. Error: ${err.message || err}`);
         setIsLoggedIn(false);
+      } finally {
+        if (active) setIsProfileSyncing(false);
       }
     };
 
@@ -224,6 +242,10 @@ export default function App() {
       active = false;
     };
   }, [supabaseUser]);
+
+  useEffect(() => {
+    onStartupReady(!isAuthRestoring && !isProfileSyncing);
+  }, [isAuthRestoring, isProfileSyncing, onStartupReady]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -1021,8 +1043,8 @@ export default function App() {
   ];
 
   // Auth Guard
-  if (isAuthRestoring) {
-    return <div className="flex h-screen items-center justify-center font-sans"><span className="text-slate-500 font-bold">Restoring user session...</span></div>;
+  if (isAuthRestoring || isProfileSyncing) {
+    return <SHCLoader variant="fullscreen" text={isAuthRestoring ? 'Restoring your secure session…' : 'Synchronising your SHC profile…'} />;
   }
 
   if (profileSyncError) {
@@ -1196,7 +1218,7 @@ export default function App() {
         templates={templates}
         documents={documents}
         onUploadDocument={(file, category) => {
-          handleUploadDocument({
+          return handleUploadDocument({
             name: file.name,
             category: category as any,
             staffId: currentUserId,

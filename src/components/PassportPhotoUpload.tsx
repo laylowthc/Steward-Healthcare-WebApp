@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Camera, Upload, Check, AlertCircle, RefreshCw, User, Image } from 'lucide-react';
+import { Camera, Upload, Check, AlertCircle, User, Image } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import SHCLoader from './SHCLoader';
 
 interface PassportPhotoUploadProps {
   currentPhotoUrl?: string;
@@ -131,7 +132,7 @@ export default function PassportPhotoUpload({
           )}
           {isUploading && (
             <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center">
-              <RefreshCw className="w-4 h-4 text-white animate-spin" />
+              <SHCLoader />
             </div>
           )}
         </div>
@@ -176,8 +177,7 @@ export default function PassportPhotoUpload({
           )}
           {isUploading && (
             <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-center text-white">
-              <RefreshCw className="w-6 h-6 animate-spin mb-1" />
-              <span className="text-[10px] font-bold">Uploading...</span>
+              <SHCLoader text="Uploading…" className="[&_.shc-loader__text]:text-white" />
             </div>
           )}
         </div>

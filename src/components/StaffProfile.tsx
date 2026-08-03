@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
-import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
 import { getSignedUrlForDocument } from '../lib/supabase';
 import { getSubjectDocuments } from '../lib/profileState';
 import PassportPhotoUpload from './PassportPhotoUpload';
+import SHCLoader from './SHCLoader';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -734,10 +735,7 @@ export default function StaffProfile({
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
-                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
-                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
-                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
-                </div>
+                <SHCLoader variant="page" text="Generating secure document link…" className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200" />
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">

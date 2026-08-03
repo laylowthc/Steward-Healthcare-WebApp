@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Applicant, RoleTemplate, Document, Staff } from '../types';
 import { 
-  Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X, RefreshCw, 
+  Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X,
   PenTool, ShieldCheck, UserCheck, BookOpen, AlertCircle, Sparkles, CheckSquare
 } from 'lucide-react';
 import OnlineApplicationForm from './OnlineApplicationForm';
@@ -10,13 +10,14 @@ import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
 import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
+import SHCLoader from './SHCLoader';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
   authenticatedUserId: string;
   templates: RoleTemplate[];
   documents: Document[];
-  onUploadDocument: (file: File, category: string) => void;
+  onUploadDocument: (file: File, category: string) => Promise<void> | void;
   onLogout: () => void;
   onSaveCVData?: (applicantId: string, cvData: any) => void;
   onSaveDocument?: (doc: Document) => void;
@@ -104,12 +105,13 @@ export default function ApplicantPortal({
     }
 
     setIsUploading(true);
-    setTimeout(() => {
-      onUploadDocument(uploadFile, uploadCategory);
+    try {
+      await onUploadDocument(uploadFile, uploadCategory);
       setUploadFile(null);
       setUploadCategory('');
+    } finally {
       setIsUploading(false);
-    }, 1200);
+    }
   };
 
   const handleSaveApplicationForm = async (applicantId: string, formData: Record<string, any>) => {
@@ -458,7 +460,7 @@ export default function ApplicantPortal({
                     disabled={!uploadFile || !uploadCategory || isUploading}
                     className="w-full py-2.5 bg-purple-900 hover:bg-purple-800 text-white text-xs font-extrabold rounded-xl transition shadow disabled:opacity-50 cursor-pointer"
                   >
-                    {isUploading ? 'Uploading to Supabase Storage...' : 'Confirm & Save Document'}
+                    {isUploading ? <SHCLoader text="Uploading document…" className="text-white [&_.shc-loader__text]:text-white" /> : 'Confirm & Save Document'}
                   </button>
                 </div>
               </section>
@@ -677,10 +679,7 @@ export default function ApplicantPortal({
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
-                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
-                  <RefreshCw className="w-8 h-8 text-purple-900 animate-spin" />
-                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
-                </div>
+                <SHCLoader variant="page" text="Generating secure document link…" className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200" />
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">

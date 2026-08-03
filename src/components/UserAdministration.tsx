@@ -10,6 +10,7 @@ import {
 } from '../lib/gmailService';
 import { applicantToRow, getAvatarUrlFromStaffNumber, insertActivityLog } from '../lib/workflowRepository';
 import { resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
+import SHCLoader from './SHCLoader';
 
 interface SystemUser {
   id: string;
@@ -33,6 +34,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const [filterRole, setFilterRole] = useState<string>('All');
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isInviting, setIsInviting] = useState(false);
+  const [isSendingInvitation, setIsSendingInvitation] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'staff' | 'applicant' | 'family'>('applicant');
@@ -278,7 +280,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
 
   const handleInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteEmail || !inviteName) return;
+    if (!inviteEmail || !inviteName || isSendingInvitation) return;
+    setIsSendingInvitation(true);
     try {
       const dbRole = inviteRole === 'admin'
         ? 'Admin'
@@ -335,6 +338,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
     } catch (error: any) {
       console.error("Error inviting user:", error);
       showMessage(`Failed to send invitation: ${error.message || error}`, 'error');
+    } finally {
+      setIsSendingInvitation(false);
     }
   };
 
@@ -554,8 +559,8 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                 </select>
               </div>
               <div className="pt-2">
-                <button type="submit" className="w-full bg-indigo-600 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-indigo-700 transition">
-                  Send Invitation
+                <button type="submit" disabled={isSendingInvitation} className="w-full bg-indigo-600 text-white font-bold text-sm py-2.5 rounded-xl hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-wait">
+                  {isSendingInvitation ? <SHCLoader text="Sending invitation…" className="text-white [&_.shc-loader__text]:text-white" /> : 'Send Invitation'}
                 </button>
               </div>
             </form>
@@ -600,9 +605,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         </div>
 
         {isLoading ? (
-          <div className="text-center py-12">
-            <span className="text-slate-500 font-bold animate-pulse">Loading users...</span>
-          </div>
+          <SHCLoader variant="page" text="Loading user accounts…" />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-left">
