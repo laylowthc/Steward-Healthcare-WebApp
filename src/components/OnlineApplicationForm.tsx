@@ -1,988 +1,997 @@
-import React, { useState } from 'react';
-import { Applicant } from '../types';
-import { 
-  FileText, User, Mail, Phone, Home, Briefcase, GraduationCap, 
-  Award, Shield, CheckCircle, Save, PenTool, Plus, Trash2, Check,
-  AlertCircle, ChevronRight, ChevronLeft
-} from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Applicant, RoleTemplate } from "../types";
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Save,
+  Trash2,
+} from "lucide-react";
+import SHCLoader from "./SHCLoader";
+import BrandedLogo from "./BrandedLogo";
+import {
+  emptyEmployer,
+  emptyReference,
+  EqualOpportunitiesData,
+  OfficialApplicationData,
+} from "../types/officialApplication";
+import {
+  loadEqualOpportunities,
+  loadOfficialApplication,
+  saveEqualOpportunities,
+  saveOfficialApplication,
+} from "../lib/officialApplicationRepository";
+import { isNursingRole, validateOfficialApplication } from "../lib/officialApplicationValidation";
 
-interface OnlineApplicationFormProps {
+interface Props {
   applicant: Applicant;
-  onSaveApplication: (applicantId: string, formData: Record<string, any>) => void;
+  authenticatedUserId: string;
+  templates: RoleTemplate[];
   onCancel?: () => void;
+}
+const input =
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-100";
+const today = () => new Date().toISOString().slice(0, 10);
+const initialApplication = (
+  applicant: Applicant,
+  userId: string,
+): OfficialApplicationData => {
+  const names = applicant.name.trim().split(/\s+/);
+  return {
+    userId,
+    applicantId: applicant.id,
+    positionApplied: applicant.position || "",
+    vacancyReferenceLocation: "",
+    sourceOfAdvertisement: "",
+    title: "",
+    forenames: names.slice(0, -1).join(" ") || names[0] || "",
+    surname: names.length > 1 ? names[names.length - 1] : "",
+    address: applicant.cvData?.personalDetails?.address || "",
+    postcode: "",
+    telephone: "",
+    mobile: applicant.phone || "",
+    personalEmail: applicant.email || "",
+    nationalInsuranceNumber: "",
+    eligibleToWorkUk: null,
+    nmcPin: "",
+    rna: "",
+    nmcExpiryDate: "",
+    rightToWork: "",
+    enhancedDbs: "",
+    dbsIssueDate: "",
+    recentEmployerNameAddress: "",
+    recentEmployerPostcode: "",
+    recentEmployerTelephone: "",
+    recentEmployerDateFrom: "",
+    recentEmployerDateTo: "",
+    recentEmployerPositionTitle: "",
+    recentEmployerPrimaryResponsibilities: "",
+    recentEmployerSalary: "",
+    recentEmployerNoticePeriod: "",
+    recentEmployerReasonForLeaving: "",
+    employmentHistory: [emptyEmployer(), emptyEmployer()],
+    professionalReferences: [emptyReference(), emptyReference()],
+    refereesAgreedToContact: false,
+    personalStatement: "",
+    knowsConnectedPerson: null,
+    connectedPersonDetails: "",
+    hasUnprotectedCriminalRecord: null,
+    criminalRecordDetails: "",
+    declarationConfirmed: false,
+    referencesAndChecksAuthorised: false,
+    satisfactoryChecksAcknowledged: false,
+    dataProtectionConsent: false,
+    signatureType: "typed",
+    signatureValue: "",
+    printedName: applicant.name || "",
+    signatureDate: today(),
+    currentStep: 1,
+    status: "Draft",
+    revision: 1,
+  };
+};
+const initialEqual: EqualOpportunitiesData = {
+  vacancyReferenceNumber: "",
+  genderIdentification: "",
+  ageBand: "",
+  disabilityDeclaration: "",
+  ethnicOrigin: "",
+};
+
+const labels = [
+  "Role & Personal Details",
+  "Professional & Compliance",
+  "Present Employer",
+  "Employment History",
+  "References",
+  "Equal Opportunities",
+  "Personal Statement",
+  "Additional Information",
+  "Declaration & Signature",
+];
+
+function Field({
+  label,
+  children,
+  wide = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  wide?: boolean;
+  key?: React.Key;
+}) {
+  return (
+    <label className={`block ${wide ? "md:col-span-2" : ""}`}>
+      <span className="mb-1 block text-xs font-bold text-slate-700">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+function Text({
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      className={input}
+      type={type}
+      value={value || ""}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+function YesNo({
+  value,
+  onChange,
+}: {
+  value: boolean | null;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex gap-3">
+      {[
+        ["Yes", true],
+        ["No", false],
+      ].map(([l, v]) => (
+        <button
+          key={l as string}
+          type="button"
+          onClick={() => onChange(v as boolean)}
+          className={`rounded-xl border px-5 py-2 text-sm font-bold ${value === v ? "border-purple-700 bg-purple-50 text-purple-900" : "border-slate-300 text-slate-600"}`}
+        >
+          {l as string}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SignaturePad({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const drawing = useRef(false);
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !value.startsWith("data:image")) return;
+    const image = new Image();
+    image.onload = () => element.getContext("2d")?.drawImage(image, 0, 0, element.width, element.height);
+    image.src = value;
+  }, []);
+  const point = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const element = canvas.current!;
+    const bounds = element.getBoundingClientRect();
+    return { x: (event.clientX - bounds.left) * (element.width / bounds.width), y: (event.clientY - bounds.top) * (element.height / bounds.height) };
+  };
+  return <div><canvas ref={canvas} width={700} height={150} aria-label="Draw electronic signature" className="h-36 w-full touch-none rounded-xl border border-slate-300 bg-white" onPointerDown={(event) => { drawing.current = true; const context = canvas.current!.getContext("2d")!; const p = point(event); context.beginPath(); context.moveTo(p.x, p.y); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (!drawing.current) return; const context = canvas.current!.getContext("2d")!; const p = point(event); context.lineWidth = 2.5; context.lineCap = "round"; context.strokeStyle = "#351064"; context.lineTo(p.x, p.y); context.stroke(); }} onPointerUp={() => { drawing.current = false; if (canvas.current) onChange(canvas.current.toDataURL("image/png")); }} /><button type="button" className="mt-2 text-xs font-bold text-rose-700" onClick={() => { canvas.current?.getContext("2d")?.clearRect(0, 0, 700, 150); onChange(""); }}>Clear signature</button></div>;
 }
 
 export default function OnlineApplicationForm({
   applicant,
-  onSaveApplication,
-  onCancel
-}: OnlineApplicationFormProps) {
-  const [currentStep, setCurrentStep] = useState<number>(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submittedSuccess, setSubmittedSuccess] = useState(false);
+  authenticatedUserId,
+  templates,
+  onCancel,
+}: Props) {
+  const [form, setForm] = useState(() =>
+    initialApplication(applicant, authenticatedUserId),
+  );
+  const [equal, setEqual] = useState(initialEqual);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const loaded = useRef(false);
+  const timer = useRef<number>();
+  const roleOptions = useMemo(
+    () => Array.from(new Set([
+      ...templates.map((t) => t.role).filter(Boolean),
+      applicant.position,
+    ].filter(Boolean))),
+    [templates, applicant.position],
+  );
+  const isNurse = isNursingRole(form.positionApplied);
+  const canEdit =
+    form.status === "Draft" || form.status === "Returned for Correction";
+  const update = <K extends keyof OfficialApplicationData>(
+    key: K,
+    value: OfficialApplicationData[K],
+  ) => setForm((p) => ({ ...p, [key]: value }));
 
-  // Form State initialized with applicant values or defaults
-  const [formData, setFormData] = useState<Record<string, any>>(() => {
-    const existing = applicant.cvData?.personalDetails as any || {};
-    return {
-      // Personal Info
-      title: existing.title || 'Mr',
-      fullName: applicant.name || '',
-      alsoKnownAs: existing.alsoKnownAs || '',
-      dob: existing.dob || '',
-      gender: existing.gender || 'Male',
-      nationality: existing.nationality || 'British',
-      niNumber: existing.niNumber || '',
-      rightToWorkStatus: existing.rightToWorkStatus || 'UK/Irish Citizen',
-
-      // Contact & Emergency
-      email: applicant.email || '',
-      phone: applicant.phone || '',
-      address: existing.address || '',
-      postcode: existing.postcode || '',
-      emergencyName: existing.emergencyName || '',
-      emergencyRelation: existing.emergencyRelation || '',
-      emergencyPhone: existing.emergencyPhone || '',
-      emergencyAddress: existing.emergencyAddress || '',
-
-      // Employment History
-      employmentHistory: applicant.cvData?.employmentHistory || [
-        {
-          employer: '',
-          role: '',
-          startDate: '',
-          endDate: '',
-          duties: '',
-          reasonForLeaving: '',
-          noticePeriod: ''
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const found = await loadOfficialApplication(authenticatedUserId);
+        if (!active) return;
+        if (found) {
+          setForm(found);
+          if (found.id) {
+            const eo = await loadEqualOpportunities(found.id);
+            if (eo && active) setEqual(eo);
+          }
         }
-      ],
-
-      // Education & Qualifications
-      educationHistory: applicant.cvData?.qualifications || [
-        {
-          institution: '',
-          course: '',
-          year: '',
-          grade: ''
+      } catch (e: any) {
+        setError(
+          e?.message?.includes("employment_applications")
+            ? "The official application database migration has not been applied yet."
+            : e.message || "Unable to restore application.",
+        );
+      } finally {
+        if (active) {
+          loaded.current = true;
+          setLoading(false);
         }
-      ],
-
-      // Mandatory Training & Skills
-      mandatoryTrainings: applicant.cvData?.mandatoryTraining || [
-        'Moving & Handling',
-        'Safeguarding Adults',
-        'Basic Life Support & First Aid'
-      ],
-      skills: applicant.cvData?.skills || ['Patient Care', 'Medication Administration', 'Dementia Care'],
-
-      // Professional Registrations
-      registrationBody: existing.registrationBody || '',
-      nmcPin: applicant.cvData?.personalDetails ? (applicant as any).nmcPin || '' : '',
-      nmcExpiry: existing.nmcExpiry || '',
-
-      // References
-      references: applicant.cvData?.references || [
-        {
-          name: '',
-          role: '',
-          organization: '',
-          email: '',
-          phone: '',
-          relationship: 'Line Manager'
-        },
-        {
-          name: '',
-          role: '',
-          organization: '',
-          email: '',
-          phone: '',
-          relationship: 'Clinical Supervisor'
-        }
-      ],
-
-      // Declarations & Signatures
-      hasConvictions: 'No',
-      convictionDetails: '',
-      agreedCqcCompliance: true,
-      agreedSwornDeclaration: true,
-      signatureName: applicant.name || '',
-      signatureDate: new Date().toISOString().split('T')[0]
+      }
+    })();
+    return () => {
+      active = false;
     };
-  });
+  }, [authenticatedUserId]);
 
-  const availableTrainings = [
-    'Moving & Handling',
-    'Safeguarding Adults',
-    'Safeguarding Children',
-    'Basic Life Support & First Aid',
-    'Medication Administration',
-    'Food Safety & Hygiene',
-    'Infection Prevention & Control',
-    'Fire Safety Awareness',
-    'Mental Capacity Act & DoLS',
-    'Dementia Care Awareness',
-    'Health & Safety at Work'
-  ];
-
-  const handleChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleEmploymentChange = (index: number, field: string, value: string) => {
-    const list = [...formData.employmentHistory];
-    list[index] = { ...list[index], [field]: value };
-    setFormData(prev => ({ ...prev, employmentHistory: list }));
-  };
-
-  const addEmploymentRow = () => {
-    setFormData(prev => ({
-      ...prev,
-      employmentHistory: [
-        ...prev.employmentHistory,
-        { employer: '', role: '', startDate: '', endDate: '', duties: '', reasonForLeaving: '', noticePeriod: '' }
-      ]
-    }));
-  };
-
-  const removeEmploymentRow = (index: number) => {
-    if (formData.employmentHistory.length <= 1) return;
-    setFormData(prev => ({
-      ...prev,
-      employmentHistory: prev.employmentHistory.filter((_: any, i: number) => i !== index)
-    }));
-  };
-
-  const handleEducationChange = (index: number, field: string, value: string) => {
-    const list = [...formData.educationHistory];
-    list[index] = { ...list[index], [field]: value };
-    setFormData(prev => ({ ...prev, educationHistory: list }));
-  };
-
-  const addEducationRow = () => {
-    setFormData(prev => ({
-      ...prev,
-      educationHistory: [
-        ...prev.educationHistory,
-        { institution: '', course: '', year: '', grade: '' }
-      ]
-    }));
-  };
-
-  const removeEducationRow = (index: number) => {
-    if (formData.educationHistory.length <= 1) return;
-    setFormData(prev => ({
-      ...prev,
-      educationHistory: prev.educationHistory.filter((_: any, i: number) => i !== index)
-    }));
-  };
-
-  const handleReferenceChange = (index: number, field: string, value: string) => {
-    const list = [...formData.references];
-    list[index] = { ...list[index], [field]: value };
-    setFormData(prev => ({ ...prev, references: list }));
-  };
-
-  const toggleTraining = (training: string) => {
-    const current = formData.mandatoryTrainings || [];
-    if (current.includes(training)) {
-      handleChange('mandatoryTrainings', current.filter((t: string) => t !== training));
-    } else {
-      handleChange('mandatoryTrainings', [...current, training]);
+  const persist = async (next = form, nextEqual = equal) => {
+    if (!loaded.current || !canEdit) return;
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await saveOfficialApplication(next);
+      setForm((p) => ({ ...p, id: saved.id, updatedAt: saved.updatedAt }));
+      if (saved.id)
+        await saveEqualOpportunities(saved.id, authenticatedUserId, nextEqual);
+      setLastSaved(
+        new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      );
+    } catch (e: any) {
+      setError(e.message || "Draft save failed.");
+    } finally {
+      setSaving(false);
     }
   };
+  useEffect(() => {
+    if (!loaded.current || !canEdit) return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => persist(form, equal), 900);
+    return () => window.clearTimeout(timer.current);
+  }, [
+    form.currentStep,
+    form.positionApplied,
+    form.vacancyReferenceLocation,
+    form.sourceOfAdvertisement,
+    form.title,
+    form.forenames,
+    form.surname,
+    form.address,
+    form.postcode,
+    form.telephone,
+    form.mobile,
+    form.personalEmail,
+    form.nationalInsuranceNumber,
+    form.eligibleToWorkUk,
+    form.nmcPin,
+    form.rna,
+    form.nmcExpiryDate,
+    form.rightToWork,
+    form.enhancedDbs,
+    form.dbsIssueDate,
+    form.recentEmployerNameAddress,
+    form.recentEmployerPostcode,
+    form.recentEmployerTelephone,
+    form.recentEmployerDateFrom,
+    form.recentEmployerDateTo,
+    form.recentEmployerPositionTitle,
+    form.recentEmployerPrimaryResponsibilities,
+    form.recentEmployerSalary,
+    form.recentEmployerNoticePeriod,
+    form.recentEmployerReasonForLeaving,
+    form.employmentHistory,
+    form.professionalReferences,
+    form.refereesAgreedToContact,
+    form.personalStatement,
+    form.knowsConnectedPerson,
+    form.connectedPersonDetails,
+    form.hasUnprotectedCriminalRecord,
+    form.criminalRecordDetails,
+    form.declarationConfirmed,
+    form.referencesAndChecksAuthorised,
+    form.satisfactoryChecksAcknowledged,
+    form.dataProtectionConsent,
+    form.signatureType,
+    form.signatureValue,
+    form.printedName,
+    form.signatureDate,
+    equal,
+  ]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.fullName || !formData.email || !formData.phone) {
-      alert("Please fill in required fields (Name, Email, Phone).");
+  const submit = async () => {
+    const missing = validateOfficialApplication(form);
+    if (missing.length) {
+      setError(`Please complete: ${missing.join(", ")}.`);
       return;
     }
-
-    if (!formData.agreedSwornDeclaration) {
-      alert("Please confirm the sworn accuracy declaration before submitting.");
-      return;
+    const next = {
+      ...form,
+      status: "Submitted" as const,
+      submittedAt: new Date().toISOString(),
+      currentStep: 9,
+    };
+    setSaving(true);
+    try {
+      const saved = await saveOfficialApplication(next);
+      if (saved.id)
+        await saveEqualOpportunities(saved.id, authenticatedUserId, equal);
+      setForm(saved);
+      setSuccess(true);
+    } catch (e: any) {
+      setError(e.message || "Submission failed.");
+    } finally {
+      setSaving(false);
     }
-
-    setIsSubmitting(true);
-    setTimeout(() => {
-      onSaveApplication(applicant.id, formData);
-      setIsSubmitting(false);
-      setSubmittedSuccess(true);
-    }, 1000);
   };
-
-  const steps = [
-    { num: 1, title: 'Personal Info' },
-    { num: 2, title: 'Contact & Next of Kin' },
-    { num: 3, title: 'Employment History' },
-    { num: 4, title: 'Education & Training' },
-    { num: 5, title: 'References & Reg' },
-    { num: 6, title: 'Declaration & Signature' }
-  ];
-
-  if (submittedSuccess) {
+  if (loading)
+    return <SHCLoader variant="page" text="Restoring your application..." />;
+  if (success)
     return (
-      <div className="bg-white p-8 rounded-2xl border border-emerald-100 shadow-sm text-center max-w-2xl mx-auto my-8 space-y-4">
-        <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mx-auto">
-          <CheckCircle className="w-10 h-10" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-800">Application Form Submitted</h2>
-        <p className="text-xs text-slate-600 max-w-md mx-auto">
-          Your official Steward Health Care Application Form has been saved persistently in Supabase. Our compliance and administration team will review your details.
+      <div className="mx-auto my-8 max-w-2xl rounded-2xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+        <CheckCircle className="mx-auto h-14 w-14 text-emerald-600" />
+        <h2 className="mt-3 text-xl font-bold">Application submitted</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          Your submission has been recorded as version {form.revision}. It is
+          now read-only pending review.
         </p>
-        <div className="pt-4 flex justify-center gap-3">
+        {onCancel && (
           <button
-            onClick={() => setSubmittedSuccess(false)}
-            className="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-50 transition"
+            onClick={onCancel}
+            className="mt-5 rounded-xl bg-purple-900 px-5 py-2.5 text-sm font-bold text-white"
           >
-            Edit Application
+            Return to overview
           </button>
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 bg-purple-900 text-white text-xs font-bold rounded-xl hover:bg-purple-800 transition"
-            >
-              Return to Overview
-            </button>
-          )}
-        </div>
+        )}
       </div>
     );
-  }
 
+  const employers = form.employmentHistory;
+  const refs = form.professionalReferences;
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden my-4">
-      {/* Form Header */}
-      <div className="bg-gradient-to-r from-purple-900 to-indigo-900 text-white p-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <span className="text-[10px] uppercase font-black tracking-widest bg-white/20 px-2 py-0.5 rounded text-purple-200">
-              Official Application Form
-            </span>
-            <h2 className="text-2xl font-bold mt-1">Steward Health Care Candidate Application</h2>
-            <p className="text-xs text-purple-200 mt-1">
-              Complete all sections accurately. All data persists securely in Supabase.
+    <div className="my-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <header className="border-b border-fuchsia-200 bg-gradient-to-r from-purple-950 via-purple-900 to-fuchsia-800 p-5 text-white">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div className="rounded-xl bg-white p-2">
+            <BrandedLogo layout="horizontal" size="sm" className="h-14 w-auto" />
+          </div>
+          <div className="md:text-right">
+            <h2 className="text-xl font-black uppercase tracking-wide">
+              Application for Employment
+            </h2>
+            <p className="text-xs text-purple-100">
+              Official SHC digital application - version {form.revision}
             </p>
           </div>
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-lg transition"
-            >
-              Close
-            </button>
-          )}
         </div>
-
-        {/* Step Indicator */}
-        <div className="grid grid-cols-6 gap-2 mt-6">
-          {steps.map((s) => (
+        <div className="mt-5 grid grid-cols-3 gap-1.5 md:grid-cols-9">
+          {labels.map((l, i) => (
             <button
-              key={s.num}
+              key={l}
               type="button"
-              onClick={() => setCurrentStep(s.num)}
-              className={`p-2 rounded-xl text-left transition ${
-                currentStep === s.num
-                  ? 'bg-white text-purple-950 font-bold shadow-md'
-                  : currentStep > s.num
-                  ? 'bg-purple-800/60 text-purple-200 font-semibold'
-                  : 'bg-purple-950/40 text-purple-300 hover:bg-purple-900/50'
-              }`}
+              onClick={() => update("currentStep", i + 1)}
+              className={`rounded-lg p-2 text-left ${form.currentStep === i + 1 ? "bg-white text-purple-950" : "bg-white/10 text-purple-100"}`}
             >
-              <div className="text-[10px] font-mono font-black uppercase">Step {s.num}</div>
-              <div className="text-xs truncate">{s.title}</div>
+              <span className="block text-[9px] font-black">{i + 1}</span>
+              <span className="hidden text-[9px] font-bold md:block">{l}</span>
             </button>
           ))}
         </div>
+      </header>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-50 px-5 py-3 text-xs">
+        <span className="font-bold text-slate-700">
+          {form.status}
+          {lastSaved && ` - Last saved ${lastSaved}`}
+        </span>
+        <span className="text-slate-500">
+          {saving ? "Saving draft..." : "Drafts save automatically"}
+        </span>
       </div>
-
-      <form onSubmit={handleSubmit} className="p-6 space-y-6">
-        
-        {/* STEP 1: Personal Info & Right to Work */}
-        {currentStep === 1 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
-              <User className="w-4 h-4 text-purple-700" />
-              1. Personal Details & Right to Work
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Title</label>
-                <select
-                  value={formData.title}
-                  onChange={(e) => handleChange('title', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                >
-                  <option value="Mr">Mr</option>
-                  <option value="Mrs">Mrs</option>
-                  <option value="Miss">Miss</option>
-                  <option value="Ms">Ms</option>
-                  <option value="Dr">Dr</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.fullName}
-                  onChange={(e) => handleChange('fullName', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-semibold"
-                  placeholder="First name and surname"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Also Known As (AKA)</label>
-                <input
-                  type="text"
-                  value={formData.alsoKnownAs}
-                  onChange={(e) => handleChange('alsoKnownAs', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="Maiden name or preferred alias"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Date of Birth *</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.dob}
-                  onChange={(e) => handleChange('dob', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Gender</label>
-                <select
-                  value={formData.gender}
-                  onChange={(e) => handleChange('gender', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                >
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Non-binary">Non-binary</option>
-                  <option value="Prefer not to say">Prefer not to say</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Nationality *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.nationality}
-                  onChange={(e) => handleChange('nationality', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="British, Irish, Nigerian, etc."
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">National Insurance (NI) Number</label>
-                <input
-                  type="text"
-                  value={formData.niNumber}
-                  onChange={(e) => handleChange('niNumber', e.target.value.toUpperCase())}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-mono"
-                  placeholder="QQ 12 34 56 A"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">UK Right to Work Status *</label>
-                <select
-                  value={formData.rightToWorkStatus}
-                  onChange={(e) => handleChange('rightToWorkStatus', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                >
-                  <option value="UK/Irish Citizen">UK / Irish Citizen</option>
-                  <option value="EU Settled Status">EU Settled / Pre-Settled Status</option>
-                  <option value="Skilled Worker Visa">Skilled Worker Visa (Sponsorship)</option>
-                  <option value="Student Visa">Student Visa (20 hrs limit)</option>
-                  <option value="Indefinite Leave to Remain">Indefinite Leave to Remain (ILR)</option>
-                  <option value="Other Valid Visa">Other Valid Work Visa</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 2: Contact & Emergency Contact */}
-        {currentStep === 2 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
-              <Phone className="w-4 h-4 text-purple-700" />
-              2. Contact Information & Emergency Contact
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => handleChange('email', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                  placeholder="candidate@example.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Phone *</label>
-                <input
-                  type="tel"
-                  required
-                  value={formData.phone}
-                  onChange={(e) => handleChange('phone', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                  placeholder="07123 456789"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Postal Address *</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={formData.address}
-                  onChange={(e) => handleChange('address', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="Street address, town, city"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Postcode *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.postcode}
-                  onChange={(e) => handleChange('postcode', e.target.value.toUpperCase())}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-mono"
-                  placeholder="SG6 1GJ"
-                />
-              </div>
-            </div>
-
-            <h4 className="text-xs font-bold text-slate-800 border-t pt-4 mt-4">Emergency Contact & Next of Kin</h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Next of Kin Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.emergencyName}
-                  onChange={(e) => handleChange('emergencyName', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="Contact Name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Relationship *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.emergencyRelation}
-                  onChange={(e) => handleChange('emergencyRelation', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="Spouse, Parent, Sibling, Child"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Emergency Phone *</label>
-                <input
-                  type="tel"
-                  required
-                  value={formData.emergencyPhone}
-                  onChange={(e) => handleChange('emergencyPhone', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="07... or 01..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Emergency Address</label>
-                <input
-                  type="text"
-                  value={formData.emergencyAddress}
-                  onChange={(e) => handleChange('emergencyAddress', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs"
-                  placeholder="Address if different"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 3: Employment History */}
-        {currentStep === 3 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-purple-700" />
-                3. Employment History (Most Recent First)
-              </h3>
-              <button
-                type="button"
-                onClick={addEmploymentRow}
-                className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-purple-100 transition"
+      {form.status === "Returned for Correction" && (
+        <div className="m-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-black">Returned for correction</p>
+          <p className="mt-1">{form.reviewerNotes || "Please review and correct the application before resubmitting."}</p>
+        </div>
+      )}
+      {error && (
+        <div className="m-5 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          {error}
+        </div>
+      )}
+      <fieldset disabled={!canEdit || saving} className="p-5 md:p-7">
+        <h3 className="mb-5 text-lg font-black text-purple-950">
+          {form.currentStep}. {labels[form.currentStep - 1]}
+        </h3>
+        {form.currentStep === 1 && (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Application for the Position of">
+              <select
+                className={input}
+                value={form.positionApplied}
+                onChange={(e) => update("positionApplied", e.target.value)}
               >
-                <Plus className="w-3.5 h-3.5" />
-                Add Employer
-              </button>
+                <option value="">Select a role</option>
+                {roleOptions.map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Vacancy Reference / Location">
+              <Text
+                value={form.vacancyReferenceLocation}
+                onChange={(v) => update("vacancyReferenceLocation", v)}
+              />
+            </Field>
+            <Field label="Source of Advertisement" wide>
+              <Text
+                value={form.sourceOfAdvertisement}
+                onChange={(v) => update("sourceOfAdvertisement", v)}
+              />
+            </Field>
+            <Field label="Title (Mr / Mrs / Miss / Ms / Dr / Other)">
+              <Text value={form.title} onChange={(v) => update("title", v)} />
+            </Field>
+            <Field label="Forenames">
+              <Text
+                value={form.forenames}
+                onChange={(v) => update("forenames", v)}
+              />
+            </Field>
+            <Field label="Surname">
+              <Text
+                value={form.surname}
+                onChange={(v) => update("surname", v)}
+              />
+            </Field>
+            <Field label="Address" wide>
+              <textarea
+                className={input}
+                rows={3}
+                value={form.address}
+                onChange={(e) => update("address", e.target.value)}
+              />
+            </Field>
+            <Field label="Postcode">
+              <Text
+                value={form.postcode}
+                onChange={(v) => update("postcode", v.toUpperCase())}
+              />
+            </Field>
+            <Field label="Telephone Number">
+              <Text
+                value={form.telephone}
+                onChange={(v) => update("telephone", v)}
+              />
+            </Field>
+            <Field label="Mobile Number">
+              <Text value={form.mobile} onChange={(v) => update("mobile", v)} />
+            </Field>
+            <Field label="Personal Email Address">
+              <Text
+                type="email"
+                value={form.personalEmail}
+                onChange={(v) => update("personalEmail", v)}
+              />
+            </Field>
+            <Field label="National Insurance Number">
+              <Text
+                value={form.nationalInsuranceNumber}
+                onChange={(v) =>
+                  update("nationalInsuranceNumber", v.toUpperCase())
+                }
+              />
+            </Field>
+            <Field label="Are you eligible to work in the UK?">
+              <YesNo
+                value={form.eligibleToWorkUk}
+                onChange={(v) => update("eligibleToWorkUk", v)}
+              />
+            </Field>
+          </div>
+        )}
+        {form.currentStep === 2 && (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="md:col-span-2 rounded-xl border border-purple-100 bg-purple-50 p-3 text-xs text-purple-900">
+              NMC fields are mandatory only for nursing roles. Current role:{" "}
+              <b>{form.positionApplied || "Not selected"}</b>.
             </div>
-
-            {formData.employmentHistory.map((emp: any, idx: number) => (
-              <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 relative">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-black text-purple-900 uppercase">
-                    Employer #{idx + 1} {idx === 0 && '(Current / Most Recent)'}
-                  </span>
-                  {formData.employmentHistory.length > 1 && (
+            <Field label={`NMC PIN${isNurse ? " *" : ""}`}>
+              <Text value={form.nmcPin} onChange={(v) => update("nmcPin", v)} />
+            </Field>
+            <Field label={`RNA${isNurse ? " *" : ""}`}>
+              <Text value={form.rna} onChange={(v) => update("rna", v)} />
+            </Field>
+            <Field label={`NMC Expiry Date${isNurse ? " *" : ""}`}>
+              <Text
+                type="date"
+                value={form.nmcExpiryDate}
+                onChange={(v) => update("nmcExpiryDate", v)}
+              />
+            </Field>
+            <Field label="Right to Work">
+              <Text
+                value={form.rightToWork}
+                onChange={(v) => update("rightToWork", v)}
+              />
+            </Field>
+            <Field label="Enhanced DBS">
+              <Text
+                value={form.enhancedDbs}
+                onChange={(v) => update("enhancedDbs", v)}
+              />
+            </Field>
+            <Field label="DBS Issue Date">
+              <Text
+                type="date"
+                value={form.dbsIssueDate}
+                onChange={(v) => update("dbsIssueDate", v)}
+              />
+            </Field>
+          </div>
+        )}
+        {form.currentStep === 3 && (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Employer Name and Address" wide>
+              <textarea
+                className={input}
+                rows={3}
+                value={form.recentEmployerNameAddress}
+                onChange={(e) =>
+                  update("recentEmployerNameAddress", e.target.value)
+                }
+              />
+            </Field>
+            {[
+              ["Postcode", "recentEmployerPostcode"],
+              ["Telephone Number", "recentEmployerTelephone"],
+              ["Date Employed From", "recentEmployerDateFrom"],
+              ["Date Employed To", "recentEmployerDateTo"],
+              ["Position Title", "recentEmployerPositionTitle"],
+              ["Salary", "recentEmployerSalary"],
+              ["Notice Period", "recentEmployerNoticePeriod"],
+            ].map(([l, k]) => (
+              <Field key={k} label={l}>
+                <Text
+                  type={k.includes("Date") ? "date" : "text"}
+                  value={(form as any)[k]}
+                  onChange={(v) => update(k as any, v)}
+                />
+              </Field>
+            ))}
+            <Field label="Primary Responsibilities" wide>
+              <textarea
+                className={input}
+                rows={4}
+                value={form.recentEmployerPrimaryResponsibilities}
+                onChange={(e) =>
+                  update(
+                    "recentEmployerPrimaryResponsibilities",
+                    e.target.value,
+                  )
+                }
+              />
+            </Field>
+            <Field label="Reason for Leaving" wide>
+              <textarea
+                className={input}
+                rows={3}
+                value={form.recentEmployerReasonForLeaving}
+                onChange={(e) =>
+                  update("recentEmployerReasonForLeaving", e.target.value)
+                }
+              />
+            </Field>
+          </div>
+        )}
+        {form.currentStep === 4 && (
+          <div className="space-y-4">
+            {employers.map((emp, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="font-bold text-fuchsia-800">
+                    Previous Employer {i + 1}
+                  </h4>
+                  {employers.length > 2 && (
                     <button
                       type="button"
-                      onClick={() => removeEmploymentRow(idx)}
-                      className="text-rose-600 hover:text-rose-800 p-1"
+                      onClick={() =>
+                        update(
+                          "employmentHistory",
+                          employers.filter((_, x) => x !== i),
+                        )
+                      }
+                      className="text-rose-600"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   )}
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Employer / Company Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={emp.employer}
-                      onChange={(e) => handleEmploymentChange(idx, 'employer', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Organization Name"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Job Title / Role</label>
-                    <input
-                      type="text"
-                      required
-                      value={emp.role}
-                      onChange={(e) => handleEmploymentChange(idx, 'role', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="e.g. Care Assistant / Nurse"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Start Date</label>
-                    <input
-                      type="text"
-                      value={emp.startDate}
-                      onChange={(e) => handleEmploymentChange(idx, 'startDate', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="MM/YYYY or Year"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">End Date (or Present)</label>
-                    <input
-                      type="text"
-                      value={emp.endDate}
-                      onChange={(e) => handleEmploymentChange(idx, 'endDate', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="MM/YYYY or Present"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Summary of Duties & Responsibilities</label>
-                  <textarea
-                    rows={2}
-                    value={emp.duties}
-                    onChange={(e) => handleEmploymentChange(idx, 'duties', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                    placeholder="Key responsibilities and care provision duties..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Reason for Leaving</label>
-                    <input
-                      type="text"
-                      value={emp.reasonForLeaving}
-                      onChange={(e) => handleEmploymentChange(idx, 'reasonForLeaving', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Career growth, relocation, etc."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Notice Period Required</label>
-                    <input
-                      type="text"
-                      value={emp.noticePeriod}
-                      onChange={(e) => handleEmploymentChange(idx, 'noticePeriod', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Immediate, 1 week, 4 weeks"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* STEP 4: Education & Mandatory Training */}
-        {currentStep === 4 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <GraduationCap className="w-4 h-4 text-purple-700" />
-                4. Education & Mandatory Training
-              </h3>
-              <button
-                type="button"
-                onClick={addEducationRow}
-                className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-purple-100 transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Education
-              </button>
-            </div>
-
-            {formData.educationHistory.map((edu: any, idx: number) => (
-              <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Institution / School</label>
-                  <input
-                    type="text"
-                    value={edu.institution}
-                    onChange={(e) => handleEducationChange(idx, 'institution', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                    placeholder="College or University"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Course / Qualification</label>
-                  <input
-                    type="text"
-                    value={edu.course}
-                    onChange={(e) => handleEducationChange(idx, 'course', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                    placeholder="NVQ Level 2 / BSc Nursing"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Year</label>
-                  <input
-                    type="text"
-                    value={edu.year}
-                    onChange={(e) => handleEducationChange(idx, 'year', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                    placeholder="2022"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Grade / Result</label>
-                    <input
-                      type="text"
-                      value={edu.grade}
-                      onChange={(e) => handleEducationChange(idx, 'grade', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Pass / First"
-                    />
-                  </div>
-                  {formData.educationHistory.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeEducationRow(idx)}
-                      className="text-rose-600 p-2"
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {Object.entries({
+                    employerNameAddress: "Employer Name and Address",
+                    postcode: "Postcode",
+                    telephone: "Telephone Number",
+                    dateFrom: "Date From",
+                    dateTo: "Date To",
+                    positionHeld: "Position Held",
+                    reasonForLeaving: "Reason for Leaving",
+                  }).map(([k, l]) => (
+                    <Field
+                      key={k}
+                      label={l}
+                      wide={
+                        k === "employerNameAddress" || k === "reasonForLeaving"
+                      }
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                      {k === "employerNameAddress" ||
+                      k === "reasonForLeaving" ? (
+                        <textarea
+                          className={input}
+                          rows={2}
+                          value={(emp as any)[k]}
+                          onChange={(e) => {
+                            const a = [...employers];
+                            a[i] = { ...emp, [k]: e.target.value };
+                            update("employmentHistory", a);
+                          }}
+                        />
+                      ) : (
+                        <Text
+                          type={k.startsWith("date") ? "date" : "text"}
+                          value={(emp as any)[k]}
+                          onChange={(v) => {
+                            const a = [...employers];
+                            a[i] = { ...emp, [k]: v };
+                            update("employmentHistory", a);
+                          }}
+                        />
+                      )}
+                    </Field>
+                  ))}
                 </div>
               </div>
             ))}
-
-            <h4 className="text-xs font-bold text-slate-800 border-t pt-4 mt-4">Mandatory Healthcare Certifications Held</h4>
-            <p className="text-[11px] text-slate-500">Select all mandatory training modules you have completed:</p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {availableTrainings.map((t) => {
-                const isChecked = (formData.mandatoryTrainings || []).includes(t);
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleTraining(t)}
-                    className={`p-2.5 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition ${
-                      isChecked
-                        ? 'bg-purple-50 border-purple-300 text-purple-900 font-bold'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{t}</span>
-                    {isChecked ? <Check className="w-4 h-4 text-purple-700" /> : <Plus className="w-3.5 h-3.5 text-slate-400" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* STEP 5: Professional Registrations & References */}
-        {currentStep === 5 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
-              <Shield className="w-4 h-4 text-purple-700" />
-              5. Professional Registrations & References
-            </h3>
-
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-              <span className="text-xs font-bold text-slate-800 block">Professional Body Registration (If applicable, e.g., Nurse NMC)</span>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Registration Body</label>
-                  <input
-                    type="text"
-                    value={formData.registrationBody}
-                    onChange={(e) => handleChange('registrationBody', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                    placeholder="e.g. NMC / HCPC / SSSC"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">PIN / Registration Number</label>
-                  <input
-                    type="text"
-                    value={formData.nmcPin}
-                    onChange={(e) => handleChange('nmcPin', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-mono"
-                    placeholder="e.g. 12A3456E"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase">Expiry / Revalidation Date</label>
-                  <input
-                    type="date"
-                    value={formData.nmcExpiry}
-                    onChange={(e) => handleChange('nmcExpiry', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <h4 className="text-xs font-bold text-slate-800 pt-2">Professional References (At least 2 required)</h4>
-            <p className="text-[11px] text-slate-500">Referees must be line managers or supervisors from healthcare employers.</p>
-
-            {formData.references.map((ref: any, idx: number) => (
-              <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                <span className="text-xs font-black text-purple-900 uppercase">
-                  Referee #{idx + 1} ({idx === 0 ? 'Current Employer' : 'Previous Employer'})
-                </span>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Referee Full Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={ref.name}
-                      onChange={(e) => handleReferenceChange(idx, 'name', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Manager Name"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Job Title / Position *</label>
-                    <input
-                      type="text"
-                      required
-                      value={ref.role}
-                      onChange={(e) => handleReferenceChange(idx, 'role', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="e.g. Clinical Director / Care Manager"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Organization / Hospital *</label>
-                    <input
-                      type="text"
-                      required
-                      value={ref.organization}
-                      onChange={(e) => handleReferenceChange(idx, 'organization', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Care Home or NHS Trust"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Email Address *</label>
-                    <input
-                      type="email"
-                      required
-                      value={ref.email}
-                      onChange={(e) => handleReferenceChange(idx, 'email', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="referee@company.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Phone Number *</label>
-                    <input
-                      type="tel"
-                      required
-                      value={ref.phone}
-                      onChange={(e) => handleReferenceChange(idx, 'phone', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="01... or 07..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Relationship</label>
-                    <input
-                      type="text"
-                      value={ref.relationship}
-                      onChange={(e) => handleReferenceChange(idx, 'relationship', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"
-                      placeholder="Line Manager, Supervisor"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* STEP 6: Declarations & E-Signature */}
-        {currentStep === 6 && (
-          <div className="space-y-4 animate-in fade-in duration-150">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
-              <PenTool className="w-4 h-4 text-purple-700" />
-              6. Declarations & Electronic Signature
-            </h3>
-
-            <div className="p-4 bg-purple-50/50 border border-purple-100 rounded-2xl space-y-3 text-xs text-slate-700">
-              <h4 className="font-bold text-purple-900 text-sm">Sworn Legal Statement & CQC Declaration</h4>
-              <p>
-                I hereby declare that the information provided in this application form is true, complete, and accurate to the best of my knowledge. I understand that any false statement or omission may result in disqualification or dismissal.
-              </p>
-              
-              <div className="space-y-2 pt-2">
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.agreedSwornDeclaration}
-                    onChange={(e) => handleChange('agreedSwornDeclaration', e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-purple-900 rounded border-slate-300 focus:ring-purple-900"
-                  />
-                  <span className="font-semibold text-slate-800">
-                    I confirm that all details supplied are true and accurate. I consent to reference checks and DBS vetting.
-                  </span>
-                </label>
-
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.agreedCqcCompliance}
-                    onChange={(e) => handleChange('agreedCqcCompliance', e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-purple-900 rounded border-slate-300 focus:ring-purple-900"
-                  />
-                  <span className="font-semibold text-slate-800">
-                    I agree to comply with Care Quality Commission (CQC) regulations, clinical codes of conduct, and Steward Health Care operational guidelines.
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Electronic Signature (Type Full Legal Name) *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.signatureName}
-                  onChange={(e) => handleChange('signatureName', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-sm font-serif italic text-purple-900 font-bold bg-purple-50/30"
-                  placeholder="e.g. Johnathan Smith"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Date of Signature</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.signatureDate}
-                  onChange={(e) => handleChange('signatureDate', e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step Navigation Controls */}
-        <div className="flex justify-between items-center border-t pt-4 mt-6">
-          <button
-            type="button"
-            onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
-            disabled={currentStep === 1}
-            className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition disabled:opacity-40 flex items-center gap-1"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous
-          </button>
-
-          {currentStep < 6 ? (
             <button
               type="button"
-              onClick={() => setCurrentStep(prev => Math.min(6, prev + 1))}
-              className="px-5 py-2.5 bg-gradient-to-r from-purple-900 to-indigo-900 text-white rounded-xl text-xs font-bold hover:opacity-90 transition flex items-center gap-1 shadow"
+              onClick={() =>
+                update("employmentHistory", [...employers, emptyEmployer()])
+              }
+              className="flex items-center gap-2 rounded-xl border border-purple-300 px-4 py-2 text-sm font-bold text-purple-900"
             >
-              Next Step
-              <ChevronRight className="w-4 h-4" />
+              <Plus className="h-4 w-4" />
+              Add another employer
             </button>
-          ) : (
+          </div>
+        )}
+        {form.currentStep === 5 && (
+          <div className="space-y-4">
+            {refs.slice(0, 2).map((ref, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <h4 className="mb-3 font-bold text-fuchsia-800">
+                  Professional Referee {i + 1}
+                </h4>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {Object.entries({
+                    fullName: "Full Name",
+                    position: "Position",
+                    organisation: "Organisation",
+                    relationshipToApplicant: "Relationship to Applicant",
+                    telephone: "Telephone Number",
+                    email: "Email Address",
+                  }).map(([k, l]) => (
+                    <Field key={k} label={l}>
+                      <Text
+                        type={k === "email" ? "email" : "text"}
+                        value={(ref as any)[k]}
+                        onChange={(v) => {
+                          const a = [...refs];
+                          a[i] = { ...ref, [k]: v };
+                          update("professionalReferences", a);
+                        }}
+                      />
+                    </Field>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <label className="flex items-start gap-3 rounded-xl border border-purple-200 bg-purple-50 p-4 text-sm font-bold text-purple-950">
+              <input
+                type="checkbox"
+                checked={form.refereesAgreedToContact}
+                onChange={(e) =>
+                  update("refereesAgreedToContact", e.target.checked)
+                }
+                className="mt-1"
+              />
+              I confirm that the referees listed above have agreed to be
+              contacted.
+            </label>
+          </div>
+        )}
+        {form.currentStep === 6 && (
+          <div className="space-y-5">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <b>Confidential monitoring information.</b> This is stored
+              separately and is not shown in ordinary applicant assessment
+              screens.
+            </div>
+            {[
+              ["vacancyReferenceNumber", "Vacancy Reference Number"],
+              ["genderIdentification", "Gender Identification"],
+              ["ageBand", "Age Band"],
+              ["disabilityDeclaration", "Disability"],
+              ["ethnicOrigin", "Ethnic Origin"],
+            ].map(([k, l]) => (
+              <Field key={k} label={l}>
+                {k === "vacancyReferenceNumber" ? (
+                  <Text
+                    value={(equal as any)[k]}
+                    onChange={(v) => setEqual((p) => ({ ...p, [k]: v }))}
+                  />
+                ) : (
+                  <select
+                    className={input}
+                    value={(equal as any)[k]}
+                    onChange={(e) =>
+                      setEqual((p) => ({ ...p, [k]: e.target.value }))
+                    }
+                  >
+                    <option value="">Prefer not to say / Select</option>
+                    {(k === "genderIdentification"
+                      ? ["Male", "Female", "Non-binary", "Prefer not to say"]
+                      : k === "ageBand"
+                        ? [
+                            "16-18",
+                            "19-21",
+                            "22-40",
+                            "41-65",
+                            "65+",
+                            "Prefer not to say",
+                          ]
+                        : k === "disabilityDeclaration"
+                          ? ["Yes", "No", "Prefer not to say"]
+                          : [
+                              "White - British",
+                              "White - Irish",
+                              "Other White Background",
+                              "Asian or Asian British - Indian",
+                              "Asian or Asian British - Pakistani",
+                              "Asian or Asian British - Bangladeshi",
+                              "Asian or Asian British - Chinese",
+                              "Other Asian",
+                              "Black or Black British - African",
+                              "Black or Black British - Caribbean",
+                              "Other Black",
+                              "Mixed - White & Black Caribbean",
+                              "Mixed - White & Black African",
+                              "Mixed - White & Asian",
+                              "Other Mixed",
+                              "Other Ethnic Group",
+                            ]
+                    ).map((o) => (
+                      <option key={o}>{o}</option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+            ))}
+          </div>
+        )}
+        {form.currentStep === 7 && (
+          <Field label="Please use this section to explain why you are applying for this position, how it fits with your career development, your ability to perform the job, and what you can contribute to the organisation.">
+            <textarea
+              className={input}
+              rows={14}
+              value={form.personalStatement}
+              onChange={(e) => update("personalStatement", e.target.value)}
+            />
+          </Field>
+        )}
+        {form.currentStep === 8 && (
+          <div className="space-y-6">
+            <Field label="Do you know any member of staff or service users connected with Steward Health Care 247 Professionals?">
+              <YesNo
+                value={form.knowsConnectedPerson}
+                onChange={(v) => update("knowsConnectedPerson", v)}
+              />
+            </Field>
+            {form.knowsConnectedPerson && (
+              <Field label="If Yes, please provide details">
+                <textarea
+                  className={input}
+                  rows={3}
+                  value={form.connectedPersonDetails}
+                  onChange={(e) =>
+                    update("connectedPersonDetails", e.target.value)
+                  }
+                />
+              </Field>
+            )}
+            <Field label="Do you have any convictions, cautions, reprimands or warnings that are not protected under DBS filtering rules?">
+              <YesNo
+                value={form.hasUnprotectedCriminalRecord}
+                onChange={(v) => update("hasUnprotectedCriminalRecord", v)}
+              />
+            </Field>
+            {form.hasUnprotectedCriminalRecord && (
+              <Field label="If Yes, please provide details">
+                <textarea
+                  className={input}
+                  rows={4}
+                  value={form.criminalRecordDetails}
+                  onChange={(e) =>
+                    update("criminalRecordDetails", e.target.value)
+                  }
+                />
+              </Field>
+            )}
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              This post is exempt from the Rehabilitation of Offenders Act 1974.
+              Applicants are therefore not entitled to withhold information
+              about convictions which for other purposes are “spent” under the
+              provisions of the Act.
+            </p>
+          </div>
+        )}
+        {form.currentStep === 9 && (
+          <div className="space-y-4">
+            <div className="space-y-3 rounded-xl border border-purple-200 bg-purple-50 p-4 text-sm text-slate-800">
+              {[
+                [
+                  "declarationConfirmed",
+                  "I confirm that the information given in this application is true and complete. I understand that any false information or omission may disqualify me from employment or result in my dismissal.",
+                ],
+                [
+                  "referencesAndChecksAuthorised",
+                  "I authorise Steward Health Care 247 Professionals to obtain references and carry out any necessary checks to process my application for employment.",
+                ],
+                [
+                  "satisfactoryChecksAcknowledged",
+                  "I understand that any offer of employment is subject to satisfactory references, Right to Work documentation, DBS clearance and other compliance requirements.",
+                ],
+                [
+                  "dataProtectionConsent",
+                  "The information I provide will be processed in accordance with data protection legislation. I consent to processing for recruitment and employment.",
+                ],
+              ].map(([k, l]) => (
+                <label key={k} className="flex gap-3">
+                  <input
+                    type="checkbox"
+                    checked={Boolean((form as any)[k])}
+                    onChange={(e) => update(k as any, e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>{l}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Signature method">
+                <select
+                  className={input}
+                  value={form.signatureType}
+                  onChange={(e) =>
+                    update("signatureType", e.target.value as any)
+                  }
+                >
+                  <option value="typed">Typed electronic signature</option>
+                  <option value="drawn">Draw signature</option>
+                </select>
+              </Field>
+              <Field label="Signature">
+                {form.signatureType === "typed" ? <Text value={form.signatureValue} onChange={(v) => update("signatureValue", v)} placeholder="Type your full legal name" /> : <SignaturePad value={form.signatureValue} onChange={(v) => update("signatureValue", v)} />}
+              </Field>
+              <Field label="Print Name">
+                <Text
+                  value={form.printedName}
+                  onChange={(v) => update("printedName", v)}
+                />
+              </Field>
+              <Field label="Date">
+                <Text
+                  type="date"
+                  value={form.signatureDate}
+                  onChange={(v) => update("signatureDate", v)}
+                />
+              </Field>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4 text-sm">
+              <b>Review before submit:</b> Position{" "}
+              {form.positionApplied || "not supplied"}; applicant{" "}
+              {form.forenames} {form.surname}; status {form.status}; version{" "}
+              {form.revision}.
+            </div>
+          </div>
+        )}
+        <div className="mt-8 flex flex-col-reverse justify-between gap-3 border-t pt-5 sm:flex-row">
+          <button
+            type="button"
+            disabled={form.currentStep === 1}
+            onClick={() =>
+              update("currentStep", Math.max(1, form.currentStep - 1))
+            }
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl transition flex items-center gap-2 shadow cursor-pointer disabled:opacity-50"
+              type="button"
+              onClick={() => persist()}
+              disabled={!canEdit || saving}
+              className="flex items-center justify-center gap-2 rounded-xl border border-purple-300 px-4 py-2.5 text-sm font-bold text-purple-900"
             >
-              <Save className="w-4 h-4" />
-              <span>{isSubmitting ? 'Saving to Supabase...' : 'Submit Official Application'}</span>
+              <Save className="h-4 w-4" />
+              Save
             </button>
-          )}
+            {form.currentStep < 9 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  update("currentStep", Math.min(9, form.currentStep + 1))
+                }
+                className="flex items-center justify-center gap-2 rounded-xl bg-purple-900 px-5 py-2.5 text-sm font-bold text-white"
+              >
+                Save and Continue
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!canEdit || saving}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-black text-white"
+              >
+                Submit Official Application
+              </button>
+            )}
+          </div>
         </div>
-
-      </form>
+      </fieldset>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../types';
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
 import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
+import OfficialApplicationReview from './OfficialApplicationReview';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -451,6 +452,10 @@ export default function ApplicantKanban({
                       </div>
                     </div>
                   )}
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <OfficialApplicationReview userId={selectedApplicant.userId} />
+                  </div>
 
                   {/* job description autolink section */}
                   {jobTemplate && (

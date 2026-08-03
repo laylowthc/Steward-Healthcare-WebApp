@@ -11,6 +11,8 @@ import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
 import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 import SHCLoader from './SHCLoader';
+import { loadOfficialApplication } from '../lib/officialApplicationRepository';
+import { OfficialApplicationStatus } from '../types/officialApplication';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -34,6 +36,7 @@ export default function ApplicantPortal({
   onSaveDocument
 }: ApplicantPortalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
+  const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started'>('Not Started');
   
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
@@ -64,6 +67,14 @@ export default function ApplicantPortal({
       active = false;
     };
   }, [resolvedAvatarUrl]);
+
+  useEffect(() => {
+    let active = true;
+    loadOfficialApplication(authenticatedUserId)
+      .then(application => active && setApplicationStatus(application?.status || 'Not Started'))
+      .catch(() => active && setApplicationStatus('Not Started'));
+    return () => { active = false; };
+  }, [authenticatedUserId, activeTab]);
 
   useEffect(() => {
     let active = true;
@@ -330,12 +341,17 @@ export default function ApplicantPortal({
                 {[
                   { title: '1. Register Account', status: 'Done', desc: 'Account Created' },
                   { title: '2. Admin Activated', status: 'Done', desc: 'Active Candidate' },
-                  { title: '3. Application Form', status: applicantDocs.some(d => d.category === 'Application Form') ? 'Done' : 'In Progress', desc: 'Online Paperwork' },
+                  { title: '3. Application Form', status:
+                    applicationStatus === 'Not Started' ? 'Not Started' :
+                    applicationStatus === 'Draft' ? 'In Progress' :
+                    applicationStatus === 'Returned for Correction' ? 'Returned' :
+                    applicationStatus,
+                    desc: applicationStatus },
                   { title: '4. HR Onboarding', status: applicantDocs.some(d => d.category === 'New Starter Form') ? 'Done' : 'Pending', desc: 'PAYE & Appendix D' },
                   { title: '5. Job Description', status: applicantDocs.some(d => d.category === 'Job Description') ? 'Done' : 'Pending', desc: 'Read & E-Signed' }
                 ].map((step, idx) => {
-                  const isDone = step.status === 'Done';
-                  const isCurrent = step.status === 'In Progress';
+                  const isDone = step.status === 'Done' || step.status === 'Approved';
+                  const isCurrent = step.status === 'In Progress' || step.status === 'Returned';
                   return (
                     <div key={idx} className={`p-3 rounded-xl border text-left ${
                       isDone ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' :
@@ -520,7 +536,8 @@ export default function ApplicantPortal({
           <div className="animate-in fade-in duration-200">
             <OnlineApplicationForm
               applicant={applicant}
-              onSaveApplication={handleSaveApplicationForm}
+              authenticatedUserId={authenticatedUserId}
+              templates={templates}
               onCancel={() => setActiveTab('overview')}
             />
           </div>
