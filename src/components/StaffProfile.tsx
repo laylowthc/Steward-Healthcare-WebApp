@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Staff, Document, DocumentCategory, ComplianceLevel } from '../types';
-import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Award, Shield, FileText, Upload, Check, AlertCircle, Calendar, RefreshCw, X, Eye, ExternalLink, Download, Trash2 } from 'lucide-react';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
 import { getSignedUrlForDocument } from '../lib/supabase';
-import { getSubjectDocuments } from '../lib/profileState';
-import PassportPhotoUpload from './PassportPhotoUpload';
-import SHCLoader from './SHCLoader';
 
 interface StaffProfileProps {
   staffMember: Staff | null;
@@ -17,7 +14,6 @@ interface StaffProfileProps {
   onUpdateDocument?: (doc: Document) => void;
   onDeleteStaff?: (staffId: string) => void;
   currentRole?: 'admin' | 'staff' | 'family' | 'applicant';
-  onProfilePhotoUploaded?: () => Promise<void> | void;
 }
 
 export default function StaffProfile({
@@ -28,8 +24,7 @@ export default function StaffProfile({
   onUploadDocument,
   onUpdateDocument,
   onDeleteStaff,
-  currentRole,
-  onProfilePhotoUploaded
+  currentRole
 }: StaffProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeSigningDoc, setActiveSigningDoc] = useState<Document | null>(null);
@@ -73,6 +68,9 @@ export default function StaffProfile({
   
   const [role, setRole] = useState<any>(staffMember?.role || 'Care Assistant');
   const [status, setStatus] = useState<any>(staffMember?.status || 'Active');
+  const [dbsStatus, setDbsStatus] = useState<any>(staffMember?.dbsStatus || 'Pending');
+  const [rightToWork, setRightToWork] = useState<any>(staffMember?.rightToWork || 'Pending');
+  const [trainingStatus, setTrainingStatus] = useState<any>(staffMember?.trainingStatus || 'Pending');
   const [avatarUrl, setAvatarUrl] = useState(staffMember?.avatarUrl || '');
 
   if (!staffMember) {
@@ -85,11 +83,7 @@ export default function StaffProfile({
   }
 
   // Filter documents belonging to this staff member
-  const staffDocs = getSubjectDocuments(documents, {
-    userId: staffMember.userId,
-    applicantId: staffMember.applicantId,
-    staffProfileId: staffMember.id
-  });
+  const staffDocs = documents.filter(d => d.staffId === staffMember.id);
 
   const handleDetailsSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +95,9 @@ export default function StaffProfile({
       address,
       role,
       status,
+      dbsStatus,
+      rightToWork,
+      trainingStatus,
       avatarUrl,
       nmcPin: role === 'Nurse' ? nmcPin : undefined,
       nmcExpiry: role === 'Nurse' ? nmcExpiry : undefined,
@@ -121,11 +118,34 @@ export default function StaffProfile({
     }
   };
 
+  // Quick state togglers to make prototyping satisfying
+  const toggleDBSCorrection = () => {
+    const isCompliant = staffMember.dbsStatus === 'Compliant';
+    onUpdateStaffDetails({
+      ...staffMember,
+      dbsStatus: isCompliant ? 'Non-Compliant' : 'Compliant',
+      dbsExpiry: isCompliant ? '2026-05-15' : '2029-06-18',
+      status: !isCompliant && staffMember.trainingStatus === 'Compliant' ? 'Active' : staffMember.status
+    });
+  };
+
+  const toggleTrainingCorrection = () => {
+    const isCompliant = staffMember.trainingStatus === 'Compliant';
+    onUpdateStaffDetails({
+      ...staffMember,
+      trainingStatus: isCompliant ? 'Non-Compliant' : 'Compliant',
+      trainingExpiry: isCompliant ? '2026-06-10' : '2027-04-12',
+      status: !isCompliant && staffMember.dbsStatus === 'Compliant' ? 'Active' : staffMember.status
+    });
+  };
+
+  // Mock upload simulator
   const handleFileUpload = (file: File) => {
     setUploadProgress(10);
     const fileSize = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
     const fileUrl = URL.createObjectURL(file);
 
+    // Simulate step progress increments
     const interval = setInterval(() => {
       setUploadProgress((prev) => {
         if (prev === null) return null;
@@ -228,12 +248,15 @@ export default function StaffProfile({
             {/* Roster state block */}
             <div className="text-xs text-right mt-1 mr-4">
               <span className="block text-[10px] font-bold text-slate-400 uppercase">ROSTER PERMISSION</span>
-              <span className={`font-extrabold text-sm flex items-center mt-0.5 justify-end ${
-                staffMember.rosterStatus === 'Deployable' ? 'text-emerald-700' :
-                staffMember.rosterStatus === 'Suspended' ? 'text-rose-700' : 'text-amber-700'
-              }`}>
-                {staffMember.rosterStatus}
-              </span>
+              {staffMember.status === 'Active' ? (
+                <span className="font-extrabold text-emerald-700 text-sm flex items-center mt-0.5 justify-end">
+                  🟢 Deployable Active
+                </span>
+              ) : (
+                <span className="font-extrabold text-rose-700 text-sm flex items-center mt-0.5 justify-end">
+                  🔴 Suspended
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -342,23 +365,17 @@ export default function StaffProfile({
                   />
                 </div>
 
-                {staffMember.userId && (
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Passport-Style Headshot</label>
-                    <PassportPhotoUpload
-                      compact
-                      currentPhotoUrl={avatarUrl}
-                      userId={staffMember.userId}
-                      applicantId={staffMember.applicantId}
-                      staffProfileId={staffMember.id}
-                      userName={staffMember.name}
-                      onPhotoUploaded={async url => {
-                        setAvatarUrl(url);
-                        await onProfilePhotoUploaded?.();
-                      }}
-                    />
-                  </div>
-                )}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Profile Photo URL (Passport-Style Headshot)</label>
+                  <input
+                    type="url"
+                    value={avatarUrl}
+                    onChange={(e) => setAvatarUrl(e.target.value)}
+                    placeholder="https://example.com/photo.jpg"
+                    className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
+                  />
+                  <p className="text-[9px] text-slate-400 mt-1">Must be a recent, clear, passport-style headshot.</p>
+                </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase">Role / Designation</label>
                   <select
@@ -373,13 +390,14 @@ export default function StaffProfile({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Employment Status</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Account Status</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                     className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs"
                   >
                     <option value="Active">Active</option>
+                    <option value="Pending">Pending</option>
                     <option value="Suspended">Suspended</option>
                     <option value="Non-Compliant">Non-Compliant</option>
                   </select>
@@ -388,7 +406,7 @@ export default function StaffProfile({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">DBS Status</label>
-                    <select disabled value={staffMember.dbsStatus} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
+                    <select value={dbsStatus} onChange={(e) => setDbsStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>
@@ -397,7 +415,7 @@ export default function StaffProfile({
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Right to Work</label>
-                    <select disabled value={staffMember.rightToWork} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
+                    <select value={rightToWork} onChange={(e) => setRightToWork(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>
@@ -406,7 +424,7 @@ export default function StaffProfile({
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Training</label>
-                    <select disabled value={staffMember.trainingStatus} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs disabled:bg-slate-100">
+                    <select value={trainingStatus} onChange={(e) => setTrainingStatus(e.target.value)} className="mt-1 block w-full p-2 border border-slate-300 rounded-lg text-xs">
                       <option value="Compliant">Compliant</option>
                       <option value="Expiring">Expiring</option>
                       <option value="Non-Compliant">Non-Compliant</option>
@@ -459,6 +477,44 @@ export default function StaffProfile({
             )}
           </div>
 
+          {/* Quick Demo Audit Shifters */}
+          <div className="bg-slate-100 p-5 rounded-2xl border border-slate-200">
+            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center">
+              <Shield className="w-3.5 h-3.5 text-rose-700 mr-1 shrink-0" /> Interactive Demo Controls
+            </h4>
+            <p className="text-[11px] text-slate-600 mt-1 font-medium leading-normal">
+              Toggle this candidate's accreditation status below to test dynamic agency metrics calculations in real-time.
+            </p>
+            <div className="mt-4 pt-3 border-t border-slate-200 space-y-2">
+              <button
+                onClick={toggleDBSCorrection}
+                className={`w-full flex items-center justify-between p-2 rounded-xl text-left border transition text-xs font-bold bg-white cursor-pointer ${
+                  staffMember.dbsStatus === 'Compliant'
+                    ? 'border-emerald-200 text-emerald-800 text-xs'
+                    : 'border-rose-200 text-rose-800'
+                }`}
+              >
+                <span>Enhanced DBS Registry</span>
+                <span className="p-1 px-2 rounded-full border text-[9px] uppercase font-black tracking-wider flex items-center bg-slate-50">
+                  <RefreshCw className="w-2.5 h-2.5 mr-1" /> {staffMember.dbsStatus}
+                </span>
+              </button>
+
+              <button
+                onClick={toggleTrainingCorrection}
+                className={`w-full flex items-center justify-between p-2 rounded-xl text-left border transition text-xs font-bold bg-white cursor-pointer ${
+                  staffMember.trainingStatus === 'Compliant'
+                    ? 'border-emerald-200 text-emerald-800'
+                    : 'border-rose-200 text-rose-800'
+                }`}
+              >
+                <span>Mandatory Nursing Training</span>
+                <span className="p-1 px-2 rounded-full border text-[9px] uppercase font-black tracking-wider flex items-center bg-slate-50">
+                  <RefreshCw className="w-2.5 h-2.5 mr-1" /> {staffMember.trainingStatus}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Right Columns: Compliance traffic lights and document tables */}
@@ -735,7 +791,10 @@ export default function StaffProfile({
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
-                <SHCLoader variant="page" text="Generating secure document link…" className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200" />
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
+                </div>
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">

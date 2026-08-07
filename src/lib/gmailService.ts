@@ -17,8 +17,9 @@ export interface OutreachTemplate {
   body: string;
 }
 
+// Check if token is mock for sandbox/preview context
 function isMockToken(token: string): boolean {
-  return false;
+  return !token || typeof token !== 'string' || token.startsWith('mock_') || token === 'mock-oauth-token-123' || token === 'demo_token';
 }
 
 // Mock data to enable high-fidelity preview/testing in AI Studio sandbox

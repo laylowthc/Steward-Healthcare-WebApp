@@ -4,7 +4,6 @@ import { Search, FileText, Upload, Plus, Users, Compass, Download, ShieldCheck, 
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import { downloadFile } from '../lib/downloadFile';
 import { getSignedUrlForDocument } from '../lib/supabase';
-import SHCLoader from './SHCLoader';
 
 interface DocumentVaultProps {
   documents: Document[];
@@ -470,7 +469,10 @@ export default function DocumentVault({
               {/* Left Side: Preview */}
               <div className="flex-1 bg-slate-200/50 p-4 overflow-hidden flex flex-col relative justify-center items-center">
                 {isLoadingPreview ? (
-                  <SHCLoader variant="page" text="Generating secure document link…" />
+                  <div className="flex flex-col items-center gap-2">
+                    <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                    <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
+                  </div>
                 ) : resolvedPreviewUrl ? (
                   <>
                     <div className="absolute top-6 right-6 z-10">
@@ -680,7 +682,10 @@ export default function DocumentVault({
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
-                <SHCLoader variant="page" text="Generating secure document link…" className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200" />
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
+                </div>
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">

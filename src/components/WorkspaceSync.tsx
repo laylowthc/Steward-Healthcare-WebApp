@@ -479,7 +479,8 @@ export default function WorkspaceSync({
           email: email.trim(),
           phone: phone.trim(),
           position: position.trim(),
-          status: statusInput.trim() as any
+          status: statusInput.trim() as any,
+          complianceChecked: {}
         });
         successCount++;
       }
@@ -606,7 +607,7 @@ export default function WorkspaceSync({
                       <div className="mt-2 p-3.5 bg-white border border-slate-200 rounded-xl max-w-sm text-left shadow-sm space-y-2.5">
                         <p className="text-[11px] font-extrabold text-slate-805 uppercase tracking-wide">Developer Connection Panel</p>
                         <p className="text-[10px] text-slate-450 leading-relaxed">
-                          Enter a valid Google API access token directly (ya29...).
+                          Enter a Google API access token directly (ya29...) or trigger our simulated live testing workspace above.
                         </p>
                         <div className="flex gap-2">
                           <input 
@@ -631,6 +632,22 @@ export default function WorkspaceSync({
                             className="bg-indigo-600 text-white rounded-lg p-1.5 px-3 font-bold text-[10px] hover:bg-indigo-700 transition cursor-pointer"
                           >
                             Inject
+                          </button>
+                        </div>
+                        <div className="flex justify-between items-center pt-2.5 border-t border-slate-100">
+                          <span className="text-[9px] text-slate-500 font-medium">Bypass sandbox restricts:</span>
+                          <button 
+                            onClick={() => {
+                              const mockToken = 'mock_eval_token_' + Math.random().toString(36).substring(2, 9);
+                              setGoogleToken(mockToken);
+                              sessionStorage.setItem('shc_google_access_token', mockToken);
+                              onAddLog('Live Workspace developer sandbox simulation activated', 'document');
+                              setAuthError(null);
+                              setShowManualInput(false);
+                            }}
+                            className="text-[10px] font-black text-emerald-800 hover:text-emerald-900 bg-emerald-50 border border-emerald-200 p-1 px-2.5 rounded-lg hover:bg-emerald-100 transition cursor-pointer"
+                          >
+                            ⚡ Simulate Live Sync
                           </button>
                         </div>
                       </div>

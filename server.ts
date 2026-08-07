@@ -5,11 +5,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import multer from "multer";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import { AdminAccountStatusError, updateAccountStatus } from "./src/server/adminAccountStatus";
-import { AcceptApplicantError, acceptApplicant } from "./src/server/acceptApplicant";
-import { InviteUserError, inviteUser } from "./src/server/inviteUser";
-import { AdminDeletionError } from "./src/server/adminDeletion";
-import { deleteDocument } from "./src/server/deleteDocument";
 
 dotenv.config();
 
@@ -21,132 +16,9 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
-  const getSupabaseClients = () => {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-    const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
-      throw new Error("Supabase server configuration is incomplete");
-    }
-
-    return {
-      userClient: createClient(supabaseUrl, supabaseAnonKey),
-      adminClient: createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      })
-    };
-  };
-
-  const requireActiveAdmin = async (req: express.Request) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      const err = new Error("Missing or invalid authorization header") as any;
-      err.status = 401;
-      throw err;
-    }
-
-    const token = authHeader.split(" ")[1];
-    const { userClient, adminClient } = getSupabaseClients();
-    const { data: { user: callerUser }, error: authError } = await userClient.auth.getUser(token);
-
-    if (authError || !callerUser) {
-      const err = new Error("Invalid or expired session token") as any;
-      err.status = 401;
-      throw err;
-    }
-
-    const { data: callerProfile, error: profileError } = await adminClient
-      .from("users")
-      .select("*")
-      .eq("id", callerUser.id)
-      .single();
-
-    const callerRole = (callerProfile?.role || "").toLowerCase();
-    const callerStatus = callerProfile?.status || "Pending";
-    if (profileError || !callerProfile || callerRole !== "admin" || callerStatus !== "Active") {
-      const err = new Error("Forbidden: active administrative privileges required") as any;
-      err.status = 403;
-      throw err;
-    }
-
-    return { callerUser, callerProfile, adminClient };
-  };
-
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
-  });
-
-  app.post("/api/admin/invite-user", async (req, res) => {
-    try {
-      const result = await inviteUser({
-        authorization: req.headers.authorization,
-        email: req.body?.email,
-        fullName: req.body?.fullName,
-        role: req.body?.role,
-        redirectTo: `${req.protocol}://${req.get('host')}`
-      });
-      return res.json({
-        success: true,
-        message: `Invitation sent to ${result.user.email}.`,
-        ...result
-      });
-    } catch (error: any) {
-      console.error("[invite-user] Error:", error);
-      const status = error instanceof InviteUserError ? error.statusCode : 500;
-      return res.status(status).json({
-        success: false,
-        message: error.message || "Internal Server Error"
-      });
-    }
-  });
-
-  app.patch("/api/admin/users/:id/status", async (req, res) => {
-    try {
-      const user = await updateAccountStatus({
-        authorization: req.headers.authorization,
-        targetUserId: req.params.id,
-        status: req.body.status
-      });
-      return res.json({ success: true, user });
-    } catch (error: any) {
-      console.error("[update-user-status] Error:", error);
-      const statusCode = error instanceof AdminAccountStatusError ? error.statusCode : 500;
-      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
-    }
-  });
-
-  app.patch("/api/admin/user-status", async (req, res) => {
-    try {
-      const user = await updateAccountStatus({
-        authorization: req.headers.authorization,
-        targetUserId: req.body.targetUserId,
-        status: req.body.status
-      });
-      return res.json({ success: true, user });
-    } catch (error: any) {
-      console.error("[update-user-status] Error:", error);
-      const statusCode = error instanceof AdminAccountStatusError ? error.statusCode : 500;
-      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
-    }
-  });
-
-  app.post("/api/admin/accept-applicant", async (req, res) => {
-    try {
-      const result = await acceptApplicant({
-        authorization: req.headers.authorization,
-        applicantId: req.body.applicantId
-      });
-      return res.json({ success: true, ...result });
-    } catch (error: any) {
-      console.error("[accept-applicant] Error:", error);
-      const statusCode = error instanceof AcceptApplicantError ? error.statusCode : 500;
-      return res.status(statusCode).json({ error: error.message || "Internal Server Error" });
-    }
   });
 
   app.post("/api/admin/delete-user", async (req, res) => {
@@ -325,22 +197,106 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/admin/delete-document", async (req, res) => {
+  
+  app.post("/api/admin/invite-user", async (req, res) => {
     try {
-      const details = await deleteDocument({
-        authorization: req.headers.authorization,
-        documentId: typeof req.body?.documentId === "string" ? req.body.documentId : ""
+      const { email, name, role } = req.body;
+      if (!email || !name || !role) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Missing or invalid authorization header" });
+      }
+      
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+      const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+      if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+        return res.status(500).json({ error: "Supabase configuration variables are missing on the server" });
+      }
+
+      // We don't have token verification right now because we're just checking Bearer exist?
+      // Wait, we can verify caller is admin:
+      const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+      
+      const token = authHeader.split(" ")[1];
+      const { data: { user: callerUser }, error: verifyError } = await adminClient.auth.getUser(token);
+      if (verifyError || !callerUser) {
+        return res.status(401).json({ error: "Unauthorized: Invalid auth token" });
+      }
+
+      const { data: callerProfile, error: profileError } = await adminClient
+        .from("users")
+        .select("*")
+        .eq("id", callerUser.id)
+        .single();
+
+      const callerRole = (callerProfile?.role || "").toLowerCase();
+      if (callerRole !== "admin" && callerRole !== "super-admin") {
+        return res.status(403).json({ error: "Forbidden: Administrative privileges required" });
+      }
+
+      // Generate a Supabase invite via admin auth
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+      const redirectTo = appUrl.endsWith('/') ? appUrl : appUrl + '/';
+      
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email.toLowerCase(), {
+        redirectTo: redirectTo
       });
 
-      return res.status(200).json({
-        success: true,
-        message: "Document deleted successfully",
-        details
-      });
-    } catch (error) {
-      const status = error instanceof AdminDeletionError ? error.statusCode : 500;
-      const message = error instanceof Error ? error.message : "Unable to delete document";
-      return res.status(status).json({ success: false, message });
+      if (inviteError) {
+        console.error("[invite-user] Error inviting user:", inviteError);
+        return res.status(500).json({ error: inviteError.message });
+      }
+      
+      const targetUserId = inviteData.user.id;
+
+      // Insert profile in public.users
+      const { data: insertData, error: insertError } = await adminClient
+        .from("users")
+        .insert({
+          id: targetUserId,
+          firebase_uid: targetUserId,
+          full_name: name,
+          email: email.toLowerCase(),
+          role: role,
+          status: 'Active' // Or maybe Pending? user said "if account is not active, direct to pending page"
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("[invite-user] Error inserting user profile:", insertError);
+        // It's possible the user profile already exists, we could upsert instead
+        const { data: upsertData, error: upsertError } = await adminClient
+          .from("users")
+          .upsert({
+            id: targetUserId,
+            firebase_uid: targetUserId,
+            full_name: name,
+            email: email.toLowerCase(),
+            role: role,
+            status: 'Active'
+          })
+          .select()
+          .single();
+          
+        if (upsertError) {
+             return res.status(500).json({ error: "Failed to create user profile", details: upsertError });
+        }
+        return res.status(200).json({ success: true, user: upsertData });
+      }
+
+      return res.status(200).json({ success: true, user: insertData });
+
+    } catch (error: any) {
+      console.error("[invite-user] Fatal error:", error);
+      return res.status(500).json({ error: "Internal Server Error", details: error.message || error });
     }
   });
 

@@ -11,8 +11,9 @@ export interface GoogleDriveFile {
   size?: string;
 }
 
+// Helper to determine if a token is a placeholder/mock for sandbox preview contexts
 function isMockToken(token: string): boolean {
-  return false;
+  return typeof token === 'string' && (token.startsWith('mock_') || token === 'mock-oauth-token-123' || token === 'demo_token');
 }
 
 // In-memory/session storage mock files for evaluation

@@ -5,7 +5,6 @@ import {
   Trash2, Clock, ClipboardList, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle
 } from 'lucide-react';
 import { Document, Staff } from '../types';
-import BrandedLogo from './BrandedLogo';
 
 interface InteractiveDocumentFillerProps {
   document: Document;
@@ -119,7 +118,7 @@ export default function InteractiveDocumentFiller({
       timesheet_expenses: [
         { date: '', type: 'Mileage', desc: 'Hertfordshire Patient Community Travel', qty: '50 miles', cost: '0.45', total: 22.50 }
       ],
-      timesheet_clientAuthoriser: 'Authorized Manager',
+      timesheet_clientAuthoriser: 'Manager/Authoriser',
 
       // SUPERVISION RECORD
       supervision_actions: [
@@ -147,7 +146,7 @@ export default function InteractiveDocumentFiller({
       app_referee1Org: 'NHS Trust Herts',
       app_referee1Email: 'a.pendelton@nhs-herts.net',
       app_referee1Tel: '01462 888771',
-      app_referee2Name: 'Authorized Referee',
+      app_referee2Name: 'Clara Oswald',
       app_referee2Role: 'Senior Care Coordinator',
       app_referee2Org: 'Greenfield Nursing Center',
       app_referee2Email: 'c.oswald@greenfieldhcare.org',
@@ -463,7 +462,17 @@ export default function InteractiveDocumentFiller({
 
             {/* BRAND HEADER STATIONARY */}
             <div className="text-center border-b-2 border-purple-900 pb-5 mb-6">
-              <BrandedLogo layout="horizontal" size="sm" className="mx-auto mb-2" />
+              <div className="inline-flex items-center space-x-2.5 text-purple-950 font-serif mb-1 font-black tracking-widest">
+                {/* S2 logo symbol emulation redrawn with simple tailwind */}
+                <div className="w-9 h-9 rounded-full bg-purple-900 text-white flex items-center justify-center font-bold tracking-tighter text-base border-2 border-white font-sans shadow-md">
+                  S2
+                </div>
+                <div className="text-left">
+                  <h1 className="text-lg font-black leading-none text-purple-950">Steward Health Care</h1>
+                  <h2 className="text-[12px] font-extrabold tracking-widest text-[#a21caf] leading-none mt-1">247 Professionals</h2>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-505 font-mono uppercase tracking-wide mt-1.5 font-bold">Redefining Care — National Clinical Staffing Portal</p>
               <p className="text-[9px] text-slate-400 font-mono mt-1">Devonshire Business Centre, Letchworth Garden City • CQC Registered Provider • manager@stewardhealthcare.co.uk</p>
               
               <div className="mt-4 bg-[#310d59] p-2 text-white font-black text-xs uppercase tracking-wider rounded">
@@ -999,7 +1008,7 @@ export default function InteractiveDocumentFiller({
                           {/* Employer execution block */}
                           <div className="p-3 border rounded-xl bg-purple-50/55 space-y-2">
                             <span className="font-black text-[#310d59] block uppercase text-[8.5px]">Signed on behalf of Steward Care Ltd:</span>
-                            <p className="font-bold">Authorized Manager</p>
+                            <p className="font-bold">Authorized Representative</p>
                             <p className="text-[10px] text-slate-500">Title: Director & Branch Coordinator</p>
                             <div className="border border-dashed h-12 bg-white flex items-center justify-center font-mono text-[9px] text-slate-400">
                               [ELECTRONIC APPROVED SIGNATURE]
@@ -1169,7 +1178,7 @@ export default function InteractiveDocumentFiller({
                       </div>
                       <div>
                         <label className="font-bold text-slate-500 uppercase text-[9px]">Supervisor/Manager</label>
-                        <input type="text" disabled value="Authorized Manager" className="p-2 border rounded w-full bg-slate-100 font-bold" />
+                        <input type="text" disabled value="Authorized Representative" className="p-2 border rounded w-full bg-slate-100 font-bold" />
                       </div>
                       <div>
                         <label className="font-bold text-slate-500 uppercase text-[9px]">Date of Supervision Audit</label>

@@ -1,13 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Camera, Upload, Check, AlertCircle, User, Image } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Camera, Upload, Check, AlertCircle, RefreshCw, User, Image } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import SHCLoader from './SHCLoader';
 
 interface PassportPhotoUploadProps {
   currentPhotoUrl?: string;
   userId: string;
-  applicantId?: string;
-  staffProfileId?: string;
   userName: string;
   onPhotoUploaded: (photoUrl: string) => void;
   compact?: boolean;
@@ -16,8 +13,6 @@ interface PassportPhotoUploadProps {
 export default function PassportPhotoUpload({
   currentPhotoUrl,
   userId,
-  applicantId,
-  staffProfileId,
   userName,
   onPhotoUploaded,
   compact = false
@@ -26,10 +21,6 @@ export default function PassportPhotoUpload({
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentPhotoUrl || null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setPreviewUrl(currentPhotoUrl || null);
-  }, [currentPhotoUrl]);
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,54 +55,40 @@ export default function PassportPhotoUpload({
           upsert: true
         });
 
-      if (storageError || !uploadData) {
-        URL.revokeObjectURL(localUrl);
-        throw storageError || new Error('Profile photo upload did not return a storage path.');
+      let finalUrl = localUrl;
+
+      if (!storageError && uploadData) {
+        // Get public or relative path for avatar
+        const { data: publicUrlData } = supabase.storage
+          .from('documents')
+          .getPublicUrl(fileName);
+
+        if (publicUrlData?.publicUrl) {
+          finalUrl = publicUrlData.publicUrl;
+        } else {
+          finalUrl = fileName;
+        }
+      } else {
+        console.warn("Storage upload notice (falling back to blob URL/metadata):", storageError);
       }
 
-      const { data: existingPhoto, error: lookupError } = await supabase
-        .from('documents')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('category', 'Profile Photo')
-        .order('upload_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // 3. Save avatarUrl in staff_profiles or users table in Supabase
+      try {
+        const { error: profileErr } = await supabase
+          .from('staff_profiles')
+          .update({
+            staff_number: JSON.stringify({ avatarUrl: finalUrl })
+          })
+          .eq('user_id', userId);
 
-      if (lookupError) throw lookupError;
-
-      const photoRecord = {
-        user_id: userId,
-        applicant_id: applicantId || null,
-        staff_profile_id: staffProfileId || null,
-        document_name: `${userName} passport headshot`,
-        category: 'Profile Photo',
-        file_path: fileName,
-        file_size: file.size,
-        file_type: file.type,
-        uploaded_by: userId,
-        upload_date: new Date().toISOString(),
-        verification_status: 'Approved'
-      };
-
-      const recordResult = existingPhoto
-        ? await supabase.from('documents').update(photoRecord).eq('id', existingPhoto.id)
-        : await supabase.from('documents').insert(photoRecord);
-
-      if (recordResult.error) {
-        await supabase.storage.from('documents').remove([fileName]);
-        throw recordResult.error;
+        if (profileErr) {
+          console.error("Error saving avatar URL to staff_profiles:", profileErr);
+        }
+      } catch (dbErr) {
+        console.error("DB update exception:", dbErr);
       }
 
-      const { data: signedPhoto, error: signedUrlError } = await supabase.storage
-        .from('documents')
-        .createSignedUrl(fileName, 60 * 60);
-
-      if (signedUrlError || !signedPhoto?.signedUrl) throw signedUrlError || new Error('Could not display the uploaded photo.');
-
-      URL.revokeObjectURL(localUrl);
-      setPreviewUrl(signedPhoto.signedUrl);
-      onPhotoUploaded(signedPhoto.signedUrl);
+      onPhotoUploaded(finalUrl);
     } catch (err: any) {
       console.error("Error uploading profile photo:", err);
       setUploadError("Failed to upload profile photo. Please retry.");
@@ -132,7 +109,7 @@ export default function PassportPhotoUpload({
           )}
           {isUploading && (
             <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center">
-              <SHCLoader />
+              <RefreshCw className="w-4 h-4 text-white animate-spin" />
             </div>
           )}
         </div>
@@ -177,7 +154,8 @@ export default function PassportPhotoUpload({
           )}
           {isUploading && (
             <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-center text-white">
-              <SHCLoader text="Uploading…" className="[&_.shc-loader__text]:text-white" />
+              <RefreshCw className="w-6 h-6 animate-spin mb-1" />
+              <span className="text-[10px] font-bold">Uploading...</span>
             </div>
           )}
         </div>

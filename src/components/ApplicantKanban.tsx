@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
-import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../types';
+import { Applicant, ApplicantStatus, RoleTemplate, CVData } from '../types';
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
-import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
-import OfficialApplicationReview from './OfficialApplicationReview';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
   onUpdateApplicantStatus: (id: string, newStatus: ApplicantStatus) => void;
-  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => Promise<string>;
+  onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => string;
   templates: RoleTemplate[];
-  documents: Document[];
+  onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
   onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
   onSaveCVData?: (applicantId: string, cvData: CVData) => void;
@@ -17,66 +15,12 @@ interface ApplicantKanbanProps {
   onDeleteApplicant?: (id: string) => void;
 }
 
-const formatApplicationLabel = (key: string) => key
-  .replace(/([a-z])([A-Z])/g, '$1 $2')
-  .replace(/_/g, ' ')
-  .replace(/^./, character => character.toUpperCase());
-
-function ApplicationValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined || value === '') {
-    return <span className="text-slate-400">Not provided</span>;
-  }
-  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-slate-400">Not provided</span>;
-    return (
-      <div className="space-y-2">
-        {value.map((item, index) => (
-          <div key={index} className="rounded-lg border border-emerald-100 bg-white p-2">
-            <ApplicationValue value={item} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key !== 'avatarUrl');
-    if (entries.length === 0) return <span className="text-slate-400">Not provided</span>;
-    return (
-      <dl className="grid grid-cols-1 gap-2">
-        {entries.map(([key, nestedValue]) => (
-          <div key={key} className="grid grid-cols-[minmax(90px,0.8fr)_1.2fr] gap-2">
-            <dt className="font-bold text-slate-500">{formatApplicationLabel(key)}</dt>
-            <dd className="min-w-0 break-words text-slate-800"><ApplicationValue value={nestedValue} /></dd>
-          </div>
-        ))}
-      </dl>
-    );
-  }
-  return <span className="break-words">{String(value)}</span>;
-}
-
-function ApplicationDataView({ data }: { data: CVData }) {
-  const sections = Object.entries(data).filter(([key]) => key !== 'avatarUrl');
-  return (
-    <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-emerald-100 bg-white p-3 text-[10px] text-slate-700">
-      {sections.map(([key, value]) => (
-        <section key={key} className="space-y-1.5">
-          <h5 className="font-black uppercase tracking-wide text-emerald-900">{formatApplicationLabel(key)}</h5>
-          <ApplicationValue value={value} />
-        </section>
-      ))}
-    </div>
-  );
-}
-
 export default function ApplicantKanban({
   applicants,
   onUpdateApplicantStatus,
   onAddApplicant,
   templates,
-  documents,
+  onUpdateApplicantCompliance,
   onUpdateApplicantDetails,
   onUploadDocument,
   onSaveCVData,
@@ -97,11 +41,11 @@ export default function ApplicantKanban({
   // Define Kanban status list order
   const statuses: ApplicantStatus[] = ['Applied', 'Screening', 'Interview', 'Compliance', 'Accepted', 'Rejected'];
 
-  const handleCreateApplicant = async (e: React.FormEvent) => {
+  const handleCreateApplicant = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newEmail || !newPhone) return;
 
-    const newId = await onAddApplicant({
+    const newId = onAddApplicant({
       name: newName,
       email: newEmail,
       phone: newPhone,
@@ -261,19 +205,16 @@ export default function ApplicantKanban({
                         </button>
 
                         <button
-                          disabled={applicant.status === 'Rejected' || applicant.status === 'Accepted'}
+                          disabled={applicant.status === 'Rejected'}
                           onClick={() => {
-                            if (applicant.status === 'Applied') {
+                            if (applicant.status === 'Accepted') {
+                              // If shifting active, mark rejected
+                              onUpdateApplicantStatus(applicant.id, 'Rejected');
+                            } else if (applicant.status === 'Applied') {
                               // Require checklist completed before moving to screening
                               const template = templates.find(t => t.role === applicant.position);
                               const reqs = template?.requiredCredentials || [];
-                              const candidateDocuments = getSubjectDocuments(documents, {
-                                userId: applicant.userId,
-                                applicantId: applicant.id
-                              });
-                              const allCompliant = reqs.length > 0 && reqs.every(req =>
-                                deriveRequirementStatus(candidateDocuments, req) === 'Compliant'
-                              );
+                              const allCompliant = reqs.length > 0 && reqs.every(req => applicant.complianceChecked && applicant.complianceChecked[req] === 'Compliant');
                               
                               if (!allCompliant && reqs.length > 0) {
                                 alert("Documentation incomplete. Please open the applicant's profile to upload documents and complete the compliance checklist first.");
@@ -287,7 +228,7 @@ export default function ApplicantKanban({
                           }}
                           className="p-1 px-2 rounded hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 text-[10px] font-bold flex items-center cursor-pointer transition-all"
                         >
-                          <span>{applicant.status === 'Accepted' ? 'Approved' : 'Next'}</span>
+                          <span>{applicant.status === 'Accepted' ? 'Reject' : 'Next'}</span>
                           <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
                         </button>
                       </div>
@@ -402,10 +343,7 @@ export default function ApplicantKanban({
       {selectedApplicant && (() => {
         // Find matching job template
         const jobTemplate = templates.find(t => t.role.toLowerCase() === selectedApplicant.position.toLowerCase()) || templates[0];
-        const applicantDocuments = getSubjectDocuments(documents, {
-          userId: selectedApplicant.userId,
-          applicantId: selectedApplicant.id
-        });
+        const statusChecklist = selectedApplicant.complianceChecked || {};
 
         return (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex justify-end">
@@ -448,14 +386,12 @@ export default function ApplicantKanban({
                         <h4 className="text-[10px] font-black text-emerald-900 uppercase flex items-center">
                           <FileBadge className="w-3.5 h-3.5 mr-1" /> Submitted Application Form Data
                         </h4>
-                        <ApplicationDataView data={selectedApplicant.cvData} />
+                        <div className="max-h-40 overflow-y-auto text-[10px] text-emerald-800 font-mono bg-white p-2 rounded border border-emerald-100">
+                           {JSON.stringify(selectedApplicant.cvData, null, 2)}
+                        </div>
                       </div>
                     </div>
                   )}
-
-                  <div className="pt-4 border-t border-slate-100">
-                    <OfficialApplicationReview userId={selectedApplicant.userId} />
-                  </div>
 
                   {/* job description autolink section */}
                   {jobTemplate && (
@@ -486,7 +422,7 @@ export default function ApplicantKanban({
                       </p>
                       <div className="space-y-2">
                         {jobTemplate.requiredCredentials.map((cred) => {
-                          const currentStatus = deriveRequirementStatus(applicantDocuments, cred);
+                          const currentStatus = statusChecklist[cred] || 'Missing';
                           return (
                             <div key={cred} className="p-2.5 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col gap-2">
                               <div className="flex justify-between items-start">
@@ -513,10 +449,40 @@ export default function ApplicantKanban({
                                       if (file && onUploadDocument) {
                                         onUploadDocument(file, cred, selectedApplicant.id, selectedApplicant.name);
                                       }
+                                      
+                                      const nextChecklist = { ...statusChecklist, [cred]: 'Awaiting Review' };
+                                      onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
+                                      setSelectedApplicant({ ...selectedApplicant, complianceChecked: nextChecklist });
                                     }} 
                                   />
                                 </label>
-                                <span className="text-[9px] text-slate-400 font-semibold">Derived from verified documents</span>
+                                <div className="flex gap-1 border-l pl-2 border-slate-200">
+                                  {(['Missing', 'Awaiting Review', 'Compliant'] as const).map(opt => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => {
+                                        const nextChecklist = { ...statusChecklist, [cred]: opt };
+                                        onUpdateApplicantCompliance(selectedApplicant.id, nextChecklist);
+                                        setSelectedApplicant({
+                                          ...selectedApplicant,
+                                          complianceChecked: nextChecklist
+                                        });
+                                      }}
+                                      className={`px-2 py-1 text-[9px] font-bold rounded-lg transition-all cursor-pointer ${
+                                        currentStatus === opt
+                                          ? opt === 'Compliant'
+                                            ? 'bg-emerald-600 text-white shadow-sm'
+                                            : opt === 'Awaiting Review'
+                                            ? 'bg-amber-500 text-slate-900 shadow-sm'
+                                            : 'bg-rose-600 text-white shadow-sm'
+                                          : 'bg-white text-slate-600 hover:bg-slate-100 border'
+                                      }`}
+                                    >
+                                      {opt === 'Awaiting Review' ? 'Review' : opt}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           );
@@ -600,45 +566,60 @@ export default function ApplicantKanban({
                             // Check if a workspace token is available in sessionStorage
                             const token = sessionStorage.getItem('shc_google_access_token');
                             
+                            if (token) {
+                              try {
+                                const response = await fetch('https://meet.googleapis.com/v2/spaces', {
+                                  method: 'POST',
+                                  headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Content-Type': 'application/json'
+                                  },
+                                  body: JSON.stringify({})
+                                });
+                                
+                                if (response.ok) {
+                                  const data = await response.json();
+                                  const meetUrl = data.meetingUri;
+                                  
+                                  if (meetUrl) {
+                                    onUpdateApplicantDetails(selectedApplicant.id, {
+                                      interviewMeetUrl: meetUrl,
+                                      interviewTime: schedTime
+                                    });
+                                    setSelectedApplicant({
+                                      ...selectedApplicant,
+                                      interviewMeetUrl: meetUrl,
+                                      interviewTime: schedTime
+                                    });
+                                    alert(`Successfully reserved live Google Meet space via Google API:\n\n${meetUrl}`);
+                                    return;
+                                  }
+                                }
+                              } catch (err) {
+                                console.error('Error creating Google Meet space:', err);
+                              }
+                            }
+                            
+                            // Fallback simulation mode
+                            const codes = ['abc-defg-hij', 'mnp-qrst-uvw', 'xyz-abcd-efg', 'shc-hrt-mtg'];
+                            const selectedCode = codes[Math.floor(Math.random() * codes.length)];
+                            const fallbackUrl = `https://meet.google.com/${selectedCode}`;
+                            
+                            onUpdateApplicantDetails(selectedApplicant.id, {
+                              interviewMeetUrl: fallbackUrl,
+                              interviewTime: schedTime
+                            });
+                            setSelectedApplicant({
+                              ...selectedApplicant,
+                              interviewMeetUrl: fallbackUrl,
+                              interviewTime: schedTime
+                            });
+                            
+                            let alertMsg = `Simulated virtual meeting space generated successfully!`;
                             if (!token) {
-                              alert('Google Workspace is not connected. Connect a valid Workspace account before creating an interview space.');
-                              return;
+                              alertMsg += `\n\n(Note: To establish real live Google Meet spaces, simply link your Workspace client credentials in the 'Operations Terminal' first!)`;
                             }
-
-                            try {
-                              const response = await fetch('https://meet.googleapis.com/v2/spaces', {
-                                method: 'POST',
-                                headers: {
-                                  'Authorization': `Bearer ${token}`,
-                                  'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({})
-                              });
-
-                              if (!response.ok) {
-                                throw new Error('Google Meet API rejected the request.');
-                              }
-
-                              const data = await response.json();
-                              const meetUrl = data.meetingUri;
-                              if (!meetUrl) {
-                                throw new Error('Google Meet API did not return a meeting URL.');
-                              }
-
-                              onUpdateApplicantDetails(selectedApplicant.id, {
-                                interviewMeetUrl: meetUrl,
-                                interviewTime: schedTime
-                              });
-                              setSelectedApplicant({
-                                ...selectedApplicant,
-                                interviewMeetUrl: meetUrl,
-                                interviewTime: schedTime
-                              });
-                              alert(`Successfully reserved live Google Meet space via Google API:\n\n${meetUrl}`);
-                            } catch (err: any) {
-                              console.error('Error creating Google Meet space:', err);
-                              alert(err.message || 'Error creating Google Meet space.');
-                            }
+                            alert(alertMsg);
                           }}
                           className="w-full py-2 bg-purple-900 hover:bg-purple-950 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
                         >

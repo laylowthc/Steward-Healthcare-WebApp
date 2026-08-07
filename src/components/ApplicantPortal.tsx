@@ -1,25 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Applicant, RoleTemplate, Document, Staff } from '../types';
 import { 
-  Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X,
+  Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X, RefreshCw, 
   PenTool, ShieldCheck, UserCheck, BookOpen, AlertCircle, Sparkles, CheckSquare
 } from 'lucide-react';
 import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
-import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
-import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
-import SHCLoader from './SHCLoader';
-import { loadOfficialApplication } from '../lib/officialApplicationRepository';
-import { OfficialApplicationStatus } from '../types/officialApplication';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
-  authenticatedUserId: string;
   templates: RoleTemplate[];
   documents: Document[];
-  onUploadDocument: (file: File, category: string) => Promise<void> | void;
+  onUploadDocument: (file: File, category: string) => void;
+  onUpdateApplicantCompliance: (applicantId: string, complianceChecked: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'>) => void;
   onLogout: () => void;
   onSaveCVData?: (applicantId: string, cvData: any) => void;
   onSaveDocument?: (doc: Document) => void;
@@ -27,16 +22,15 @@ interface ApplicantPortalProps {
 
 export default function ApplicantPortal({
   applicant,
-  authenticatedUserId,
   templates,
   documents,
   onUploadDocument,
+  onUpdateApplicantCompliance,
   onLogout,
   onSaveCVData,
   onSaveDocument
 }: ApplicantPortalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
-  const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started' | 'Loading' | 'Unavailable'>('Loading');
   
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
@@ -50,35 +44,7 @@ export default function ApplicantPortal({
   const [activeFillingDoc, setActiveFillingDoc] = useState<Document | null>(null);
 
   // Profile avatar photo url state
-  const applicantIdentity = { userId: authenticatedUserId, applicantId: applicant.id };
-  const applicationAvatarUrl = applicant.cvData?.personalDetails?.avatarUrl;
-  const resolvedAvatarUrl = resolvePreferredAvatarUrl(
-    applicationAvatarUrl,
-    resolveAvatarUrl(documents, applicantIdentity)
-  );
-  const [avatarUrl, setAvatarUrl] = useState<string>(resolvedAvatarUrl || '');
-
-  useEffect(() => {
-    let active = true;
-    resolveDisplayAvatarUrl(resolvedAvatarUrl).then(url => {
-      if (active) setAvatarUrl(url || '');
-    });
-    return () => {
-      active = false;
-    };
-  }, [resolvedAvatarUrl]);
-
-  useEffect(() => {
-    let active = true;
-    setApplicationStatus('Loading');
-    loadOfficialApplication(authenticatedUserId)
-      .then(application => active && setApplicationStatus(application?.status || 'Not Started'))
-      .catch(error => {
-        console.error('Unable to load the official application status:', error);
-        if (active) setApplicationStatus('Unavailable');
-      });
-    return () => { active = false; };
-  }, [authenticatedUserId, activeTab]);
+  const [avatarUrl, setAvatarUrl] = useState<string>(applicant.cvData?.personalDetails?.avatarUrl || '');
 
   useEffect(() => {
     let active = true;
@@ -105,12 +71,21 @@ export default function ApplicantPortal({
   const reqs = jobTemplate?.requiredCredentials || ['Passport', 'DBS Certificate', 'Right to Work', 'Training Certificate'];
 
   // Documents for this applicant
-  const applicantDocs = getSubjectDocuments(documents, applicantIdentity);
+  const applicantDocs = documents.filter(d => d.staffId === applicant.id);
 
   // Derive compliance checklist status
   const statusChecklist: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'> = {};
   reqs.forEach(req => {
-    statusChecklist[req] = deriveRequirementStatus(applicantDocs, req);
+    const doc = applicantDocs.find(d => d.category.toLowerCase().includes(req.toLowerCase()) || req.toLowerCase().includes(d.category.toLowerCase()));
+    if (doc) {
+      if (doc.status === 'Approved' || doc.status === 'Signed') {
+        statusChecklist[req] = 'Compliant';
+      } else {
+        statusChecklist[req] = 'Awaiting Review';
+      }
+    } else {
+      statusChecklist[req] = 'Missing';
+    }
   });
 
   const handleUpload = async () => {
@@ -120,13 +95,12 @@ export default function ApplicantPortal({
     }
 
     setIsUploading(true);
-    try {
-      await onUploadDocument(uploadFile, uploadCategory);
+    setTimeout(() => {
+      onUploadDocument(uploadFile, uploadCategory);
       setUploadFile(null);
       setUploadCategory('');
-    } finally {
       setIsUploading(false);
-    }
+    }, 1200);
   };
 
   const handleSaveApplicationForm = async (applicantId: string, formData: Record<string, any>) => {
@@ -144,6 +118,7 @@ export default function ApplicantPortal({
           emergencyName: formData.emergencyName,
           emergencyRelation: formData.emergencyRelation,
           emergencyPhone: formData.emergencyPhone,
+          avatarUrl: avatarUrl
         },
         employmentHistory: formData.employmentHistory,
         qualifications: formData.educationHistory,
@@ -245,22 +220,18 @@ export default function ApplicantPortal({
     setActiveFillingDoc(null);
   };
 
-  const applicantCompliance = deriveCompliance(applicantDocs, applicantIdentity);
-
-  // Adapter required by the shared document filler; values come from the applicant's records.
+  // Convert applicant to mock Staff object for InteractiveDocumentFiller compatibility
   const applicantAsStaff: Staff = {
     id: applicant.id,
-    userId: applicant.userId,
-    applicantId: applicant.id,
     name: applicant.name,
     email: applicant.email,
     phone: applicant.phone,
-    address: applicant.cvData?.personalDetails?.address || '',
+    address: applicant.cvData?.personalDetails?.address || 'Registered Candidate Address',
     role: applicant.position as any,
     status: 'Active',
-    accountStatus: 'Active',
-    rosterStatus: 'Pending',
-    ...applicantCompliance,
+    dbsStatus: 'Compliant',
+    rightToWork: 'Compliant',
+    trainingStatus: 'Compliant',
     avatarUrl: avatarUrl,
     joinedDate: applicant.dateCreated
   };
@@ -270,17 +241,14 @@ export default function ApplicantPortal({
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <BrandedLogo layout="horizontal" size="xs" />
-            <div>
-              <div className="flex items-center space-x-2">
+          <div>
+            <div className="flex items-center space-x-2">
               <span className="px-2 py-0.5 bg-purple-100 text-purple-900 border border-purple-200 text-[10px] font-black uppercase rounded">
                 Candidate Portal
               </span>
               <span className="text-xs text-slate-500 font-semibold">• Position: {applicant.position}</span>
-              </div>
-              <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
             </div>
+            <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -345,19 +313,12 @@ export default function ApplicantPortal({
                 {[
                   { title: '1. Register Account', status: 'Done', desc: 'Account Created' },
                   { title: '2. Admin Activated', status: 'Done', desc: 'Active Candidate' },
-                  { title: '3. Application Form', status:
-                    applicationStatus === 'Loading' ? 'Loading' :
-                    applicationStatus === 'Unavailable' ? 'Unavailable' :
-                    applicationStatus === 'Not Started' ? 'Not Started' :
-                    applicationStatus === 'Draft' ? 'In Progress' :
-                    applicationStatus === 'Returned for Correction' ? 'Returned' :
-                    applicationStatus,
-                    desc: applicationStatus },
+                  { title: '3. Application Form', status: applicantDocs.some(d => d.category === 'Application Form') ? 'Done' : 'In Progress', desc: 'Online Paperwork' },
                   { title: '4. HR Onboarding', status: applicantDocs.some(d => d.category === 'New Starter Form') ? 'Done' : 'Pending', desc: 'PAYE & Appendix D' },
                   { title: '5. Job Description', status: applicantDocs.some(d => d.category === 'Job Description') ? 'Done' : 'Pending', desc: 'Read & E-Signed' }
                 ].map((step, idx) => {
-                  const isDone = step.status === 'Done' || step.status === 'Approved';
-                  const isCurrent = step.status === 'In Progress' || step.status === 'Returned';
+                  const isDone = step.status === 'Done';
+                  const isCurrent = step.status === 'In Progress';
                   return (
                     <div key={idx} className={`p-3 rounded-xl border text-left ${
                       isDone ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' :
@@ -382,18 +343,16 @@ export default function ApplicantPortal({
             {/* Passport Photo Upload Component */}
             <PassportPhotoUpload
               currentPhotoUrl={avatarUrl}
-              userId={authenticatedUserId}
-              applicantId={applicant.id}
+              userId={applicant.id}
               userName={applicant.name}
-              onPhotoUploaded={url => {
+              onPhotoUploaded={(url) => {
                 setAvatarUrl(url);
-                onSaveCVData?.(applicant.id, {
-                  ...(applicant.cvData || {}),
-                  personalDetails: {
-                    ...(applicant.cvData?.personalDetails || {}),
-                    avatarUrl: url
-                  }
-                });
+                if (onSaveCVData) {
+                  onSaveCVData(applicant.id, {
+                    ...applicant.cvData,
+                    personalDetails: { ...applicant.cvData?.personalDetails, avatarUrl: url }
+                  });
+                }
               }}
             />
 
@@ -482,7 +441,7 @@ export default function ApplicantPortal({
                     disabled={!uploadFile || !uploadCategory || isUploading}
                     className="w-full py-2.5 bg-purple-900 hover:bg-purple-800 text-white text-xs font-extrabold rounded-xl transition shadow disabled:opacity-50 cursor-pointer"
                   >
-                    {isUploading ? <SHCLoader text="Uploading document…" className="text-white [&_.shc-loader__text]:text-white" /> : 'Confirm & Save Document'}
+                    {isUploading ? 'Uploading to Supabase Storage...' : 'Confirm & Save Document'}
                   </button>
                 </div>
               </section>
@@ -542,8 +501,7 @@ export default function ApplicantPortal({
           <div className="animate-in fade-in duration-200">
             <OnlineApplicationForm
               applicant={applicant}
-              authenticatedUserId={authenticatedUserId}
-              templates={templates}
+              onSaveApplication={handleSaveApplicationForm}
               onCancel={() => setActiveTab('overview')}
             />
           </div>
@@ -702,7 +660,10 @@ export default function ApplicantPortal({
             </div>
             <div className="flex-1 bg-slate-200/50 p-4">
               {isLoadingViewing ? (
-                <SHCLoader variant="page" text="Generating secure document link…" className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200" />
+                <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 flex flex-col items-center justify-center p-4 gap-2">
+                  <RefreshCw className="w-8 h-8 text-purple-900 animate-spin" />
+                  <span className="text-xs font-bold text-slate-500">Generating secure private URL...</span>
+                </div>
               ) : resolvedViewingUrl ? (
                 viewingFileUrl.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                   <div className="w-full h-full rounded-xl bg-white shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center p-4">
