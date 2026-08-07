@@ -313,11 +313,30 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
+    if (error) {
+      console.error('Failed to sign out of the local Supabase session:', error);
+      return;
+    }
+
+    setSupabaseUser(null);
+    setSupabaseUserId(null);
+    setCurrentUserId('');
+    setCurrentUserProfile(null);
+    setUserAccountRole(null);
+    setCurrentRole('applicant');
     setIsLoggedIn(false);
     setProfileDropdownOpen(false);
+    setMobileMenuOpen(false);
+    setSelectedStaffId(null);
     setProfileSyncError(null);
-    setCurrentUserProfile(null);
+    setApplicants([]);
+    setStaff([]);
+    setDocuments([]);
+    setTimesheets([]);
+    setActivityLogs([]);
+    setFamilyFeedbacks([]);
+    setActiveTab('dashboard');
   };
 
   // State mutation callbacks passed to children components
