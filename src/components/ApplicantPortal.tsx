@@ -36,7 +36,7 @@ export default function ApplicantPortal({
   onSaveDocument
 }: ApplicantPortalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
-  const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started'>('Not Started');
+  const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started' | 'Loading' | 'Unavailable'>('Loading');
   
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
@@ -70,9 +70,13 @@ export default function ApplicantPortal({
 
   useEffect(() => {
     let active = true;
+    setApplicationStatus('Loading');
     loadOfficialApplication(authenticatedUserId)
       .then(application => active && setApplicationStatus(application?.status || 'Not Started'))
-      .catch(() => active && setApplicationStatus('Not Started'));
+      .catch(error => {
+        console.error('Unable to load the official application status:', error);
+        if (active) setApplicationStatus('Unavailable');
+      });
     return () => { active = false; };
   }, [authenticatedUserId, activeTab]);
 
@@ -342,6 +346,8 @@ export default function ApplicantPortal({
                   { title: '1. Register Account', status: 'Done', desc: 'Account Created' },
                   { title: '2. Admin Activated', status: 'Done', desc: 'Active Candidate' },
                   { title: '3. Application Form', status:
+                    applicationStatus === 'Loading' ? 'Loading' :
+                    applicationStatus === 'Unavailable' ? 'Unavailable' :
                     applicationStatus === 'Not Started' ? 'Not Started' :
                     applicationStatus === 'Draft' ? 'In Progress' :
                     applicationStatus === 'Returned for Correction' ? 'Returned' :
