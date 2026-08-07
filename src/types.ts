@@ -59,6 +59,7 @@ export interface SystemUserProfile {
   id: string;
   email: string;
   fullName: string;
+  phone?: string;
   role: 'admin' | 'staff' | 'family' | 'applicant';
   status: AccountStatus;
   permissions: string[];

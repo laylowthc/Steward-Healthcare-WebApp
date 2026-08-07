@@ -8,6 +8,8 @@ import { createClient } from "@supabase/supabase-js";
 import { AdminAccountStatusError, updateAccountStatus } from "./src/server/adminAccountStatus";
 import { AcceptApplicantError, acceptApplicant } from "./src/server/acceptApplicant";
 import { InviteUserError, inviteUser } from "./src/server/inviteUser";
+import { AdminDeletionError } from "./src/server/adminDeletion";
+import { deleteDocument } from "./src/server/deleteDocument";
 
 dotenv.config();
 
@@ -320,6 +322,25 @@ async function startServer() {
     } catch (error: any) {
       console.error("[delete-user] Fatal server-side deletion error:", error);
       return res.status(500).json({ error: "Internal Server Error", details: error.message || error });
+    }
+  });
+
+  app.delete("/api/admin/delete-document", async (req, res) => {
+    try {
+      const details = await deleteDocument({
+        authorization: req.headers.authorization,
+        documentId: typeof req.body?.documentId === "string" ? req.body.documentId : ""
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Document deleted successfully",
+        details
+      });
+    } catch (error) {
+      const status = error instanceof AdminDeletionError ? error.statusCode : 500;
+      const message = error instanceof Error ? error.message : "Unable to delete document";
+      return res.status(status).json({ success: false, message });
     }
   });
 

@@ -41,6 +41,7 @@ export const mapUserRow = (row: any): SystemUserProfile => ({
   id: row.id,
   email: (row.email || '').toLowerCase(),
   fullName: row.full_name || row.email || 'User',
+  phone: row.phone || '',
   role: toRole(row.role),
   status: toAccountStatus(row.status),
   permissions: row.permissions || []

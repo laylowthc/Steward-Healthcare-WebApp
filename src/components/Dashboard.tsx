@@ -31,6 +31,7 @@ interface DashboardProps {
   templates: RoleTemplate[];
   currentUser?: Staff;
   currentUserProfile?: SystemUserProfile | null;
+  currentUserAvatarUrl?: string;
   currentRole?: string;
   visibleCards: string[];
   onToggleCard: (cardId: string, visible?: boolean) => void;
@@ -49,6 +50,7 @@ export default function Dashboard({
   templates,
   currentUser,
   currentUserProfile,
+  currentUserAvatarUrl,
   currentRole,
   visibleCards,
   onToggleCard,
@@ -113,10 +115,10 @@ export default function Dashboard({
             <div className="flex items-center space-x-5 h-full">
               {/* Profile Picture */}
               <div className="relative">
-                {(currentUser as any)?.photoUrl ? (
+                {currentUserAvatarUrl ? (
                   <img
-                    src={(currentUser as any).photoUrl}
-                    alt={currentUser.name || 'User Profile'}
+                    src={currentUserAvatarUrl}
+                    alt={`${displayName} profile`}
                     className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-sm"
                   />
                 ) : (

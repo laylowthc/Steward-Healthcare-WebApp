@@ -11,7 +11,6 @@ import {
   X, 
   ChevronRight, 
   BookOpen, 
-  Database, 
   Calendar, 
   DollarSign, 
   Activity, 
@@ -70,8 +69,8 @@ import DocumentVault from './components/DocumentVault';
 import ComplianceDashboard from './components/ComplianceDashboard';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
-import DeveloperConsole from './components/DeveloperConsole';
 import UserAdministration from './components/UserAdministration';
+import AdminProfile from './components/AdminProfile';
 import WorkspaceSync from './components/WorkspaceSync';
 import BrandedLogo from './components/BrandedLogo';
 import FamilyPortal from './components/FamilyPortal';
@@ -80,6 +79,8 @@ import ApplicantPortal from './components/ApplicantPortal';
 import StaffDashboard from './components/StaffDashboard';
 import SHCLoader from './components/SHCLoader';
 import SHCSplashScreen from './components/SHCSplashScreen';
+import { resolveAvatarUrl } from './lib/profileState';
+import { readApiResponse } from './lib/apiResponse';
 
 export default function App() {
   const [startupReady, setStartupReady] = useState(false);
@@ -546,11 +547,11 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
           body: JSON.stringify({ targetUserId })
         });
 
-        const result = await response.json();
+        const result = await readApiResponse(response);
 
         if (!response.ok) {
           console.error("[handleDeleteApplicant] Backend user deletion failed:", result);
-          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
+          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.message || result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
           return; // STOP! Do not update React state
         }
 
@@ -684,11 +685,11 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
           body: JSON.stringify({ targetUserId })
         });
 
-        const result = await response.json();
+        const result = await readApiResponse(response);
 
         if (!response.ok) {
           console.error("[handleDeleteStaff] Backend user deletion failed:", result);
-          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
+          alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.message || result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
           return; // STOP! Do not update React state
         }
 
@@ -964,26 +965,25 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
 
   const handleDeleteDocument = async (docId: string) => {
     try {
-      console.log(`[handleDeleteDocument] Deleting document ID: "${docId}"`);
-      
-      const numericId = parseInt(docId, 10);
-      const query = isNaN(numericId)
-        ? supabase.from('documents').delete().eq('id', docId).select()
-        : supabase.from('documents').delete().eq('id', numericId).select();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Access token not found. Please sign in again.');
 
-      const { data, error } = await query;
-      console.log("[handleDeleteDocument] Supabase response:", { data, error });
-
-      if (error) {
-        console.error("[handleDeleteDocument] Failed to delete from Supabase:", JSON.stringify(error, null, 2));
-        alert(`Failed to delete document from database: ${error.message}`);
-        return; // Abort
-      }
+      const response = await fetch('/api/admin/delete-document', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ documentId: docId })
+      });
+      const result = await readApiResponse(response);
+      if (!response.ok) throw new Error(result.message || result.error || 'Document deletion failed.');
 
       setDocuments(prev => prev.filter(d => d.id !== docId));
+      alert(result.message || 'Document deleted successfully.');
     } catch (err: any) {
-      console.error("[handleDeleteDocument] Critical Error:", err);
-      alert(`Critical error during document deletion: ${err.message || err}`);
+      console.error("[handleDeleteDocument] Failed:", err);
+      alert(`Failed to delete document: ${err.message || err}`);
     }
   };
 
@@ -1042,10 +1042,34 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     }
   };
 
+  const handleUpdateAdminProfile = async (details: { fullName: string; phone: string }) => {
+    if (!currentUserProfile) throw new Error('Admin profile is unavailable.');
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        full_name: details.fullName,
+        phone: details.phone || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', currentUserProfile.id)
+      .select('id, email, full_name, phone, role, status, permissions')
+      .single();
+    if (error) throw error;
+
+    setCurrentUserProfile(profile => profile ? {
+      ...profile,
+      fullName: data.full_name || details.fullName,
+      phone: data.phone || ''
+    } : profile);
+  };
+
   // Helper selectors
   const activeStaffMember = selectedStaffId
     ? staff.find(s => s.id === selectedStaffId)
     : staff.find(s => s.userId === currentUserId || s.email.toLowerCase() === (currentUserProfile?.email || '').toLowerCase());
+  const currentUserAvatarUrl = currentUserProfile
+    ? resolveAvatarUrl(documents, { userId: currentUserProfile.id })
+    : undefined;
 
   // Navigation Links & Icons configuration
   const navigationTabs = [
@@ -1057,8 +1081,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
     { id: 'family_feedback', label: 'Family Surveys Hub', icon: Heart, desc: 'Real-time client satisfaction' },
-    { id: 'administration', label: 'User Administration', icon: Shield, desc: 'Manage system users and access roles' },
-    { id: 'system', label: 'Developer Settings', icon: Database, desc: 'Architect schema schemas' }
+    { id: 'administration', label: 'User Administration', icon: Shield, desc: 'Manage system users and access roles' }
   ];
 
   // Auth Guard
@@ -1257,6 +1280,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       return "Approved Staff";
     }
     if (currentRole === 'admin') {
+      if (activeTab === 'admin_profile') return 'Admin Profile';
       const currentTab = navigationTabs.find(tab => tab.id === activeTab);
       return currentTab ? currentTab.label : 'Dashboard';
     } else {
@@ -1505,9 +1529,13 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 className="flex items-center space-x-2 hover:bg-slate-50 p-1.5 rounded-xl transition cursor-pointer"
               >
-                <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
-                  {(currentUserProfile?.fullName || activeStaffMember?.name || 'US').substring(0,2).toUpperCase()}
-                </div>
+                {currentUserAvatarUrl ? (
+                  <img src={currentUserAvatarUrl} alt={`${currentUserProfile?.fullName || 'User'} profile`} className="h-7 w-7 rounded-lg object-cover border border-slate-200" />
+                ) : (
+                  <div className="h-7 w-7 rounded-lg bg-indigo-650 flex items-center justify-center font-bold text-white text-xs">
+                    {(currentUserProfile?.fullName || activeStaffMember?.name || 'US').substring(0,2).toUpperCase()}
+                  </div>
+                )}
                 <span className="text-xs font-bold text-slate-700 hidden lg:inline">
                   {currentUserProfile?.fullName || activeStaffMember?.name}
                 </span>
@@ -1525,12 +1553,12 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                     <button
                       onClick={() => {
                         setSelectedStaffId(null);
-                        setActiveTab('system');
+                        setActiveTab('admin_profile');
                         setProfileDropdownOpen(false);
                       }}
                       className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center space-x-2"
                     >
-                      <span>System Architecture Spec</span>
+                      <span>Admin Profile</span>
                     </button>
                   )}
 
@@ -1573,6 +1601,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                     <Dashboard 
                       currentUser={staff.find(s => s.id === currentUserId)}
                       currentUserProfile={currentUserProfile}
+                      currentUserAvatarUrl={currentUserAvatarUrl}
                       currentRole={currentRole}
                       applicants={applicants}
                       staff={staff}
@@ -1662,14 +1691,14 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                     />
                   )}
 
-                  {/* Schema Developer Database ERCD blueprints sandbox */}
-                  {activeTab === 'system' && (
-                    <DeveloperConsole
-                      staff={staff}
-                      applicants={applicants}
-                      documents={documents}
-                      timesheets={timesheets}
-                      onSystemReset={handleSystemReset}
+                  {activeTab === 'admin_profile' && currentUserProfile && (
+                    <AdminProfile
+                      profile={currentUserProfile}
+                      avatarUrl={currentUserAvatarUrl}
+                      onSave={handleUpdateAdminProfile}
+                      onPhotoUploaded={async () => {
+                        await reloadWorkflowState();
+                      }}
                     />
                   )}
 

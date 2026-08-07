@@ -11,6 +11,7 @@ import {
 import { applicantToRow, getAvatarUrlFromStaffNumber, insertActivityLog } from '../lib/workflowRepository';
 import { resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 import SHCLoader from './SHCLoader';
+import { readApiResponse } from '../lib/apiResponse';
 
 interface SystemUser {
   id: string;
@@ -458,11 +459,11 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         body: JSON.stringify({ targetUserId: user.id })
       });
 
-      const result = await response.json();
+      const result = await readApiResponse(response);
 
       if (!response.ok) {
         console.error("[UserAdministration] Backend administrative deletion failed:", result);
-        alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
+        alert(`CRITICAL ERROR: Backend administrative deletion was blocked or failed.\n\nMessage: ${result.message || result.error || "Unknown server error"}\nDetails: ${JSON.stringify(result.details || {})}`);
         return; // STOP!
       }
 
