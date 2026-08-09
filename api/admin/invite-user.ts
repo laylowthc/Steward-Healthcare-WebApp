@@ -4,11 +4,9 @@ import { inviteUser, InviteUserError } from '../../src/server/inviteUser.js';
 const jsonError = (response: Response, status: number, message: string) =>
   response.status(status).json({ success: false, message });
 
-const resolveRedirectUrl = () => {
-  const configuredUrl = process.env.PUBLIC_APP_URL?.trim();
-  if (configuredUrl) return configuredUrl;
-  return 'https://steward-healthcare-web-app.vercel.app';
-};
+const CANONICAL_PRODUCTION_APP_URL = 'https://steward-healthcare-web-app.vercel.app';
+
+const resolveRedirectUrl = () => CANONICAL_PRODUCTION_APP_URL;
 
 export default async function handler(request: Request, response: Response) {
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
