@@ -102,8 +102,12 @@ export const inviteUser = async (input: InviteUserInput) => {
     throw new InviteUserError('A user with this email address already exists.', 409);
   }
 
-  const inviteOptions: { data: Record<string, string>; redirectTo?: string } = {
-    data: { full_name: fullName, role }
+  const inviteOptions: { data: Record<string, string | boolean>; redirectTo?: string } = {
+    data: {
+      full_name: fullName,
+      role,
+      requires_password_setup: true
+    }
   };
   if (input.redirectTo) inviteOptions.redirectTo = input.redirectTo;
 

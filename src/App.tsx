@@ -79,6 +79,8 @@ import ApplicantPortal from './components/ApplicantPortal';
 import StaffDashboard from './components/StaffDashboard';
 import SHCLoader from './components/SHCLoader';
 import SHCSplashScreen from './components/SHCSplashScreen';
+import FirstTimePasswordSetup from './components/FirstTimePasswordSetup';
+import { requiresFirstTimePasswordSetup } from './lib/firstTimePasswordSetup';
 import { resolveAvatarUrl } from './lib/profileState';
 import { readApiResponse } from './lib/apiResponse';
 
@@ -1131,6 +1133,15 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (requiresFirstTimePasswordSetup(supabaseUser) && supabaseUser?.email) {
+    return (
+      <FirstTimePasswordSetup
+        email={supabaseUser.email}
+        onComplete={setSupabaseUser}
+      />
     );
   }
   
