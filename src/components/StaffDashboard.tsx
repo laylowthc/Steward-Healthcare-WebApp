@@ -22,8 +22,8 @@ export default function StaffDashboard({ currentUser, documents, timesheets, onN
           <h2 className="text-2xl font-bold tracking-tight mt-2 text-white">Welcome back, {currentUser.name.split(' ')[0]}!</h2>
           <p className="text-slate-400 text-xs mt-1">
             Your deployment status is currently listed as{' '}
-            <span className={`font-extrabold ${currentUser.status === 'Active' ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {currentUser.status}
+            <span className={`font-extrabold ${currentUser.rosterStatus === 'Deployable' ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {currentUser.rosterStatus}
             </span>.
           </p>
         </div>

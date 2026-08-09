@@ -51,8 +51,8 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
               id: "doc_assigned_999",
               name: "SHC_Employment_Contract_2026.pdf",
               category: "Employment Contract",
-              staffId: "staff_1",
-              staffName: "Admin",
+              staffId: "staff_profile_uuid",
+              staffName: "Authenticated Staff Member",
               status: "Pending Signature",
               assignedByAdmin: true,
               size: "420 KB"
@@ -288,8 +288,8 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
             </div>
 
             <div className="bg-slate-50 p-6 rounded-xl border font-mono text-[11px] text-slate-850 leading-relaxed overflow-x-auto space-y-1 select-none">
-              <p className="text-purple-900 font-bold">&lt;App /&gt; — [Handles login verification, role routing, and localStorage state syncing]</p>
-              <p className="pl-6 text-slate-450 font-bold">├── &lt;Login /&gt; — [Credential checks, triggers demo views]</p>
+              <p className="text-purple-900 font-bold">&lt;App /&gt; — [Handles Supabase session verification, role routing, and workflow state syncing]</p>
+              <p className="pl-6 text-slate-450 font-bold">├── &lt;Login /&gt; — [Supabase credential checks and account lifecycle gating]</p>
               <p className="pl-6 text-slate-450 font-bold">└── &lt;DashboardLayout /&gt; — [Admin console wrapping sidebar and main canvas]</p>
               <p className="pl-12 text-blue-800 font-semibold">├── &lt;Sidebar /&gt; — [Primary side menu navigation tabs, state selectors]</p>
               <p className="pl-12 text-blue-800 font-semibold">├── &lt;Header /&gt; — [Logged-in role identifiers, notifications, role switcher buttons]</p>
@@ -313,7 +313,7 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
               <h3 className="text-sm font-black uppercase text-slate-550 border-b pb-2 tracking-wider">
                 Interactive Mock Backend API Playground (FastAPI Specs)
               </h3>
-              <p className="text-[11px] text-slate-500 font-semibold mt-1">Trigger simulated API requests against the active client memory. View headers, parameters, and live JSON outputs.</p>
+              <p className="text-[11px] text-slate-500 font-semibold mt-1">Inspect API request shapes against the active Supabase-backed workflow. View headers, parameters, and JSON outputs.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -409,7 +409,7 @@ export default function DeveloperConsole({ staff, applicants, documents, timeshe
                     ) : apiResponse ? (
                       <pre className="text-purple-305">{apiResponse}</pre>
                     ) : (
-                      <span className="text-slate-600 italic">Click "Send Request" to trigger a simulated backend REST output.</span>
+                      <span className="text-slate-600 italic">Click "Send Request" to inspect the backend REST output shape.</span>
                     )}
                   </div>
                 </div>
