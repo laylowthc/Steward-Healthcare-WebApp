@@ -9,7 +9,7 @@ interface PassportPhotoUploadProps {
   applicantId?: string;
   staffProfileId?: string;
   userName: string;
-  onPhotoUploaded: (photoUrl: string) => void;
+  onPhotoUploaded: (photoUrl: string) => Promise<void> | void;
   compact?: boolean;
 }
 
@@ -71,7 +71,7 @@ export default function PassportPhotoUpload({
 
       const { data: existingPhoto, error: lookupError } = await supabase
         .from('documents')
-        .select('id')
+        .select('id, file_path')
         .eq('user_id', userId)
         .eq('category', 'Profile Photo')
         .order('upload_date', { ascending: false })
@@ -94,24 +94,36 @@ export default function PassportPhotoUpload({
         verification_status: 'Approved'
       };
 
-      const recordResult = existingPhoto
-        ? await supabase.from('documents').update(photoRecord).eq('id', existingPhoto.id)
-        : await supabase.from('documents').insert(photoRecord);
-
-      if (recordResult.error) {
-        await supabase.storage.from('documents').remove([fileName]);
-        throw recordResult.error;
-      }
-
       const { data: signedPhoto, error: signedUrlError } = await supabase.storage
         .from('documents')
         .createSignedUrl(fileName, 60 * 60);
 
-      if (signedUrlError || !signedPhoto?.signedUrl) throw signedUrlError || new Error('Could not display the uploaded photo.');
+      if (signedUrlError || !signedPhoto?.signedUrl) {
+        await supabase.storage.from('documents').remove([fileName]);
+        throw signedUrlError || new Error('Could not display the uploaded photo.');
+      }
+
+      const recordResult = existingPhoto
+        ? await supabase.from('documents').update(photoRecord).eq('id', existingPhoto.id).select('id, file_path').single()
+        : await supabase.from('documents').insert(photoRecord).select('id, file_path').single();
+
+      if (recordResult.error || !recordResult.data?.id) {
+        await supabase.storage.from('documents').remove([fileName]);
+        throw recordResult.error || new Error('Profile photo persistence did not return a document record.');
+      }
+
+      if (existingPhoto?.file_path && existingPhoto.file_path !== fileName) {
+        const { error: oldPhotoRemovalError } = await supabase.storage
+          .from('documents')
+          .remove([existingPhoto.file_path]);
+        if (oldPhotoRemovalError) {
+          console.warn('The previous profile photo could not be removed:', oldPhotoRemovalError);
+        }
+      }
 
       URL.revokeObjectURL(localUrl);
       setPreviewUrl(signedPhoto.signedUrl);
-      onPhotoUploaded(signedPhoto.signedUrl);
+      await onPhotoUploaded(signedPhoto.signedUrl);
     } catch (err: any) {
       console.error("Error uploading profile photo:", err);
       setUploadError("Failed to upload profile photo. Please retry.");

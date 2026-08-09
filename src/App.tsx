@@ -752,6 +752,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
 
   const handleUploadDocument = async (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => {
     let finalFileUrl = doc.fileUrl;
+    let persistedDocumentId: string | undefined;
     
     if (file) {
       const filePath = `${Date.now()}_${file.name}`;
@@ -860,11 +861,14 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
         // 3. Create a row in the existing documents PostgreSQL table
         const { data: dbData, error: dbError } = await supabase
           .from('documents')
-          .insert(insertPayload);
+          .insert(insertPayload)
+          .select('id')
+          .single();
 
-        if (dbError) {
-          throw new Error(`Database registration failed: ${dbError.message}`);
+        if (dbError || !dbData?.id) {
+          throw new Error(`Database registration failed: ${dbError?.message || 'No document ID was returned.'}`);
         }
+        persistedDocumentId = String(dbData.id);
       } catch (e: any) {
         console.error("Failed to upload/register with Supabase:", e);
         
@@ -891,7 +895,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       ...doc,
       category: mappedCategory as DocumentCategory,
       fileUrl: finalFileUrl,
-      id: `doc_${Date.now()}`,
+      id: persistedDocumentId || `doc_${Date.now()}`,
       uploadDate: new Date().toISOString().split('T')[0]
     };
     setDocuments(prev => [newDocItem, ...prev]);
