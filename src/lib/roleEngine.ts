@@ -1,5 +1,6 @@
 import { Document, RoleRequirement, RoleTemplate } from '../types';
 import { OfficialApplicationData } from '../types/officialApplication';
+import { chronologyValidationMessages } from './continuousHistory';
 
 export type RequirementProgress = 'Complete' | 'Missing' | 'In Progress' | 'Pending SHC Verification';
 
@@ -49,11 +50,14 @@ const applicationStatus = (
     case 'official_application':
       return ['Submitted', 'Under Review', 'Approved'].includes(application.status) ? 'Complete' : 'In Progress';
     case 'employment_history': {
-      const previous = application.employmentHistory.some(entry =>
-        Boolean(entry.employerNameAddress?.trim() && entry.positionHeld?.trim()),
-      );
-      return application.recentEmployerNameAddress.trim() || previous ? 'Complete' : 'Missing';
+      return application.recentEmployerNameAddress.trim() || application.employmentHistory.length ? 'Complete' : 'Missing';
     }
+    case 'continuous_history':
+      return chronologyValidationMessages(application).length === 0
+        ? 'Complete'
+        : application.employmentHistory.length || application.recentEmployerNameAddress.trim()
+          ? 'In Progress'
+          : 'Missing';
     case 'professional_references': {
       const minimum = Number(requirement.metadata?.minimum || 2);
       const complete = application.professionalReferences.filter(reference =>

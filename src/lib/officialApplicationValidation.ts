@@ -1,6 +1,7 @@
 import { RoleTemplate } from '../types';
 import { activeRequirements, hasRequirement } from './roleEngine';
 import { OfficialApplicationData } from '../types/officialApplication';
+import { chronologyValidationMessages } from './continuousHistory';
 
 export const validateOfficialApplication = (
   form: OfficialApplicationData,
@@ -27,12 +28,8 @@ export const validateOfficialApplication = (
     if (form.eligibleToWorkUk === null) missing.push('Eligible to work in the UK');
   }
 
-  if (configured('employment_history')) {
-    const hasRecentEmployer = Boolean(form.recentEmployerNameAddress.trim() && form.recentEmployerPositionTitle.trim());
-    const hasPreviousEmployer = form.employmentHistory.some(employer =>
-      employer.employerNameAddress.trim() && employer.positionHeld.trim()
-    );
-    if (!hasRecentEmployer && !hasPreviousEmployer) missing.push('Employment history');
+  if (configured('continuous_history')) {
+    missing.push(...chronologyValidationMessages(form));
   }
 
   if (hasRequirement(role, 'nmc_registration_information')) {
@@ -44,10 +41,6 @@ export const validateOfficialApplication = (
 
   if (form.recentEmployerDateFrom && form.recentEmployerDateTo && form.recentEmployerDateFrom > form.recentEmployerDateTo)
     missing.push('Present employer date range');
-  form.employmentHistory.forEach((employer, index) => {
-    if (employer.dateFrom && employer.dateTo && employer.dateFrom > employer.dateTo)
-      missing.push(`Previous Employer ${index + 1} date range`);
-  });
 
   if (configured('professional_references')) {
     const requirement = applicationRequirements.find(item => item.requirementKey === 'professional_references');

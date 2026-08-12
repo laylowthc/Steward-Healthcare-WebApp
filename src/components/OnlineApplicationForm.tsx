@@ -12,8 +12,9 @@ import {
 import SHCLoader from "./SHCLoader";
 import BrandedLogo from "./BrandedLogo";
 import {
-  emptyEmployer,
+  emptyChronologyEntry,
   emptyReference,
+  ChronologyEntryType,
   EqualOpportunitiesData,
   OfficialApplicationData,
 } from "../types/officialApplication";
@@ -25,6 +26,12 @@ import {
 } from "../lib/officialApplicationRepository";
 import { validateOfficialApplication } from "../lib/officialApplicationValidation";
 import { findRole, hasRequirement } from "../lib/roleEngine";
+import {
+  analyseChronology,
+  applicationChronologyEntries,
+  chronologyTypeLabels,
+  formatHistoryMonth,
+} from "../lib/continuousHistory";
 
 interface Props {
   applicant: Applicant;
@@ -74,7 +81,7 @@ const initialApplication = (
     recentEmployerSalary: "",
     recentEmployerNoticePeriod: "",
     recentEmployerReasonForLeaving: "",
-    employmentHistory: [emptyEmployer(), emptyEmployer()],
+    employmentHistory: [],
     professionalReferences: [emptyReference(), emptyReference()],
     refereesAgreedToContact: false,
     personalStatement: "",
@@ -107,7 +114,7 @@ const labels = [
   "Role & Personal Details",
   "Professional & Compliance",
   "Present Employer",
-  "Employment History",
+  "Continuous History",
   "References",
   "Equal Opportunities",
   "Personal Statement",
@@ -215,6 +222,11 @@ export default function OnlineApplicationForm({
   const [lastSaved, setLastSaved] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [gapToExplain, setGapToExplain] = useState<{ startMonth: string; endMonth: string } | null>(null);
+  const [gapType, setGapType] = useState<ChronologyEntryType>('unemployment');
+  const [gapDetails, setGapDetails] = useState('');
+  const [gapOrganisation, setGapOrganisation] = useState('');
+  const [gapTitle, setGapTitle] = useState('');
   const loaded = useRef(false);
   const timer = useRef<number>();
   const roleOptions = useMemo(
@@ -222,6 +234,7 @@ export default function OnlineApplicationForm({
     [templates],
   );
   const selectedRole = findRole(templates, form.roleId, form.positionApplied);
+  const chronologyAnalysis = analyseChronology(applicationChronologyEntries(form));
   const showNmcRegistration = hasRequirement(selectedRole, ['nmc_registration_information', 'nmc_pin', 'nmc_expiry']);
   const requireNmcPin = hasRequirement(selectedRole, ['nmc_registration_information', 'nmc_pin']);
   const requireNmcExpiry = hasRequirement(selectedRole, 'nmc_expiry');
@@ -353,6 +366,9 @@ export default function OnlineApplicationForm({
     const missing = validateOfficialApplication(form, selectedRole);
     if (missing.length) {
       setError(`Please complete: ${missing.join(", ")}.`);
+      if (hasRequirement(selectedRole, 'continuous_history') && chronologyAnalysis.complete === false) {
+        update('currentStep', 4);
+      }
       return;
     }
     const next = {
@@ -651,85 +667,190 @@ export default function OnlineApplicationForm({
         )}
         {form.currentStep === 4 && (
           <div className="space-y-4">
-            {employers.map((emp, i) => (
+            <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 text-sm text-purple-950">
+              <h4 className="font-black">Complete history from secondary school to the present</h4>
+              <p className="mt-1 text-xs leading-5 text-purple-800">
+                Include education, employment and every other activity. Overlapping study and work are allowed. Your present or most recent employer from step 3 is included automatically.
+              </p>
+            </div>
+
+            {!chronologyAnalysis.hasSecondaryEducation && (
+              <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-900">
+                Please add your secondary/high-school history so SHC has a complete chronology.
+              </div>
+            )}
+
+            {chronologyAnalysis.dateIssues.map(issue => (
+              <div key={`${issue.entryId}-${issue.message}`} role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-900">
+                {issue.message}
+              </div>
+            ))}
+
+            {employers.map((entry, i) => {
+              const showOrganisation = ['secondary_education', 'higher_education', 'vocational_training', 'employment'].includes(entry.type);
+              return (
               <div
-                key={i}
+                key={entry.id}
                 className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="font-bold text-fuchsia-800">
-                    Previous Employer {i + 1}
+                    {chronologyTypeLabels[entry.type]}
                   </h4>
-                  {employers.length > 2 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update(
-                          "employmentHistory",
-                          employers.filter((_, x) => x !== i),
-                        )
-                      }
-                      className="text-rose-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => update("employmentHistory", employers.filter((_, x) => x !== i))}
+                    className="text-rose-600"
+                    aria-label={`Remove ${chronologyTypeLabels[entry.type]} entry`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {Object.entries({
-                    employerNameAddress: "Employer Name and Address",
-                    postcode: "Postcode",
-                    telephone: "Telephone Number",
-                    dateFrom: "Date From",
-                    dateTo: "Date To",
-                    positionHeld: "Position Held",
-                    reasonForLeaving: "Reason for Leaving",
-                  }).map(([k, l]) => (
-                    <Field
-                      key={k}
-                      label={l}
-                      wide={
-                        k === "employerNameAddress" || k === "reasonForLeaving"
-                      }
+                  <Field label="Entry type">
+                    <select
+                      className={input}
+                      value={entry.type}
+                      onChange={(event) => {
+                        const next = [...employers];
+                        next[i] = { ...entry, type: event.target.value as ChronologyEntryType };
+                        update('employmentHistory', next);
+                      }}
                     >
-                      {k === "employerNameAddress" ||
-                      k === "reasonForLeaving" ? (
-                        <textarea
-                          className={input}
-                          rows={2}
-                          value={(emp as any)[k]}
-                          onChange={(e) => {
-                            const a = [...employers];
-                            a[i] = { ...emp, [k]: e.target.value };
-                            update("employmentHistory", a);
-                          }}
-                        />
-                      ) : (
-                        <Text
-                          type={k.startsWith("date") ? "date" : "text"}
-                          value={(emp as any)[k]}
-                          onChange={(v) => {
-                            const a = [...employers];
-                            a[i] = { ...emp, [k]: v };
-                            update("employmentHistory", a);
-                          }}
-                        />
-                      )}
-                    </Field>
-                  ))}
+                      {Object.entries(chronologyTypeLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                    </select>
+                  </Field>
+                  {showOrganisation && <Field label={entry.type === 'employment' ? 'Employer / organisation' : 'Institution / organisation'}>
+                    <Text value={entry.organisation} onChange={(value) => {
+                      const next = [...employers]; next[i] = { ...entry, organisation: value }; update('employmentHistory', next);
+                    }} />
+                  </Field>}
+                  {showOrganisation && <Field label={entry.type === 'employment' ? 'Role / position' : 'Course / qualification'}>
+                    <Text value={entry.title} onChange={(value) => {
+                      const next = [...employers]; next[i] = { ...entry, title: value }; update('employmentHistory', next);
+                    }} />
+                  </Field>}
+                  <Field label="Start month">
+                    <Text type="month" value={entry.startMonth} onChange={(value) => {
+                      const next = [...employers]; next[i] = { ...entry, startMonth: value }; update('employmentHistory', next);
+                    }} />
+                  </Field>
+                  <Field label="End month">
+                    <Text type="month" value={entry.endMonth} onChange={(value) => {
+                      const next = [...employers]; next[i] = { ...entry, endMonth: value, isCurrent: false }; update('employmentHistory', next);
+                    }} />
+                  </Field>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    <input type="checkbox" checked={entry.isCurrent} onChange={(event) => {
+                      const next = [...employers]; next[i] = { ...entry, isCurrent: event.target.checked, endMonth: event.target.checked ? '' : entry.endMonth }; update('employmentHistory', next);
+                    }} />
+                    This activity continues to the present
+                  </label>
+                  <Field label="Location (optional)">
+                    <Text value={entry.location} onChange={(value) => {
+                      const next = [...employers]; next[i] = { ...entry, location: value }; update('employmentHistory', next);
+                    }} />
+                  </Field>
+                  <Field label={entry.type === 'other' ? 'Explanation *' : 'Details (optional)'} wide>
+                    <textarea className={input} rows={2} value={entry.details} onChange={(event) => {
+                      const next = [...employers]; next[i] = { ...entry, details: event.target.value }; update('employmentHistory', next);
+                    }} />
+                  </Field>
+                  {entry.type === 'employment' && <Field label="Reason for leaving (where applicable)" wide>
+                    <textarea className={input} rows={2} value={entry.reasonForLeaving} onChange={(event) => {
+                      const next = [...employers]; next[i] = { ...entry, reasonForLeaving: event.target.value }; update('employmentHistory', next);
+                    }} />
+                  </Field>}
                 </div>
               </div>
-            ))}
+            )})}
             <button
               type="button"
-              onClick={() =>
-                update("employmentHistory", [...employers, emptyEmployer()])
-              }
+              onClick={() => update("employmentHistory", [
+                ...employers,
+                emptyChronologyEntry(chronologyAnalysis.hasSecondaryEducation ? 'employment' : 'secondary_education'),
+              ])}
               className="flex items-center gap-2 rounded-xl border border-purple-300 px-4 py-2 text-sm font-bold text-purple-900"
             >
               <Plus className="h-4 w-4" />
-              Add another employer
+              Add history entry
             </button>
+
+            {chronologyAnalysis.gaps.length > 0 && (
+              <section className="space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+                <h4 className="font-black text-amber-950">Unexplained periods</h4>
+                {chronologyAnalysis.gaps.map(gap => (
+                  <div key={`${gap.startMonth}-${gap.endMonth}`} className="rounded-xl border border-amber-200 bg-white p-3">
+                    <p className="text-xs font-bold text-amber-950">
+                      We found an unexplained period between {formatHistoryMonth(gap.startMonth)} and {formatHistoryMonth(gap.endMonth)} ({gap.durationMonths} month{gap.durationMonths === 1 ? '' : 's'}).
+                    </p>
+                    <button type="button" onClick={() => {
+                      setGapToExplain({ startMonth: gap.startMonth, endMonth: gap.endMonth });
+                      setGapType('unemployment');
+                      setGapDetails('');
+                      setGapOrganisation('');
+                      setGapTitle('');
+                    }} className="mt-2 text-xs font-black text-purple-800 underline">
+                      Explain this gap
+                    </button>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {gapToExplain && (
+              <section className="rounded-2xl border border-purple-300 bg-white p-4 shadow-sm">
+                <h4 className="font-black text-purple-950">Explain {formatHistoryMonth(gapToExplain.startMonth)} to {formatHistoryMonth(gapToExplain.endMonth)}</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <Field label="What were you doing?">
+                    <select className={input} value={gapType} onChange={(event) => setGapType(event.target.value as ChronologyEntryType)}>
+                      {(['unemployment','caring_responsibilities','vocational_training','illness','travel','career_break','other'] as ChronologyEntryType[])
+                        .map(type => <option key={type} value={type}>{chronologyTypeLabels[type]}</option>)}
+                    </select>
+                  </Field>
+                  <Field label={gapType === 'other' ? 'Explanation *' : 'Additional details (optional)'}>
+                    <Text value={gapDetails} onChange={setGapDetails} />
+                  </Field>
+                  {gapType === 'vocational_training' && <>
+                    <Field label="Institution / organisation *">
+                      <Text value={gapOrganisation} onChange={setGapOrganisation} />
+                    </Field>
+                    <Field label="Course / qualification *">
+                      <Text value={gapTitle} onChange={setGapTitle} />
+                    </Field>
+                  </>}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button type="button" disabled={
+                    (gapType === 'other' && !gapDetails.trim())
+                    || (gapType === 'vocational_training' && (!gapOrganisation.trim() || !gapTitle.trim()))
+                  } onClick={() => {
+                    const explanation = {
+                      ...emptyChronologyEntry(gapType),
+                      startMonth: gapToExplain.startMonth,
+                      endMonth: gapToExplain.endMonth,
+                      organisation: gapOrganisation.trim(),
+                      title: gapTitle.trim(),
+                      details: gapDetails.trim(),
+                    };
+                    update('employmentHistory', [...employers, explanation]);
+                    setGapToExplain(null);
+                    setGapDetails('');
+                    setGapOrganisation('');
+                    setGapTitle('');
+                  }} className="rounded-lg bg-purple-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">
+                    Add explanation
+                  </button>
+                  <button type="button" onClick={() => setGapToExplain(null)} className="rounded-lg border px-4 py-2 text-xs font-bold">Cancel</button>
+                </div>
+              </section>
+            )}
+
+            {chronologyAnalysis.complete && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-900">
+                Your chronology is continuous from high school to the present.
+              </div>
+            )}
           </div>
         )}
         {form.currentStep === 5 && (

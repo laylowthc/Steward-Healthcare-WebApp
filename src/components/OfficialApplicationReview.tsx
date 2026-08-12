@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, FileCheck2 } from "lucide-react";
 import SHCLoader from "./SHCLoader";
+import ContinuousHistoryTimeline from './ContinuousHistoryTimeline';
 import {
   loadOfficialApplication,
   loadOfficialApplicationVersions,
@@ -108,7 +109,7 @@ const sections = (a: OfficialApplicationData) =>
         reasonForLeaving: a.recentEmployerReasonForLeaving,
       },
     ],
-    ["4. Employment History", a.employmentHistory],
+    ["4. Continuous History", a.employmentHistory],
     [
       "5. References",
       {
@@ -318,10 +319,10 @@ export default function OfficialApplicationReview({
       <div className="max-h-[520px] space-y-4 overflow-y-auto rounded-xl border bg-slate-50 p-3 text-[11px]">
         {sections(app).map(([heading, value]) => (
           <section key={heading} className="rounded-xl border bg-white p-3">
-            <h5 className="mb-2 font-black uppercase text-purple-900">
-              {heading}
-            </h5>
-            {show(value)}
+            {heading.startsWith('4.') ? <ContinuousHistoryTimeline application={app} /> : <>
+              <h5 className="mb-2 font-black uppercase text-purple-900">{heading}</h5>
+              {show(value)}
+            </>}
           </section>
         ))}
       </div>
@@ -381,8 +382,10 @@ export default function OfficialApplicationReview({
           <div className="mt-3 max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-slate-50 p-3 text-[11px]">
             {sections(selectedVersion.snapshot).map(([heading, value]) => (
               <section key={heading} className="rounded-lg border bg-white p-3">
-                <h6 className="mb-2 font-black uppercase text-purple-900">{heading}</h6>
-                {show(value)}
+                {heading.startsWith('4.') ? <ContinuousHistoryTimeline application={selectedVersion.snapshot} /> : <>
+                  <h6 className="mb-2 font-black uppercase text-purple-900">{heading}</h6>
+                  {show(value)}
+                </>}
               </section>
             ))}
           </div>

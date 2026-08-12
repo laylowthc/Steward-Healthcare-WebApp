@@ -6,14 +6,33 @@ export type OfficialApplicationStatus =
   | 'Approved'
   | 'Rejected';
 
-export interface EmployerRecord {
-  employerNameAddress: string;
-  postcode: string;
-  telephone: string;
-  dateFrom: string;
-  dateTo: string;
-  positionHeld: string;
+export type ChronologyEntryType =
+  | 'secondary_education'
+  | 'higher_education'
+  | 'vocational_training'
+  | 'employment'
+  | 'unemployment'
+  | 'caring_responsibilities'
+  | 'parental_leave'
+  | 'illness'
+  | 'travel'
+  | 'career_break'
+  | 'other';
+
+export interface ChronologyEntry {
+  id: string;
+  type: ChronologyEntryType;
+  organisation: string;
+  title: string;
+  startMonth: string;
+  endMonth: string;
+  isCurrent: boolean;
+  location: string;
+  details: string;
   reasonForLeaving: string;
+  // Retained when a legacy employer record is normalized on its next edit.
+  legacyPostcode?: string;
+  legacyTelephone?: string;
 }
 
 export interface ProfessionalReference {
@@ -59,7 +78,7 @@ export interface OfficialApplicationData {
   recentEmployerSalary: string;
   recentEmployerNoticePeriod: string;
   recentEmployerReasonForLeaving: string;
-  employmentHistory: EmployerRecord[];
+  employmentHistory: ChronologyEntry[];
   professionalReferences: ProfessionalReference[];
   refereesAgreedToContact: boolean;
   personalStatement: string;
@@ -104,8 +123,19 @@ export interface OfficialApplicationVersion {
   createdBy?: string;
 }
 
-export const emptyEmployer = (): EmployerRecord => ({
-  employerNameAddress: '', postcode: '', telephone: '', dateFrom: '', dateTo: '', positionHeld: '', reasonForLeaving: ''
+export const emptyChronologyEntry = (
+  type: ChronologyEntryType = 'employment',
+): ChronologyEntry => ({
+  id: globalThis.crypto?.randomUUID?.() || `history-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  type,
+  organisation: '',
+  title: '',
+  startMonth: '',
+  endMonth: '',
+  isCurrent: false,
+  location: '',
+  details: '',
+  reasonForLeaving: '',
 });
 
 export const emptyReference = (): ProfessionalReference => ({
