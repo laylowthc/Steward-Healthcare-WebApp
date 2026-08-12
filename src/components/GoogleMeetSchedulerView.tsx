@@ -294,11 +294,11 @@ export default function GoogleMeetSchedulerView({
       <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
-            <h3 className="text-xs font-black uppercase text-slate-850">Scheduled Operations & Live Links</h3>
-            <p className="text-[10px] text-slate-500">Corporate calendar and Google Meet session history.</p>
+            <h3 className="text-xs font-black uppercase text-slate-850">Scheduled Meetings</h3>
+            <p className="text-[10px] text-slate-500">Recruitment interviews and SHC Google Meet links.</p>
           </div>
           <span className="text-[9px] font-black uppercase bg-indigo-50 text-indigo-800 border border-indigo-150 rounded-full px-2.5 py-0.5 inline-flex items-center gap-1">
-            {googleToken ? '🔴 Google API Connected' : '🤖 Fallback sandbox mode'}
+            {googleToken ? 'Google Workspace connected' : 'Google Workspace not connected'}
           </span>
         </div>
 

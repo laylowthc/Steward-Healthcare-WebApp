@@ -24,7 +24,7 @@ import {
   Lock,
   ListFilter
 } from 'lucide-react';
-import { Applicant, Staff, Document, Timesheet, ActivityLog } from '../types';
+import { Applicant, Staff, Document, Timesheet, ActivityLog, RoleTemplate } from '../types';
 import { 
   getOrCreateFolder, 
   listDriveFiles, 
@@ -37,12 +37,14 @@ import {
   extractSpreadsheetId 
 } from '../lib/googleApi';
 import GoogleMeetSchedulerView from './GoogleMeetSchedulerView';
+import CandidateCommunications from './CandidateCommunications';
 
 interface WorkspaceSyncProps {
   applicants: Applicant[];
   staff: Staff[];
   documents: Document[];
   timesheets: Timesheet[];
+  roles: RoleTemplate[];
   onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => void;
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>) => void;
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
@@ -54,6 +56,7 @@ export default function WorkspaceSync({
   staff,
   documents,
   timesheets,
+  roles,
   onAddApplicant,
   onUploadDocument,
   onUpdateApplicantDetails,
@@ -64,7 +67,7 @@ export default function WorkspaceSync({
     return sessionStorage.getItem('shc_google_access_token');
   });
   const [isConnecting, setIsConnecting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import' | 'meetings' | 'forms'>('drive');
+  const [activeTab, setActiveTab] = useState<'drive' | 'sheets_export' | 'sheets_import' | 'communications' | 'meetings' | 'forms'>('drive');
 
   // Persisted Google Meet Scheduled meetings
   const [meetings, setMeetings] = useState<{
@@ -76,10 +79,15 @@ export default function WorkspaceSync({
     type: 'candidate' | 'staff' | 'general';
   }[]>(() => {
     const local = localStorage.getItem('shc_google_meet_meetings');
-    return local ? JSON.parse(local) : [
-      { id: 'm1', title: 'Senior Care Specialist Panel Interview', meetUrl: 'https://meet.google.com/abc-defg-hij', time: '2026-06-19T10:00', attendee: 'Eleanor Vance', type: 'candidate' },
-      { id: 'm2', title: 'Internal Quality Assurance Review', meetUrl: 'https://meet.google.com/nrs-meet-xjp', time: '2026-06-20T14:30', attendee: 'All Care Staff (HR)', type: 'general' }
-    ];
+    if (!local) return [];
+    try {
+      return JSON.parse(local).filter((meeting: { id?: string; meetUrl?: string }) =>
+        !['m1', 'm2'].includes(meeting.id || '') &&
+        !['https://meet.google.com/abc-defg-hij', 'https://meet.google.com/nrs-meet-xjp'].includes(meeting.meetUrl || '')
+      );
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
@@ -87,7 +95,7 @@ export default function WorkspaceSync({
   }, [meetings]);
 
   // Google Drive config
-  const [driveFolderName, setDriveFolderName] = useState('Steward Health Care Onboarding Sandbox');
+  const [driveFolderName, setDriveFolderName] = useState('SHC StaffHub Records');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [driveFiles, setDriveFiles] = useState<GoogleDriveFile[]>([]);
   const [isDriveLoading, setIsDriveLoading] = useState(false);
@@ -95,8 +103,6 @@ export default function WorkspaceSync({
   const [driveError, setDriveError] = useState<string | null>(null);
 
   // Custom manual authentication / simulated access token state
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [manualTokenInput, setManualTokenInput] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   
   // File Upload states
@@ -158,7 +164,7 @@ export default function WorkspaceSync({
       if (result) {
         setGoogleToken(result.accessToken);
         sessionStorage.setItem('shc_google_access_token', result.accessToken);
-        onAddLog('Successfully authenticated Google Workspace secure liaison', 'document');
+        onAddLog('Connected an authorised Google Workspace account.', 'document');
         setDriveError(null);
       }
     } catch (err: any) {
@@ -166,12 +172,10 @@ export default function WorkspaceSync({
       const errString = err?.message || String(err);
       if (errString.includes('admin-restricted-operation') || errString.includes('restricted-operation')) {
         setAuthError(
-          'Workspace Google Sign-in is restricted on this Firebase console project (auth/admin-restricted-operation). You can proceed cleanly with standard manual token connection or live sandbox simulation below.'
+          'Google sign-in is not available for this account. Ask an administrator to verify the authorised Workspace configuration.'
         );
-        setShowManualInput(true);
       } else {
-        setAuthError(`Authentication failed: ${errString}. You can proceed with standard manual connection below.`);
-        setShowManualInput(true);
+        setAuthError('Google Workspace could not be connected. Check the authorised account and try again.');
       }
     } finally {
       setIsConnecting(false);
@@ -183,7 +187,7 @@ export default function WorkspaceSync({
     sessionStorage.removeItem('shc_google_access_token');
     setCurrentFolderId(null);
     setDriveFiles([]);
-    onAddLog('De-registered and cleared local Google Workspace session token', 'document');
+    onAddLog('Disconnected the Google Workspace account from this session.', 'document');
     try {
       const { logout } = await import('../lib/auth');
       await logout();
@@ -319,7 +323,7 @@ export default function WorkspaceSync({
   // Delete a file on Google Drive (Requires explicit confirmation guard)
   const handleDeleteDriveFile = async (fileId: string, fileName: string) => {
     const confirmed = window.confirm(
-      `⚠️ ACTION CONSTRAINED: Are you sure you want to permanently delete the Google Drive file "${fileName}"?\n\nThis deletes the actual document outside the sandbox. This action cannot be undone.`
+      `Permanently delete the Google Drive file "${fileName}"? This action cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -331,7 +335,7 @@ export default function WorkspaceSync({
       if (!res.ok) throw new Error('File deletion failed');
       
       setDriveFiles(prev => prev.filter(f => f.id !== fileId));
-      onAddLog(`Drive Sync: Permanent purge authorization issued for '${fileName}'`, 'document');
+      onAddLog(`Google Drive: deleted '${fileName}'.`, 'document');
     } catch (err) {
       alert('Delete failed. The file may have already been deleted or write permissions revoked.');
     }
@@ -505,10 +509,10 @@ export default function WorkspaceSync({
         <div>
           <h2 className="text-xl font-bold text-slate-900 inline-flex items-center space-x-2">
             <Cloud className="w-6 h-6 text-indigo-600 animate-pulse" />
-            <span>Google Workspace Operations Terminal</span>
+            <span>Google Workspace</span>
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            Connect Steward Healthcare records directly to Google Drive repositories & synchronized Google Sheets audit workbooks.
+            Connect SHC recruitment and HR workflows with authorised Google Workspace services.
           </p>
         </div>
       </div>
@@ -519,10 +523,10 @@ export default function WorkspaceSync({
           
           <div className="space-y-2">
             <h3 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-              <span>🎛️ liaison Identity Console</span>
+              <span>Connected account</span>
             </h3>
             <p className="text-xs leading-normal text-slate-500">
-              The AI Studio sandbox utilizes secure Firebase Authentication to connect your Google Workspace account safely.
+              Use an authorised SHC Google account for Drive, Sheets, Gmail and Meet services.
             </p>
           </div>
 
@@ -534,10 +538,8 @@ export default function WorkspaceSync({
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-800">Workspace Authorized Successfully</p>
-                    <p className="text-[10px] text-emerald-700 font-mono truncate max-w-[250px]">
-                      Token ID: ya29.{googleToken.substring(0, 12)}...
-                    </p>
+                    <p className="text-xs font-bold text-slate-800">Google Workspace connected</p>
+                    <p className="text-[10px] text-emerald-700">Drive · Sheets · Gmail · Meet available</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -552,7 +554,7 @@ export default function WorkspaceSync({
                     onClick={handleDisconnectGoogle}
                     className="p-2 px-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs font-bold hover:bg-rose-100 cursor-pointer"
                   >
-                    Clear Credentials
+                    Disconnect
                   </button>
                 </div>
               </div>
@@ -560,10 +562,10 @@ export default function WorkspaceSync({
               <div className="flex flex-col items-center sm:items-end w-full text-center sm:text-right space-y-3">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-rose-850 bg-rose-50 border border-rose-100 p-1 px-2.5 rounded-full inline-flex items-center gap-1">
-                    <CloudOff className="w-3 h-3" /> Offline Session
+                    <CloudOff className="w-3 h-3" /> Not connected
                   </span>
                   <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                    Connecting unlocks continuous spreadsheet sync & dynamic onboarding file back-ups.
+                    Connect an authorised account to use SHC Workspace tools.
                   </p>
                 </div>
                 {isConnecting ? (
@@ -589,50 +591,7 @@ export default function WorkspaceSync({
 
                     {authError && (
                       <div className="text-left bg-rose-50 border border-rose-250 rounded-xl p-3 text-[11px] text-rose-800 mt-2 max-w-sm">
-                        ⚠️ <strong className="font-extrabold uppercase">Console Restriction:</strong> {authError}
-                      </div>
-                    )}
-
-                    <div className="mt-1">
-                      <button 
-                        onClick={() => setShowManualInput(!showManualInput)}
-                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline transition cursor-pointer"
-                      >
-                        {showManualInput ? "Hide Developer Fallbacks ×" : "Need developer bypass / manual token?"}
-                      </button>
-                    </div>
-
-                    {showManualInput && (
-                      <div className="mt-2 p-3.5 bg-white border border-slate-200 rounded-xl max-w-sm text-left shadow-sm space-y-2.5">
-                        <p className="text-[11px] font-extrabold text-slate-805 uppercase tracking-wide">Developer Connection Panel</p>
-                        <p className="text-[10px] text-slate-450 leading-relaxed">
-                          Enter a valid Google API access token directly (ya29...).
-                        </p>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text"
-                            placeholder="ya29.a0AfB_..."
-                            value={manualTokenInput}
-                            onChange={(e) => setManualTokenInput(e.target.value)}
-                            className="flex-1 p-1.5 px-2.5 border border-slate-200 rounded-lg text-[10px] focus:outline-none focus:ring-1 focus:ring-indigo-600 bg-slate-50"
-                          />
-                          <button 
-                            onClick={() => {
-                              if (manualTokenInput.trim()) {
-                                setGoogleToken(manualTokenInput.trim());
-                                sessionStorage.setItem('shc_google_access_token', manualTokenInput.trim());
-                                onAddLog('Direct developer OAuth token inject succeeded', 'document');
-                                setAuthError(null);
-                                setShowManualInput(false);
-                              } else {
-                                alert('Please input an access token.');
-                              }
-                            }}
-                            className="bg-indigo-600 text-white rounded-lg p-1.5 px-3 font-bold text-[10px] hover:bg-indigo-700 transition cursor-pointer"
-                          >
-                            Inject
-                          </button>
-                        </div>
+                        {authError}
                       </div>
                     )}
                   </div>
@@ -647,7 +606,7 @@ export default function WorkspaceSync({
       {googleToken && (
         <>
           {/* SECURE HUB PERSPECTIVES TABS */}
-          <div className="flex border-b border-slate-200">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:flex sm:flex-wrap">
             <button
               onClick={() => { setActiveTab('drive'); setExportMessage(null); }}
               className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
@@ -656,7 +615,7 @@ export default function WorkspaceSync({
                   : 'border-transparent text-slate-505 hover:text-slate-800'
               }`}
             >
-              📁 Google Drive Audit Backups
+              Drive
             </button>
             <button
               onClick={() => { setActiveTab('sheets_export'); setExportMessage(null); }}
@@ -666,7 +625,7 @@ export default function WorkspaceSync({
                   : 'border-transparent text-slate-550 hover:text-slate-800'
               }`}
             >
-              📊 Google Sheets Database Exporter
+              Sheets Export
             </button>
             <button
               onClick={() => { setActiveTab('sheets_import'); setExportMessage(null); }}
@@ -676,27 +635,23 @@ export default function WorkspaceSync({
                   : 'border-transparent text-slate-550 hover:text-slate-800'
               }`}
             >
-              📥 Sheets Recruitment Importer
+              Recruitment Importer
+            </button>
+            <button
+              onClick={() => { setActiveTab('communications'); setExportMessage(null); }}
+              className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === 'communications' ? 'border-indigo-600 text-indigo-700 font-extrabold' : 'border-transparent text-slate-550 hover:text-slate-800'}`}
+            >
+              Candidate Communications
             </button>
             <button
               onClick={() => { setActiveTab('meetings'); setExportMessage(null); }}
               className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                activeTab === 'meetings' 
+                activeTab === 'meetings'
                   ? 'border-indigo-600 text-indigo-700 font-extrabold' 
                   : 'border-transparent text-slate-550 hover:text-slate-800'
               }`}
             >
-              🎥 Google Meet Scheduler
-            </button>
-            <button
-              onClick={() => { setActiveTab('forms'); setExportMessage(null); }}
-              className={`p-3 px-5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                activeTab === 'forms' 
-                  ? 'border-indigo-600 text-indigo-700 font-extrabold' 
-                  : 'border-transparent text-slate-550 hover:text-slate-800'
-              }`}
-            >
-              📝 Google Forms Manager
+              Meet
             </button>
           </div>
 
@@ -837,7 +792,7 @@ export default function WorkspaceSync({
                           {driveFiles.length === 0 && (
                             <tr>
                               <td colSpan={4} className="px-4 py-16 text-center text-slate-400 font-bold">
-                                📂 Drive Directory is currently empty. Try uploading some files!
+                                No files are stored in this SHC Drive folder yet.
                               </td>
                             </tr>
                           )}
@@ -924,9 +879,9 @@ export default function WorkspaceSync({
             {activeTab === 'sheets_export' && (
               <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Spreadsheet Synchronization Portal</h3>
+                  <h3 className="text-base font-bold text-slate-900">Google Sheets Export</h3>
                   <p className="text-xs text-slate-500-weight mt-1">
-                    Spawn and refresh distinct Google Sheets tables compiled dynamically from live application data state.
+                    Create or refresh authorised Google Sheets from current StaffHub records.
                   </p>
                 </div>
 
@@ -970,7 +925,7 @@ export default function WorkspaceSync({
                         disabled={isExporting !== null}
                         className="w-full py-2 bg-purple-900 override:hover:bg-purple-950 hover:bg-purple-950 font-bold text-white text-xs rounded-lg transition text-center cursor-pointer"
                       >
-                        {isExporting === 'staff' ? 'Exporting...' : (spreadsheetIdMap['staff'] ? 'Refresh Active Sheet' : 'Spawn Live Google Sheet')}
+                        {isExporting === 'staff' ? 'Exporting...' : (spreadsheetIdMap['staff'] ? 'Refresh Sheet' : 'Create Google Sheet')}
                       </button>
                     </div>
                   </div>
@@ -1008,7 +963,7 @@ export default function WorkspaceSync({
                         disabled={isExporting !== null}
                         className="w-full py-2 bg-purple-900 override:hover:bg-purple-950 hover:bg-purple-950 font-bold text-white text-xs rounded-lg transition text-center cursor-pointer"
                       >
-                        {isExporting === 'timesheets' ? 'Exporting...' : (spreadsheetIdMap['timesheets'] ? 'Refresh Active Sheet' : 'Spawn Live Google Sheet')}
+                        {isExporting === 'timesheets' ? 'Exporting...' : (spreadsheetIdMap['timesheets'] ? 'Refresh Sheet' : 'Create Google Sheet')}
                       </button>
                     </div>
                   </div>
@@ -1046,7 +1001,7 @@ export default function WorkspaceSync({
                         disabled={isExporting !== null}
                         className="w-full py-2 bg-purple-900 override:hover:bg-purple-950 hover:bg-purple-950 font-bold text-white text-xs rounded-lg transition text-center cursor-pointer"
                       >
-                        {isExporting === 'applicants' ? 'Exporting...' : (spreadsheetIdMap['applicants'] ? 'Refresh Active Sheet' : 'Spawn Live Google Sheet')}
+                        {isExporting === 'applicants' ? 'Exporting...' : (spreadsheetIdMap['applicants'] ? 'Refresh Sheet' : 'Create Google Sheet')}
                       </button>
                     </div>
                   </div>
@@ -1058,9 +1013,9 @@ export default function WorkspaceSync({
             {activeTab === 'sheets_import' && (
               <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Google Sheets Mass Candidates Importer</h3>
+                  <h3 className="text-base font-bold text-slate-900">Recruitment Importer</h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Connect any Google Worksheet directly to import external applicants. Maps columns dynamically into the local pipeline database.
+                    Review and map a Google Sheet before adding candidate records to Recruitment.
                   </p>
                 </div>
 
@@ -1254,6 +1209,14 @@ export default function WorkspaceSync({
                 setMeetings={setMeetings}
                 onAddLog={onAddLog}
                 onUpdateApplicantDetails={onUpdateApplicantDetails}
+              />
+            )}
+            {activeTab === 'communications' && (
+              <CandidateCommunications
+                googleToken={googleToken}
+                roles={roles}
+                onAddApplicant={onAddApplicant}
+                onAddLog={onAddLog}
               />
             )}
           </div>

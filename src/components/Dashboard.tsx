@@ -18,6 +18,7 @@ import {
   Heart, 
   Cloud 
 } from 'lucide-react';
+import { getComplianceState, isApprovedStaffProfile, isFullyCompliantStaff } from '../lib/complianceState';
 
 
 interface DashboardProps {
@@ -61,14 +62,16 @@ export default function Dashboard({
   
   // Calculate dynamic stats from application state
   const totalApplicants = applicants.filter(a => a.status !== 'Accepted' && a.status !== 'Rejected').length;
-  const activeStaff = staff.filter(s => s.rosterStatus === 'Deployable').length;
+  const approvedStaff = staff.filter(isApprovedStaffProfile);
+  const activeStaff = approvedStaff.length;
   const awaitingReviewDocs = documents.filter(d => d.status === 'Awaiting Review').length;
-  const complianceAlerts = staff.filter(s => s.rosterStatus !== 'Deployable').length;
+  const complianceAlerts = staff.filter(s => getComplianceState(s) !== 'Compliant').length;
   const expiringDBS = staff.filter(s => s.dbsStatus === 'Expiring').length;
+  const scheduledInterviews = applicants.filter(applicant => applicant.interviewTime && applicant.interviewMeetUrl).length;
 
   // Compliance percentage widget
-  const compliantStaffCount = staff.filter(s => s.rosterStatus === 'Deployable').length;
-  const compliancePercentage = staff.length > 0 ? Math.round((compliantStaffCount / staff.length) * 100) : 100;
+  const compliantStaffCount = approvedStaff.filter(isFullyCompliantStaff).length;
+  const compliancePercentage = approvedStaff.length > 0 ? Math.round((compliantStaffCount / approvedStaff.length) * 100) : 0;
 
   const [isCardFlipped, setIsCardFlipped] = useState(false);
   const displayName = currentUserProfile?.fullName || currentUser?.name || 'Authenticated User';
@@ -233,7 +236,7 @@ export default function Dashboard({
           </div>
           <div className="mt-4">
             <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{activeStaff}</span>
-            <span className="text-[11px] font-semibold text-emerald-700 mt-1 block">Ready to deploy roster →</span>
+            <span className="text-[11px] font-semibold text-emerald-700 mt-1 block">Approved employment records →</span>
           </div>
         </button>
 
@@ -251,7 +254,7 @@ export default function Dashboard({
           <div className="mt-4">
             <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{complianceAlerts}</span>
             <span className="text-[11px] font-semibold text-amber-700 mt-1 block flex items-center">
-              Requires urgent inspection →
+              Profiles requiring attention →
             </span>
           </div>
         </button>
@@ -262,14 +265,14 @@ export default function Dashboard({
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Docs Pending Review</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Document Review</span>
             <span className="p-2 bg-indigo-50 rounded-xl text-indigo-700 group-hover:bg-indigo-100 transition-colors">
               <FileText className="w-5 h-5" />
             </span>
           </div>
           <div className="mt-4">
             <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{awaitingReviewDocs}</span>
-            <span className="text-[11px] font-semibold text-indigo-700 mt-1 block font-medium">Under processing review →</span>
+            <span className="text-[11px] font-semibold text-indigo-700 mt-1 block font-medium">Open the review queue →</span>
           </div>
         </button>
 
@@ -279,7 +282,7 @@ export default function Dashboard({
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">CRITICAL Expiring DBS</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Expiring DBS Checks</span>
             <span className={`p-2 rounded-xl group-hover:opacity-90 transition-opacity ${expiringDBS > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-500'}`}>
               <AlertTriangle className="w-5 h-5" />
             </span>
@@ -287,7 +290,7 @@ export default function Dashboard({
           <div className="mt-4">
             <span className="text-3xl font-extrabold text-rose-700 block tracking-tight">{expiringDBS}</span>
             <span className="text-[11px] font-semibold text-rose-700 mt-1 block flex items-center">
-              DBS &lt; 35 days remaining →
+              Expiring credentials →
             </span>
           </div>
         </button>
@@ -322,14 +325,14 @@ export default function Dashboard({
 
                 <div className="flex items-center justify-between mb-4 pr-6">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900">Compliance & Registry Health Index</h3>
-                    <p className="text-xs text-slate-500">Global audit of all Steward Health Care 247 on-call staff credentials</p>
+                    <h3 className="text-lg font-bold text-slate-900">Staff Compliance Overview</h3>
+                    <p className="text-xs text-slate-500">Deployment readiness across approved SHC staff records</p>
                   </div>
                   <button
                     onClick={() => onNavigate('compliance')}
                     className="text-xs font-bold text-purple-700 hover:text-purple-600 flex items-center space-x-1"
                   >
-                    <span>Full Audit Sheet</span>
+                    <span>Open Compliance</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -358,7 +361,7 @@ export default function Dashboard({
                       </div>
                     </div>
                     <div className="text-xs">
-                      <span className="font-bold text-slate-700">{compliantStaffCount} of {staff.length} staff</span> members hold fully pristine, valid credentials.
+                      <span className="font-bold text-slate-700">{compliantStaffCount} of {approvedStaff.length} approved staff</span> meet all current deployment checks.
                     </div>
                   </div>
 
@@ -368,13 +371,13 @@ export default function Dashboard({
                       <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
                         <span>Valid DBS Certificates</span>
                         <span className="font-bold text-slate-800">
-                          {staff.filter(s => s.dbsStatus === 'Compliant').length}/{staff.length}
+                          {approvedStaff.filter(s => s.dbsStatus === 'Compliant').length}/{approvedStaff.length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-purple-800 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${staff.length > 0 ? (staff.filter(s => s.dbsStatus === 'Compliant').length / staff.length) * 100 : 100}%` }}
+                          style={{ width: `${approvedStaff.length > 0 ? (approvedStaff.filter(s => s.dbsStatus === 'Compliant').length / approvedStaff.length) * 100 : 0}%` }}
                         ></div>
                       </div>
                     </div>
@@ -383,13 +386,13 @@ export default function Dashboard({
                       <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
                         <span>NMC Registrations (Nurses)</span>
                         <span className="font-bold text-slate-800">
-                          {staff.filter(s => s.role === 'Nurse' && s.rosterStatus === 'Deployable').length}/{staff.filter(s => s.role === 'Nurse').length}
+                          {approvedStaff.filter(s => s.role === 'Nurse' && isFullyCompliantStaff(s)).length}/{approvedStaff.filter(s => s.role === 'Nurse').length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(staff.filter(s => s.role === 'Nurse' && s.rosterStatus === 'Deployable').length / (staff.filter(s => s.role === 'Nurse').length || 1) * 100)}%` }}
+                          style={{ width: `${(approvedStaff.filter(s => s.role === 'Nurse' && isFullyCompliantStaff(s)).length / (approvedStaff.filter(s => s.role === 'Nurse').length || 1) * 100)}%` }}
                         ></div>
                       </div>
                     </div>
@@ -398,13 +401,13 @@ export default function Dashboard({
                       <div className="flex justify-between text-xs font-semibold text-slate-650 mb-1">
                         <span>Mandatory Training Sign-off</span>
                         <span className="font-bold text-slate-800">
-                          {staff.filter(s => s.trainingStatus === 'Compliant').length}/{staff.length}
+                          {approvedStaff.filter(s => s.trainingStatus === 'Compliant').length}/{approvedStaff.length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${staff.length > 0 ? (staff.filter(s => s.trainingStatus === 'Compliant').length / staff.length) * 100 : 100}%` }}
+                          style={{ width: `${approvedStaff.length > 0 ? (approvedStaff.filter(s => s.trainingStatus === 'Compliant').length / approvedStaff.length) * 100 : 0}%` }}
                         ></div>
                       </div>
                     </div>
@@ -527,7 +530,7 @@ export default function Dashboard({
                       {timesheets.filter(t => t.approvalStatus === 'Pending').length === 0 && (
                         <tr>
                           <td colSpan={5} className="px-4 py-6 text-center text-slate-500 font-medium">
-                            ✓ Excellent! All timesheet submissions have been fully audited.
+                            No timesheets are awaiting review.
                           </td>
                         </tr>
                       )}
@@ -552,35 +555,35 @@ export default function Dashboard({
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 flex items-center space-x-1.5-tight">
                       <Cloud className="w-5 h-5 text-indigo-650 inline-block mr-1.5" />
-                      <span>Google Workspace Integration</span>
+                      <span>Google Workspace</span>
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Secure folders, Spreadsheet synchronizers and Meets log</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Drive archives, Sheets exports, candidate communications and Meet scheduling</p>
                   </div>
                   <button
                     onClick={() => onNavigate('workspace')}
                     className="text-xs font-bold text-purple-700 hover:text-purple-600 flex items-center space-x-1 cursor-pointer"
                   >
-                    <span>Liaison Sync</span>
+                    <span>Open Workspace</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-100">
-                    <span className="text-[10px] text-indigo-800 font-extrabold uppercase">Liaison Connected</span>
+                    <span className="text-[10px] text-indigo-800 font-extrabold uppercase">Workspace Services</span>
                     <div className="flex items-center space-x-2 mt-1">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span className="text-xs font-bold text-slate-850">Steward Sandbox online</span>
+                      <span className="text-xs font-bold text-slate-850">Authorised connection required</span>
                     </div>
-                    <p className="text-[9px] text-slate-400 mt-1">Direct API live integration operational.</p>
+                    <p className="text-[9px] text-slate-400 mt-1">Connect an SHC Google account to use available services.</p>
                   </div>
                   <div className="p-3.5 bg-purple-50/50 rounded-xl border border-purple-105">
                     <span className="text-[10px] text-purple-800 font-extrabold uppercase">Google Meet Schedules</span>
                     <div className="flex justify-between items-center mt-1">
-                      <p className="text-xs font-bold text-slate-800">2 Interviews Active</p>
-                      <span className="text-[9px] bg-purple-200 text-purple-800 px-1.5 rounded font-extrabold">Syncing</span>
+                      <p className="text-xs font-bold text-slate-800">{scheduledInterviews} Scheduled</p>
+                      <span className="text-[9px] bg-purple-200 text-purple-800 px-1.5 rounded font-extrabold">Live data</span>
                     </div>
-                    <p className="text-[9px] text-slate-400 mt-1">Interlinked with dynamic candidate streams.</p>
+                    <p className="text-[9px] text-slate-400 mt-1">Meet links recorded against recruitment interviews.</p>
                   </div>
                 </div>
               </div>
@@ -659,7 +662,7 @@ export default function Dashboard({
                     })}
                     {activityLogs.length === 0 && (
                       <li className="py-6 text-center text-slate-400 text-xs font-semibold">
-                        No recent activities in feed. Dynamic events will pop up here.
+                        No recent activity has been recorded.
                       </li>
                     )}
                   </ul>

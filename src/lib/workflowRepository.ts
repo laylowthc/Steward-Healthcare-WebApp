@@ -114,6 +114,7 @@ export const mapStaffRow = (row: any): Staff => {
     role: resolvedRole as StaffRole,
     status: row.employment_status || 'Active',
     accountStatus: toAccountStatus(user?.status),
+    accountRole: user?.role ? toRole(user.role) : undefined,
     rosterStatus: 'Pending',
     nmcPin: row.nmc_pin || undefined,
     nmcExpiry: row.nmc_expiry || undefined,

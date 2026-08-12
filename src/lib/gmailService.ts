@@ -259,11 +259,6 @@ export async function syncGmailContacts(token: string): Promise<GmailContact[]> 
     // Sort contacts by date descending
     parsedContacts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // If API returned no external contacts, fall back to mock contacts to ensure usability
-    if (parsedContacts.length === 0) {
-      return MOCK_GMAIL_CONTACTS;
-    }
-
     return parsedContacts;
   } catch (err) {
     console.error('Error syncing Gmail contacts:', err);

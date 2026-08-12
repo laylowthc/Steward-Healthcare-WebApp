@@ -502,37 +502,6 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     }, file);
   };
 
-  const handleSystemReset = async () => {
-    if (!window.confirm("CRITICAL WARNING:\n\nThis will permanently delete all local cache, user sessions, activity logs, documents, and sign you out to start from a 100% clean state.\n\nAre you sure you want to proceed?")) {
-      return;
-    }
-    try {
-      // 1. Reset React states
-      setApplicants([]);
-      setStaff([]);
-      setDocuments([]);
-      setTimesheets([]);
-      setActivityLogs([]);
-      setFamilyFeedbacks([]);
-
-      // 2. Clear client caches
-      localStorage.clear();
-      sessionStorage.clear();
-
-      // 3. Sign out
-      await supabase.auth.signOut();
-      setIsLoggedIn(false);
-      setUserAccountRole(null);
-      setCurrentRole('applicant');
-
-      alert("SUCCESS!\n\nAll local caches and active user sessions have been purged.\n\nPlease complete registration of your new account on the next screen.");
-      window.location.reload();
-    } catch (error: any) {
-      console.error("Critical error during full system reset:", error);
-      alert("System reset failed. Details: " + (error.message || error));
-    }
-  };
-
   const handleDeleteApplicant = async (id: string) => {
     try {
       const targetApplicant = applicants.find(a => a.id === id);
@@ -1107,6 +1076,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     { id: 'recruitment', label: 'Recruitment', icon: Briefcase, desc: 'Registered onboarding pool' },
     { id: 'staff', label: 'Approved Staff', icon: User, desc: 'Operational caregiver roster' },
     { id: 'vault', label: 'Documents', icon: FileText, desc: 'GDPR contract records storage' },
+    { id: 'compliance', label: 'Compliance', icon: ShieldAlert, desc: 'Deployment checks and credential alerts' },
     { id: 'templates', label: 'Roles', icon: BookOpen, desc: 'Criteria checklists by role' },
     { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
@@ -1137,15 +1107,8 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
               Your authenticated account has no matching Supabase application profile.
             </p>
 
-            <div className="bg-rose-50/50 rounded-xl p-4 mb-6 border border-rose-100/50 text-left">
-              <p className="text-[11px] font-black uppercase text-rose-800 tracking-wider mb-1 font-sans">Diagnostic Details:</p>
-              <p className="text-[11px] font-mono text-slate-700 leading-relaxed break-all">
-                {profileSyncError}
-              </p>
-            </div>
-
             <p className="text-xs text-slate-400 mb-6 font-medium leading-relaxed">
-              Please contact your Steward Health Care administrator to register your email in the system database.
+              Please contact your SHC administrator so they can verify your account access.
             </p>
 
             <button
@@ -1170,7 +1133,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
   }
   
   if (!isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} onSystemReset={handleSystemReset} />;
+    return <Login onLoginSuccess={handleLoginSuccess} onAddApplicant={handleAddApplicant} />;
   }
 
   if (currentUserProfile && currentUserProfile.status !== 'Active') {
@@ -1244,11 +1207,6 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       (supabaseUser?.email && a.email.toLowerCase() === supabaseUser.email.toLowerCase())
     );
     if (!activeApplicant) {
-      console.error("=== DIAGNOSTIC: APPLICANT PROFILE NOT FOUND ===");
-      console.error("currentUserId:", currentUserId);
-      console.error("supabaseUser:", supabaseUser);
-      console.error("applicants:", applicants);
-      
       return (
         <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden" id="shc-profile-not-found-view">
           {/* Visual background accents */}
@@ -1263,22 +1221,11 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
               
               <h2 className="text-xl font-bold text-slate-900 mb-2">Applicant Profile Not Found</h2>
               <p className="text-sm text-slate-500 mb-6">
-                Your session is authenticated, but your local applicant portal profile could not be resolved.
+                Your account is signed in, but its applicant record could not be loaded.
               </p>
 
-              <div className="bg-slate-50 rounded-xl p-4 mb-6 border border-slate-200/60 text-left">
-                <p className="text-[11px] font-black uppercase text-slate-600 tracking-wider mb-1 font-sans">Diagnostic Details:</p>
-                <div className="text-[11px] font-mono text-slate-700 leading-relaxed break-all space-y-1">
-                  <div><strong>Supabase User ID (UUID):</strong> {supabaseUser?.id || 'None'}</div>
-                  <div><strong>Email:</strong> {supabaseUser?.email || 'None'}</div>
-                  <div><strong>Current User ID (State):</strong> {currentUserId}</div>
-                  <div><strong>Role:</strong> {currentRole}</div>
-                  <div><strong>Local Candidates Array:</strong> {applicants.length} available ({applicants.map(a => `${a.name} [id:${a.id}, email:${a.email}]`).join(', ') || 'none'})</div>
-                </div>
-              </div>
-
               <p className="text-xs text-slate-400 mb-6 font-medium leading-relaxed">
-                Try logging out and logging back in, or contact support if the issue persists.
+                Please sign out and try again. If the problem continues, contact your SHC administrator.
               </p>
 
               <button
@@ -1743,7 +1690,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   )}
 
                   {activeTab === 'administration' && (
-                    <UserAdministration onSystemReset={handleSystemReset} roles={templates} />
+                    <UserAdministration roles={templates} />
                   )}
 
                   {/* Google Workspace operations center */}
@@ -1753,6 +1700,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                       staff={staff}
                       documents={documents}
                       timesheets={timesheets}
+                      roles={templates}
                       onAddApplicant={handleAddApplicant}
                       onUploadDocument={handleUploadDocument}
                       onUpdateApplicantDetails={handleUpdateApplicantDetails}

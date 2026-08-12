@@ -508,7 +508,7 @@ export default function ApplicantPortal({
 
               {applicantDocs.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs font-semibold bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  📂 No compliance documents submitted yet.
+                  No compliance documents have been submitted yet.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">

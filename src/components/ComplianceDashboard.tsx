@@ -1,6 +1,7 @@
 import { Staff } from '../types';
 import { Octagon, ShieldAlert, CheckCircle, AlertTriangle, Bell, Clock, Search, ExternalLink, CalendarDays } from 'lucide-react';
 import { useState } from 'react';
+import { getComplianceState, isApprovedStaffProfile } from '../lib/complianceState';
 
 interface ComplianceDashboardProps {
   staff: Staff[];
@@ -10,35 +11,18 @@ interface ComplianceDashboardProps {
 export default function ComplianceDashboard({ staff, onSelectStaff }: ComplianceDashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Categorize staff members into traffic light bins
   const getStaffComplianceBin = (person: Staff) => {
-    const dbs = person.dbsStatus;
-    const rtw = person.rightToWork;
-    const trn = person.trainingStatus;
-    
-    // Check NMC if nurse
-    let nmcVal: string | undefined = person.nmcExpiry ? 'Compliant' : undefined;
-    if (person.role === 'Nurse' && person.nmcExpiry) {
-      const parsedDate = new Date(person.nmcExpiry);
-      const diffDays = Math.ceil((parsedDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-      if (diffDays < 0) nmcVal = 'Non-Compliant';
-      else if (diffDays <= 30) nmcVal = 'Expiring';
-    }
-
-    if (dbs === 'Non-Compliant' || rtw === 'Non-Compliant' || trn === 'Non-Compliant' || nmcVal === 'Non-Compliant' || person.status === 'Non-Compliant') {
-      return 'Red';
-    }
-    
-    if (dbs === 'Expiring' || rtw === 'Expiring' || trn === 'Expiring' || nmcVal === 'Expiring') {
-      return 'Amber';
-    }
-    
-    return 'Green';
+    const state = getComplianceState(person);
+    if (state === 'Compliant') return 'Green';
+    if (state === 'Expiring') return 'Amber';
+    return 'Red';
   };
 
-  const redStaff = staff.filter(s => getStaffComplianceBin(s) === 'Red');
-  const amberStaff = staff.filter(s => getStaffComplianceBin(s) === 'Amber');
-  const greenStaff = staff.filter(s => getStaffComplianceBin(s) === 'Green');
+  const approvedStaff = staff.filter(isApprovedStaffProfile);
+  const monitoredCandidates = staff.filter(person => !isApprovedStaffProfile(person));
+  const redStaff = approvedStaff.filter(s => getStaffComplianceBin(s) === 'Red');
+  const amberStaff = approvedStaff.filter(s => getStaffComplianceBin(s) === 'Amber');
+  const greenStaff = approvedStaff.filter(s => getStaffComplianceBin(s) === 'Green');
 
   // Multi-alert constructor from database records
   const complianceAlerts: { staffId: string; staffName: string; type: string; date: string; isLapsed: boolean; desc: string }[] = [];
@@ -122,13 +106,31 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
         desc: `Continuous work residency visa check expires on ${s.rightToWorkExpiry}.`
       });
     }
+
+    if (getComplianceState(s) === 'Restricted' && !complianceAlerts.some(alert => alert.staffId === s.id)) {
+      const pendingChecks = [
+        s.dbsStatus !== 'Compliant' ? 'DBS' : null,
+        s.rightToWork !== 'Compliant' ? 'Right to Work' : null,
+        s.trainingStatus !== 'Compliant' ? 'Training' : null,
+        s.referenceStatus !== 'Compliant' ? 'References' : null,
+        s.role === 'Nurse' && !s.nmcExpiry ? 'NMC registration' : null
+      ].filter(Boolean);
+      complianceAlerts.push({
+        staffId: s.id,
+        staffName: s.name,
+        type: 'Deployment checks',
+        date: 'Pending',
+        isLapsed: true,
+        desc: `${pendingChecks.join(', ') || 'Mandatory checks'} must be completed before deployment.`
+      });
+    }
   });
 
   return (
     <div className="space-y-6" id="shc-compliance-view">
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Agency Compliance Control Room</h2>
-        <p className="text-xs text-slate-500 font-medium">Monitor mandatory certifications, CQC pre-audits, and system credential alerts.</p>
+        <h2 className="text-xl font-bold text-slate-900">Compliance</h2>
+        <p className="text-xs text-slate-500 font-medium">Monitor deployment checks for approved staff and candidates progressing through onboarding.</p>
       </div>
 
       {/* Traffic Light Aggregate KPI counters */}
@@ -143,7 +145,7 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
             <span className="block text-[10px] font-black uppercase text-slate-400 tracking-wider">Lapsed Restrictions</span>
             <span className="text-3xl font-black text-rose-700 block mt-0.5">{redStaff.length} Staff</span>
             <span className="text-[10px] font-semibold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full mt-1.5 block w-fit">
-              🚫 Shift Deployments Frozen
+              Deployment restricted
             </span>
           </div>
         </div>
@@ -157,7 +159,7 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
             <span className="block text-[10px] font-black uppercase text-slate-400 tracking-wider">Expiring within 45 days</span>
             <span className="text-3xl font-black text-amber-600 block mt-0.5">{amberStaff.length} Staff</span>
             <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full mt-1.5 block w-fit">
-              ⚠️ In Renewal Pipeline
+              Renewal required
             </span>
           </div>
         </div>
@@ -168,10 +170,10 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
             <CheckCircle className="w-8 h-8" />
           </div>
           <div>
-            <span className="block text-[10px] font-black uppercase text-slate-400 tracking-wider">Perfect Compliance</span>
+            <span className="block text-[10px] font-black uppercase text-slate-400 tracking-wider">Fully Compliant Staff</span>
             <span className="text-3xl font-black text-emerald-700 block mt-0.5">{greenStaff.length} Staff</span>
             <span className="text-[10px] font-semibold text-emerald-805 bg-emerald-50 px-1.5 py-0.5 rounded-full mt-1.5 block w-fit">
-              ✓ Fully Cleared & active
+              Ready for deployment
             </span>
           </div>
         </div>
@@ -186,8 +188,8 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
           <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
             <Bell className="w-5 h-5 text-purple-900 shrink-0" />
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">Critical Certification Alerts</h3>
-              <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Automated updates based on active calendars.</p>
+              <h3 className="font-bold text-slate-900 text-sm">Credential Alerts</h3>
+              <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Current expiry and restriction notices.</p>
             </div>
           </div>
 
@@ -206,7 +208,7 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
                   <span className={`text-[9px] font-black uppercase p-0.5 px-2 rounded-full ${
                     alert.isLapsed ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'
                   }`}>
-                    {alert.isLapsed ? 'Overdue Lapsed' : 'Expiring soon'}
+                    {alert.isLapsed ? 'Action required' : 'Expiring soon'}
                   </span>
                   <span className="text-[9px] text-slate-400 font-bold font-mono">{alert.date}</span>
                 </div>
@@ -221,7 +223,7 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
             ))}
             {complianceAlerts.length === 0 && (
               <div className="py-8 text-center text-slate-400 text-xs font-semibold">
-                ✓ No credential alerts pending attention.
+                No credential alerts currently require attention.
               </div>
             )}
           </div>
@@ -231,8 +233,10 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
         <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">Security Tracker by Staff Member</h3>
-              <p className="text-[10px] text-slate-500 font-semibold mt-0.5 font-sans">Full visual matrix of core certificates.</p>
+              <h3 className="font-bold text-slate-900 text-sm">Compliance Records</h3>
+              <p className="text-[10px] text-slate-500 font-semibold mt-0.5 font-sans">
+                Approved staff and {monitoredCandidates.length} candidate monitoring record{monitoredCandidates.length === 1 ? '' : 's'}.
+              </p>
             </div>
 
             <div className="relative w-full sm:w-48">
@@ -241,17 +245,18 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search staff compliance..."
+                placeholder="Search compliance records..."
                 className="pl-8 p-1.5 w-full border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
               />
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-xs font-semibold">
               <thead className="bg-slate-50">
                 <tr className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="px-4 py-3">Staff Individual</th>
+                  <th className="px-4 py-3">Person</th>
+                  <th className="px-4 py-3">Lifecycle</th>
                   <th className="px-4 py-3 text-center">Enhanced DBS</th>
                   <th className="px-4 py-3 text-center">RTW</th>
                   <th className="px-4 py-3 text-center">Training</th>
@@ -273,6 +278,16 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
                         <td className="px-4 py-3">
                           <div className="font-bold text-slate-800">{person.name}</div>
                           <div className="text-[9px] text-slate-400 font-medium">{person.role}</div>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold ${
+                            isApprovedStaffProfile(person)
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                              : 'border-purple-200 bg-purple-50 text-purple-800'
+                          }`}>
+                            {isApprovedStaffProfile(person) ? 'Approved staff' : 'Candidate'}
+                          </span>
                         </td>
 
                         <td className="px-4 py-3 text-center">
@@ -330,6 +345,38 @@ export default function ComplianceDashboard({ staff, onSelectStaff }: Compliance
                   })}
               </tbody>
             </table>
+          </div>
+          <div className="space-y-3 md:hidden">
+            {staff
+              .filter(person => person.name.toLowerCase().includes(searchTerm.toLowerCase()))
+              .map(person => (
+                <button
+                  key={person.id}
+                  onClick={() => onSelectStaff(person.id)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-left"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{person.name}</p>
+                      <p className="text-[10px] text-slate-500">{person.role}</p>
+                    </div>
+                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-800">
+                      {isApprovedStaffProfile(person) ? 'Approved staff' : 'Candidate'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-600">
+                    <span>DBS: {person.dbsStatus}</span>
+                    <span>Right to Work: {person.rightToWork}</span>
+                    <span>Training: {person.trainingStatus}</span>
+                    <span>NMC: {person.role === 'Nurse' ? (person.nmcExpiry ? 'Recorded' : 'Missing') : 'Not required'}</span>
+                  </div>
+                </button>
+              ))}
+            {staff.length === 0 && (
+              <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-500">
+                No staff or candidate compliance records are available yet.
+              </div>
+            )}
           </div>
         </div>
 

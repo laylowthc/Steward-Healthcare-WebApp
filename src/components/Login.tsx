@@ -8,7 +8,6 @@ import { createUserProfile } from '../lib/workflowRepository';
 interface LoginProps {
   onLoginSuccess: (userRole: 'admin' | 'staff' | 'family' | 'applicant', userId?: string) => void;
   onAddApplicant?: (applicant: Omit<Applicant, 'id' | 'dateCreated'>, id?: string) => Promise<string>;
-  onSystemReset?: () => Promise<void>;
 }
 
 export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {

@@ -166,7 +166,7 @@ export default function ApplicantKanban({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Registered Recruitment Pipeline</h2>
-          <p className="text-xs text-slate-500 font-medium">Click on cards to inspect history, select next stages, or add new files dynamically.</p>
+          <p className="text-xs text-slate-500 font-medium">Open a candidate card to review their history, documents and recruitment stage.</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
@@ -646,7 +646,7 @@ export default function ApplicantKanban({
                   <div className="pt-4 border-t border-slate-100">
                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate Notes</h4>
                     <p className="mt-2 text-xs leading-relaxed text-slate-705 bg-slate-100/50 p-3 rounded-lg border border-slate-150">
-                      {selectedApplicant.notes || 'No review notes has been registered for this candidate yet.'}
+                      {selectedApplicant.notes || 'No review notes have been recorded for this candidate yet.'}
                     </p>
                   </div>
 

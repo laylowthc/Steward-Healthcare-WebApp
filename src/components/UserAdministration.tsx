@@ -49,9 +49,7 @@ export default function UserAdministration({ onSystemReset, roles }: UserAdminis
   const availablePermissions = ['View Reports', 'Manage Documents', 'Approve Timesheets', 'Manage Roster'];
 
   // Gmail outreach & sync states
-  const [googleToken, setGoogleToken] = useState<string | null>(() => {
-    return sessionStorage.getItem('shc_google_access_token');
-  });
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [gmailContacts, setGmailContacts] = useState<GmailContact[]>([]);
   const [isSyncingContacts, setIsSyncingContacts] = useState(false);
@@ -65,13 +63,6 @@ export default function UserAdministration({ onSystemReset, roles }: UserAdminis
   useEffect(() => {
     fetchUsers();
   }, []);
-
-  // Automatically fetch Gmail contacts when token is available
-  useEffect(() => {
-    if (googleToken) {
-      handleSyncContacts(googleToken);
-    }
-  }, [googleToken]);
 
   // Update outreach email body template placeholders dynamically
   useEffect(() => {
@@ -765,7 +756,9 @@ export default function UserAdministration({ onSystemReset, roles }: UserAdminis
         </div>
       )}
 
-      {/* Gmail Outreach & Automation Desk */}
+      {false && (
+      <>
+      {/* Legacy Gmail outreach presentation retained outside the operational UI. */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-100 pb-5 mb-5 gap-4">
           <div>
@@ -1043,6 +1036,8 @@ export default function UserAdministration({ onSystemReset, roles }: UserAdminis
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

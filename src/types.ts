@@ -42,6 +42,7 @@ export interface Staff {
   role: StaffRole;
   status: 'Active' | 'Non-Compliant' | 'Suspended';
   accountStatus?: AccountStatus;
+  accountRole?: 'admin' | 'staff' | 'family' | 'applicant';
   rosterStatus: RosterStatus;
   nmcPin?: string;
   nmcExpiry?: string;

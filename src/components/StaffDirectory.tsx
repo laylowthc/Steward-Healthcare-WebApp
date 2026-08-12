@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Staff, StaffRole } from '../types';
 import { Search, ShieldAlert, CheckCircle, AlertTriangle, ArrowRight, MapPin, BadgePercent, Filter, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import { isApprovedStaffProfile } from '../lib/complianceState';
 
 interface StaffDirectoryProps {
   staff: Staff[];
@@ -94,13 +95,11 @@ export default function StaffDirectory({
     setIsAddModalOpen(false);
   };
 
-  // The Approved Staff directory is an operational roster, not a holding area.
-  // Pending, suspended, and otherwise non-deployable profiles remain available
-  // through recruitment and administration views.
-  const deployableStaff = staff.filter(member => member.rosterStatus === 'Deployable');
+  // Employment approval and deployment readiness are separate lifecycle states.
+  const approvedStaff = staff.filter(isApprovedStaffProfile);
 
   // Filter deployable staff according to search term and drop filters
-  const filteredStaff = deployableStaff.filter((member) => {
+  const filteredStaff = approvedStaff.filter((member) => {
     const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (member.nmcPin && member.nmcPin.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           member.address.toLowerCase().includes(searchTerm.toLowerCase());
@@ -139,8 +138,8 @@ export default function StaffDirectory({
     <div className="space-y-6" id="shc-staff-directory">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Active Staff Registry</h2>
-          <p className="text-xs text-slate-500 font-medium">Verify credentials, filter on-call nursing teams, and inspect individual compliance logs.</p>
+          <h2 className="text-xl font-bold text-slate-900">Approved Staff</h2>
+          <p className="text-xs text-slate-500 font-medium">Review approved employment records and current deployment readiness.</p>
         </div>
         {currentRole === 'admin' && onAddStaff && (
           <button
@@ -192,8 +191,11 @@ export default function StaffDirectory({
               onChange={(e) => setStatusFilter(e.target.value)}
               className="block w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
             >
-              <option value="All">Status: All Deployable</option>
+              <option value="All">Status: All</option>
               <option value="Deployable">Deployable</option>
+              <option value="Pending">Pending checks</option>
+              <option value="Active">Deployment restricted</option>
+              <option value="Suspended">Suspended</option>
             </select>
           </div>
         </div>
@@ -207,19 +209,19 @@ export default function StaffDirectory({
             onClick={() => { setRoleFilter('All'); setStatusFilter('All'); }}
             className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${roleFilter === 'All' && statusFilter === 'All' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
           >
-            Show All ({deployableStaff.length})
+            Show All ({approvedStaff.length})
           </button>
           <button
             onClick={() => { setRoleFilter('Nurse'); }}
             className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${roleFilter === 'Nurse' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
           >
-            Nurses ({deployableStaff.filter(s => s.role === 'Nurse').length})
+            Nurses ({approvedStaff.filter(s => s.role === 'Nurse').length})
           </button>
           <button
             onClick={() => { setRoleFilter('Care Assistant'); }}
             className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${roleFilter === 'Care Assistant' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
           >
-            HCA Assist ({deployableStaff.filter(s => s.role === 'Care Assistant').length})
+            Care Assistants ({approvedStaff.filter(s => s.role === 'Care Assistant').length})
           </button>
         </div>
       </div>
@@ -345,7 +347,9 @@ export default function StaffDirectory({
               {filteredStaff.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-slate-400 font-semibold selection:text-white">
-                    🔍 No staff members matched your current filter criteria.
+                    {approvedStaff.length === 0
+                      ? 'No approved staff yet. Candidates remain in Recruitment and Compliance until their employment lifecycle is approved.'
+                      : 'No approved staff match the current filters.'}
                   </td>
                 </tr>
               )}
