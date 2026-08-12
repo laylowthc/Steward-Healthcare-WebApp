@@ -127,7 +127,7 @@ export async function updateAccountStatus(input: {
           full_name: targetUser.full_name || normalizedEmail || 'Applicant',
           email: normalizedEmail,
           phone: targetUser.phone || '',
-          position: 'Care Assistant',
+          position: '',
           status: 'Applied',
           notes: 'Applicant profile created during account activation.',
         });

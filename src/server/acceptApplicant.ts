@@ -59,6 +59,9 @@ export async function acceptApplicant(input: { authorization?: string; applicant
   if (applicant.status !== 'Compliance') {
     throw new AcceptApplicantError('Applicant must reach the Compliance stage before staff approval', 409);
   }
+  if (!applicant.role_id || !String(applicant.position || '').trim()) {
+    throw new AcceptApplicantError('Applicant must select an active operational role before staff approval', 409);
+  }
 
   let userId = applicant.user_id;
   if (!userId) {
@@ -89,11 +92,12 @@ export async function acceptApplicant(input: { authorization?: string; applicant
     .upsert({
       user_id: userId,
       applicant_id: applicant.id,
+      role_id: applicant.role_id,
       full_name: applicant.full_name,
       email: String(applicant.email).toLowerCase(),
       phone: applicant.phone || '',
       address: '',
-      role: applicant.position || 'Care Assistant',
+      role: applicant.position,
       employment_status: 'Active',
       dbs_status: 'Pending',
       right_to_work: 'Pending',

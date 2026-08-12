@@ -10,6 +10,7 @@ import {
   DocumentStatus,
   FamilyFeedback,
   RoleTemplate,
+  RoleRequirement,
   Staff,
   StaffRole,
   SystemUserProfile,
@@ -50,10 +51,11 @@ export const mapUserRow = (row: any): SystemUserProfile => ({
 export const mapApplicantRow = (row: any): Applicant => ({
   id: row.id,
   userId: row.user_id || undefined,
+  roleId: row.role_id || undefined,
   name: row.full_name || row.email || 'Applicant',
   email: (row.email || '').toLowerCase(),
   phone: row.phone || '',
-  position: row.position || 'Care Assistant',
+  position: row.position || '',
   status: (row.status || 'Applied') as ApplicantStatus,
   dateCreated: (row.created_at || new Date().toISOString()).split('T')[0],
   notes: row.notes || undefined,
@@ -65,10 +67,11 @@ export const mapApplicantRow = (row: any): Applicant => ({
 export const applicantToRow = (applicant: Omit<Applicant, 'id' | 'dateCreated'> & { id?: string; userId?: string }) => ({
   ...(applicant.id ? { id: applicant.id } : {}),
   user_id: applicant.userId || applicant.id || null,
+  role_id: applicant.roleId || null,
   full_name: applicant.name,
   email: applicant.email.toLowerCase(),
   phone: applicant.phone || '',
-  position: applicant.position || 'Care Assistant',
+  position: applicant.position || '',
   status: applicant.status || 'Applied',
   notes: applicant.notes || null,
   interview_time: applicant.interviewTime || null,
@@ -103,6 +106,7 @@ export const mapStaffRow = (row: any): Staff => {
     id: row.id,
     userId: row.user_id || undefined,
     applicantId: row.applicant_id || undefined,
+    roleId: row.role_id || undefined,
     name: user?.full_name || row.full_name || user?.email || row.email || 'Unnamed staff profile',
     email: (user?.email || row.email || '').toLowerCase(),
     phone: row.phone || user?.phone || '',
@@ -160,6 +164,7 @@ const resolveProfilePhotoUrls = async (documents: Document[]) => Promise.all(doc
 export const staffToRow = (staff: Staff & { userId?: string; applicantId?: string }) => ({
   user_id: staff.userId || null,
   applicant_id: staff.applicantId || null,
+  role_id: staff.roleId || null,
   full_name: staff.name,
   email: staff.email.toLowerCase(),
   phone: staff.phone || '',
@@ -204,22 +209,96 @@ export const timesheetToRow = (timesheet: Omit<Timesheet, 'id' | 'uploadDate'> &
   updated_at: new Date().toISOString()
 });
 
+const mapRequirementRow = (row: any): RoleRequirement => ({
+  id: row.id,
+  roleId: row.role_id,
+  requirementKey: row.requirement_key,
+  displayName: row.display_name,
+  stage: row.stage,
+  requirementType: row.requirement_type,
+  responsibleParty: row.responsible_party,
+  required: row.is_required !== false,
+  sortOrder: Number(row.sort_order || 0),
+  metadata: row.metadata || {},
+  active: row.active !== false
+});
+
 export const mapTemplateRow = (row: any): RoleTemplate => ({
-  role: row.role,
+  id: row.id,
+  role: row.name || row.role,
+  slug: row.slug,
   salaryRange: row.salary_range || '',
   description: row.description || '',
   responsibilities: row.responsibilities || [],
-  requiredCredentials: row.required_credentials || []
+  requiredCredentials: (row.role_requirements || [])
+    .filter((requirement: any) => requirement.active !== false)
+    .map((requirement: any) => requirement.display_name),
+  active: row.active !== false,
+  requirements: (row.role_requirements || []).map(mapRequirementRow)
 });
 
 export const templateToRow = (template: RoleTemplate) => ({
-  role: template.role,
-  salary_range: template.salaryRange,
+  ...(template.id ? { id: template.id } : {}),
+  name: template.role,
+  slug: template.slug,
   description: template.description,
-  responsibilities: template.responsibilities,
-  required_credentials: template.requiredCredentials,
+  active: template.active !== false,
   updated_at: new Date().toISOString()
 });
+
+export async function saveRoleConfiguration(template: RoleTemplate) {
+  const rolePayload = templateToRow(template);
+  const roleQuery = template.id
+    ? supabase.from('roles').update(rolePayload).eq('id', template.id)
+    : supabase.from('roles').insert(rolePayload);
+  const { data: savedRole, error: roleError } = await roleQuery.select('*').single();
+  if (roleError) throw roleError;
+
+  const { data: existing, error: existingError } = await supabase
+    .from('role_requirements')
+    .select('id')
+    .eq('role_id', savedRole.id);
+  if (existingError) throw existingError;
+
+  const requirements = template.requirements.map(requirement => ({
+    ...(requirement.id ? { id: requirement.id } : {}),
+    role_id: savedRole.id,
+    requirement_key: requirement.requirementKey,
+    display_name: requirement.displayName,
+    stage: requirement.stage,
+    requirement_type: requirement.requirementType,
+    responsible_party: requirement.responsibleParty,
+    is_required: requirement.required,
+    sort_order: requirement.sortOrder,
+    metadata: requirement.metadata || {},
+    active: requirement.active !== false,
+    updated_at: new Date().toISOString()
+  }));
+  if (requirements.length) {
+    const { error: requirementError } = await supabase
+      .from('role_requirements')
+      .upsert(requirements, { onConflict: 'role_id,requirement_key' });
+    if (requirementError) throw requirementError;
+  }
+
+  const retainedIds = new Set(template.requirements.map(requirement => requirement.id).filter(Boolean));
+  const removedIds = (existing || []).map(row => row.id).filter(id => !retainedIds.has(id));
+  if (removedIds.length) {
+    const { error: disableError } = await supabase
+      .from('role_requirements')
+      .update({ active: false, updated_at: new Date().toISOString() })
+      .in('id', removedIds);
+    if (disableError) throw disableError;
+  }
+
+  const { data: complete, error: reloadError } = await supabase
+    .from('roles')
+    .select('*, role_requirements(*)')
+    .eq('id', savedRole.id)
+    .single();
+  if (reloadError) throw reloadError;
+  return mapTemplateRow(complete);
+}
 
 export const mapLogRow = (row: any): ActivityLog => ({
   id: row.id,
@@ -329,7 +408,7 @@ export async function loadWorkflowData(profile: SystemUserProfile) {
     staffQuery,
     documentQuery,
     timesheetQuery,
-    supabase.from('role_templates').select('*').order('role'),
+    supabase.from('roles').select('*, role_requirements(*)').order('name'),
     isAdmin
       ? supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(100)
       : supabase.from('activity_logs').select('*').eq('actor_user_id', profile.id).order('created_at', { ascending: false }).limit(100),

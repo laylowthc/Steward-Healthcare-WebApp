@@ -3,6 +3,7 @@ import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../t
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
 import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
 import OfficialApplicationReview from './OfficialApplicationReview';
+import { activeRequirements, findRole } from '../lib/roleEngine';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -91,7 +92,7 @@ export default function ApplicantKanban({
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
-  const [newPos, setNewPos] = useState<string>(templates[0]?.role || 'Care Assistant');
+  const [newPos, setNewPos] = useState<string>('');
   const [newNotes, setNewNotes] = useState('');
 
   // Define Kanban status list order
@@ -99,7 +100,7 @@ export default function ApplicantKanban({
 
   const handleCreateApplicant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newEmail || !newPhone) return;
+    if (!newName || !newEmail || !newPhone || !newPos) return;
 
     const newId = await onAddApplicant({
       name: newName,
@@ -114,7 +115,7 @@ export default function ApplicantKanban({
     setNewName('');
     setNewEmail('');
     setNewPhone('');
-    setNewPos('Care Assistant');
+    setNewPos('');
     setNewNotes('');
     setShowAddModal(false);
     
@@ -262,29 +263,7 @@ export default function ApplicantKanban({
 
                         <button
                           disabled={applicant.status === 'Rejected' || applicant.status === 'Accepted'}
-                          onClick={() => {
-                            if (applicant.status === 'Applied') {
-                              // Require checklist completed before moving to screening
-                              const template = templates.find(t => t.role === applicant.position);
-                              const reqs = template?.requiredCredentials || [];
-                              const candidateDocuments = getSubjectDocuments(documents, {
-                                userId: applicant.userId,
-                                applicantId: applicant.id
-                              });
-                              const allCompliant = reqs.length > 0 && reqs.every(req =>
-                                deriveRequirementStatus(candidateDocuments, req) === 'Compliant'
-                              );
-                              
-                              if (!allCompliant && reqs.length > 0) {
-                                alert("Documentation incomplete. Please open the applicant's profile to upload documents and complete the compliance checklist first.");
-                                setSelectedApplicant(applicant); // Open the profile to prompt upload
-                                return;
-                              }
-                              moveRight(applicant.id, applicant.status);
-                            } else {
-                              moveRight(applicant.id, applicant.status);
-                            }
-                          }}
+                          onClick={() => moveRight(applicant.id, applicant.status)}
                           className="p-1 px-2 rounded hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 text-[10px] font-bold flex items-center cursor-pointer transition-all"
                         >
                           <span>{applicant.status === 'Accepted' ? 'Approved' : 'Next'}</span>
@@ -362,7 +341,8 @@ export default function ApplicantKanban({
                   onChange={(e) => setNewPos(e.target.value)}
                   className="mt-1 block w-full border border-slate-300 rounded-lg p-2 text-xs bg-white focus:ring-1 focus:ring-purple-500"
                 >
-                  {templates.map(t => (
+                  <option value="">Select a role</option>
+                  {templates.filter(role => role.active !== false).map(t => (
                     <option key={t.role} value={t.role}>{t.role} ({t.salaryRange})</option>
                   ))}
                 </select>
@@ -401,7 +381,7 @@ export default function ApplicantKanban({
       {/* Inspect Candidate Detail Sidebar Modal */}
       {selectedApplicant && (() => {
         // Find matching job template
-        const jobTemplate = templates.find(t => t.role.toLowerCase() === selectedApplicant.position.toLowerCase()) || templates[0];
+        const jobTemplate = findRole(templates, selectedApplicant.roleId, selectedApplicant.position);
         const applicantDocuments = getSubjectDocuments(documents, {
           userId: selectedApplicant.userId,
           applicantId: selectedApplicant.id
@@ -485,12 +465,16 @@ export default function ApplicantKanban({
                         Verify and declare certification status. Updates synchronize with compliance dashboards.
                       </p>
                       <div className="space-y-2">
-                        {jobTemplate.requiredCredentials.map((cred) => {
-                          const currentStatus = deriveRequirementStatus(applicantDocuments, cred);
+                        {activeRequirements(jobTemplate).map((requirement) => {
+                          const categories = requirement.metadata?.document_categories
+                            || (requirement.metadata?.document_category ? [requirement.metadata.document_category] : []);
+                          const currentStatus = categories.length
+                            ? deriveRequirementStatus(applicantDocuments, categories[0])
+                            : requirement.responsibleParty === 'administrator' ? 'Awaiting Review' : 'Missing';
                           return (
-                            <div key={cred} className="p-2.5 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col gap-2">
+                            <div key={requirement.id || requirement.requirementKey} className="p-2.5 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col gap-2">
                               <div className="flex justify-between items-start">
-                                <span className="text-xs font-bold text-slate-800 leading-snug">{cred}</span>
+                                <span className="text-xs font-bold text-slate-800 leading-snug">{requirement.displayName}</span>
                                 <span className={`p-0.5 px-2 text-[9px] font-black uppercase rounded-full border ${
                                   currentStatus === 'Compliant'
                                     ? 'bg-emerald-50 text-emerald-850 border-emerald-200'
@@ -501,8 +485,9 @@ export default function ApplicantKanban({
                                   {currentStatus}
                                 </span>
                               </div>
+                              <span className="text-[9px] font-bold uppercase text-slate-400">{requirement.stage} · {requirement.responsibleParty === 'administrator' ? 'SHC office' : 'applicant'}</span>
                               <div className="flex justify-between items-center gap-1 font-sans mt-1">
-                                <label className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100 transition">
+                                {requirement.responsibleParty === 'applicant' && categories.length > 0 && <label className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100 transition">
                                   + Upload Document
                                   <input 
                                     type="file" 
@@ -511,12 +496,12 @@ export default function ApplicantKanban({
                                     onChange={(e) => {
                                       const file = e.target.files?.[0];
                                       if (file && onUploadDocument) {
-                                        onUploadDocument(file, cred, selectedApplicant.id, selectedApplicant.name);
+                                        onUploadDocument(file, categories[0], selectedApplicant.id, selectedApplicant.name);
                                       }
                                     }} 
                                   />
-                                </label>
-                                <span className="text-[9px] text-slate-400 font-semibold">Derived from verified documents</span>
+                                </label>}
+                                <span className="text-[9px] text-slate-400 font-semibold">{requirement.responsibleParty === 'administrator' ? 'Office verification' : 'Role requirement'}</span>
                               </div>
                             </div>
                           );

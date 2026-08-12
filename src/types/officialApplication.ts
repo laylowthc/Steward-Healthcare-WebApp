@@ -29,6 +29,7 @@ export interface OfficialApplicationData {
   id?: string;
   userId: string;
   applicantId: string;
+  roleId?: string;
   positionApplied: string;
   vacancyReferenceLocation: string;
   sourceOfAdvertisement: string;

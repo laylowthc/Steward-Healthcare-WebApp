@@ -9,10 +9,17 @@ import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
-import { deriveCompliance, deriveRequirementStatus, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
+import { deriveCompliance, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 import SHCLoader from './SHCLoader';
 import { loadOfficialApplication } from '../lib/officialApplicationRepository';
 import { OfficialApplicationStatus } from '../types/officialApplication';
+import { OfficialApplicationData } from '../types/officialApplication';
+import {
+  activeRequirements,
+  findRole,
+  requirementDocumentCategories,
+  requirementProgress
+} from '../lib/roleEngine';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -21,6 +28,7 @@ interface ApplicantPortalProps {
   documents: Document[];
   onUploadDocument: (file: File, category: string) => Promise<void> | void;
   onLogout: () => void;
+  onUpdateRole: (role: RoleTemplate) => Promise<void> | void;
   onSaveCVData?: (applicantId: string, cvData: any) => void;
   onSaveDocument?: (doc: Document) => void;
 }
@@ -32,11 +40,15 @@ export default function ApplicantPortal({
   documents,
   onUploadDocument,
   onLogout,
+  onUpdateRole,
   onSaveCVData,
   onSaveDocument
 }: ApplicantPortalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
   const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started' | 'Loading' | 'Unavailable'>('Loading');
+  const [applicationData, setApplicationData] = useState<OfficialApplicationData | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState(applicant.roleId || '');
+  const [savingRole, setSavingRole] = useState(false);
   
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<string>('');
@@ -72,13 +84,22 @@ export default function ApplicantPortal({
     let active = true;
     setApplicationStatus('Loading');
     loadOfficialApplication(authenticatedUserId)
-      .then(application => active && setApplicationStatus(application?.status || 'Not Started'))
+      .then(application => {
+        if (!active) return;
+        setApplicationData(application);
+        setApplicationStatus(application?.status || 'Not Started');
+        if (!selectedRoleId && application?.roleId) setSelectedRoleId(application.roleId);
+      })
       .catch(error => {
         console.error('Unable to load the official application status:', error);
         if (active) setApplicationStatus('Unavailable');
       });
     return () => { active = false; };
   }, [authenticatedUserId, activeTab]);
+
+  useEffect(() => {
+    setSelectedRoleId(applicant.roleId || selectedRoleId);
+  }, [applicant.roleId]);
 
   useEffect(() => {
     let active = true;
@@ -101,17 +122,32 @@ export default function ApplicantPortal({
     };
   }, [viewingFileUrl]);
 
-  const jobTemplate = templates.find(t => t.role.toLowerCase() === applicant.position.toLowerCase()) || templates[0];
-  const reqs = jobTemplate?.requiredCredentials || ['Passport', 'DBS Certificate', 'Right to Work', 'Training Certificate'];
+  const jobTemplate = findRole(templates, selectedRoleId, applicant.position);
+  const availableRoles = templates.filter(role => role.active !== false);
+  const uploadOptions = requirementDocumentCategories(jobTemplate);
 
   // Documents for this applicant
   const applicantDocs = getSubjectDocuments(documents, applicantIdentity);
 
-  // Derive compliance checklist status
-  const statusChecklist: Record<string, 'Compliant' | 'Awaiting Review' | 'Missing'> = {};
-  reqs.forEach(req => {
-    statusChecklist[req] = deriveRequirementStatus(applicantDocs, req);
-  });
+  const handleRoleChange = async (role: RoleTemplate) => {
+    const previousRoleId = selectedRoleId;
+    setSelectedRoleId(role.id || '');
+    setSavingRole(true);
+    try {
+      await onUpdateRole(role);
+      setApplicationData(current => current ? {
+        ...current,
+        roleId: role.id,
+        positionApplied: role.role
+      } : current);
+    } catch (error: any) {
+      setSelectedRoleId(previousRoleId);
+      alert(error.message || 'Role selection could not be saved.');
+      throw error;
+    } finally {
+      setSavingRole(false);
+    }
+  };
 
   const handleUpload = async () => {
     if (!uploadFile || !uploadCategory) {
@@ -203,7 +239,7 @@ export default function ApplicantPortal({
     const existing = applicantDocs.find(d => d.category === 'Job Description');
     const docToFill: Document = existing || {
       id: `doc_jd_${Date.now()}`,
-      name: `Job_Description_${applicant.position.replace(/\s+/g, '_')}.pdf`,
+      name: `Job_Description_${(jobTemplate?.role || 'Role').replace(/\s+/g, '_')}.pdf`,
       category: 'Job Description',
       staffId: applicant.id,
       staffName: applicant.name,
@@ -256,7 +292,7 @@ export default function ApplicantPortal({
     email: applicant.email,
     phone: applicant.phone,
     address: applicant.cvData?.personalDetails?.address || '',
-    role: applicant.position as any,
+    role: (jobTemplate?.role || applicant.position) as any,
     status: 'Active',
     accountStatus: 'Active',
     rosterStatus: 'Pending',
@@ -277,7 +313,7 @@ export default function ApplicantPortal({
               <span className="px-2 py-0.5 bg-purple-100 text-purple-900 border border-purple-200 text-[10px] font-black uppercase rounded">
                 Candidate Portal
               </span>
-              <span className="text-xs text-slate-500 font-semibold">• Position: {applicant.position}</span>
+              <span className="text-xs text-slate-500 font-semibold">• Position: {jobTemplate?.role || 'Not selected'}</span>
               </div>
               <h1 className="text-xl font-bold text-slate-900 mt-1">{applicant.name}</h1>
             </div>
@@ -330,6 +366,34 @@ export default function ApplicantPortal({
       </header>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
+
+        <section className={`rounded-2xl border p-5 shadow-sm ${jobTemplate ? 'border-purple-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-sm font-black text-slate-900">Role you are applying for</h2>
+              <p className="mt-1 text-xs text-slate-600">
+                Your application, onboarding and deployment checklist updates from SHC’s role configuration.
+              </p>
+            </div>
+            <select
+              value={jobTemplate?.id || ''}
+              disabled={savingRole}
+              onChange={event => {
+                const role = templates.find(item => item.id === event.target.value);
+                if (role) void handleRoleChange(role).catch(() => undefined);
+              }}
+              className="min-w-64 rounded-xl border border-purple-300 bg-white px-3 py-2.5 text-sm font-bold text-purple-950 disabled:opacity-60"
+              required
+            >
+              <option value="">Select Nurse or Care Assistant</option>
+              {availableRoles.map(role => (
+                <option key={role.id || role.role} value={role.id}>{role.role}</option>
+              ))}
+            </select>
+          </div>
+          {savingRole && <p className="mt-2 text-[11px] font-bold text-purple-800">Saving role selection…</p>}
+          {!jobTemplate && <p className="mt-3 text-xs font-bold text-amber-900">Select a role before completing or submitting the application.</p>}
+        </section>
 
         {/* TAB 1: OVERVIEW & COMPLIANCE */}
         {activeTab === 'overview' && (
@@ -398,35 +462,60 @@ export default function ApplicantPortal({
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Compliance Checklist */}
-              <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              {/* Role-driven requirements checklist */}
+              <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-5">
                 <div>
                   <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-purple-700" />
-                    Required Compliance Credentials
+                    {jobTemplate ? `${jobTemplate.role} Requirements` : 'Role Requirements'}
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    Upload official compliance documents required for Care Quality Commission (CQC) clearance.
+                    Applicant actions and SHC office checks are shown separately so office verification is not treated as your error.
                   </p>
                 </div>
 
-                <div className="space-y-2.5">
-                  {reqs.map(req => {
-                    const status = statusChecklist[req] || 'Missing';
-                    return (
-                      <div key={req} className="flex items-center justify-between p-3 border border-slate-200 rounded-xl bg-slate-50">
-                        <span className="text-xs font-bold text-slate-800">{req}</span>
-                        <span className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full border ${
-                          status === 'Compliant' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                          status === 'Awaiting Review' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                          'bg-rose-50 text-rose-800 border-rose-200'
-                        }`}>
-                          {status}
-                        </span>
+                {jobTemplate ? (
+                  <div className="space-y-5">
+                    {([
+                      ['application', 'Application'],
+                      ['onboarding', 'HR Onboarding'],
+                      ['deployment', 'Deployment / Office Verification']
+                    ] as const).map(([stage, title]) => (
+                      <div key={stage}>
+                        <h3 className="mb-2 text-[10px] font-black uppercase tracking-wider text-purple-900">{title}</h3>
+                        <div className="space-y-2">
+                          {activeRequirements(jobTemplate, stage).map(requirement => {
+                            const status = requirementProgress(requirement, applicationData, applicantDocs);
+                            return (
+                              <div key={requirement.id || requirement.requirementKey} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <span className="text-xs font-bold text-slate-800">{requirement.displayName}</span>
+                                    <span className="mt-1 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                                      {requirement.responsibleParty === 'administrator' ? 'SHC office responsible' : 'Applicant responsible'}
+                                      {!requirement.required && ' · Optional'}
+                                    </span>
+                                  </div>
+                                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase ${
+                                    status === 'Complete' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
+                                    status === 'Pending SHC Verification' || status === 'In Progress' ? 'border-amber-200 bg-amber-50 text-amber-800' :
+                                    'border-rose-200 bg-rose-50 text-rose-800'
+                                  }`}>
+                                    {status}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50 p-4 text-xs font-bold text-amber-900">
+                    Select a role to load its requirements.
+                  </div>
+                )}
               </section>
 
               {/* Upload Widget */}
@@ -450,8 +539,8 @@ export default function ApplicantPortal({
                       className="w-full text-xs p-2.5 border border-slate-300 rounded-xl bg-white font-medium"
                     >
                       <option value="">-- Choose Category --</option>
-                      {reqs.map(req => (
-                        <option key={req} value={req}>{req}</option>
+                      {uploadOptions.map(category => (
+                        <option key={category} value={category}>{category}</option>
                       ))}
                       <option value="Passport">Passport / Photo ID</option>
                       <option value="DBS Certificate">DBS Certificate</option>
@@ -544,6 +633,7 @@ export default function ApplicantPortal({
               applicant={applicant}
               authenticatedUserId={authenticatedUserId}
               templates={templates}
+              onRoleChange={handleRoleChange}
               onCancel={() => setActiveTab('overview')}
             />
           </div>

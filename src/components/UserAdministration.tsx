@@ -12,6 +12,7 @@ import { applicantToRow, getAvatarUrlFromStaffNumber, insertActivityLog } from '
 import { resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 import SHCLoader from './SHCLoader';
 import { readApiResponse } from '../lib/apiResponse';
+import { RoleTemplate } from '../types';
 
 interface SystemUser {
   id: string;
@@ -26,9 +27,10 @@ interface SystemUser {
 
 interface UserAdministrationProps {
   onSystemReset?: () => Promise<void>;
+  roles: RoleTemplate[];
 }
 
-export default function UserAdministration({ onSystemReset }: UserAdministrationProps) {
+export default function UserAdministration({ onSystemReset, roles }: UserAdministrationProps) {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,7 +59,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('temp_onboarding');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
-  const [targetPosition, setTargetPosition] = useState('Care Assistant');
+  const [targetPosition, setTargetPosition] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   useEffect(() => {
@@ -138,7 +140,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
   const handleImportContact = async (contact: GmailContact) => {
     // Explicit user confirmation required as per workspace integration guidelines
     const confirmed = window.confirm(
-      `Are you sure you want to import ${contact.name} (${contact.email}) as a Caregiver Applicant into the onboarding pipeline?`
+      `Are you sure you want to import ${contact.name} (${contact.email}) as an applicant? They will select an operational role in their portal.`
     );
     if (!confirmed) return;
 
@@ -147,7 +149,7 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
         name: contact.name,
         email: contact.email,
         phone: '(Synchronized from Gmail)',
-        position: 'Care Assistant',
+        position: '',
         status: 'Applied' as const,
         dateCreated: new Date().toISOString().split('T')[0],
         notes: `IMPORTED FROM GMAIL OUTREACH: Extracted candidate inquiry. (Email Subject: "${contact.subject}")`
@@ -971,10 +973,10 @@ export default function UserAdministration({ onSystemReset }: UserAdministration
                     onChange={(e) => setTargetPosition(e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 bg-slate-50"
                   >
-                    <option value="Care Assistant">Care Assistant</option>
-                    <option value="Senior Care Assistant">Senior Care Assistant</option>
-                    <option value="Nurse">Registered Nurse</option>
-                    <option value="Support Worker">Support Worker</option>
+                    <option value="">Select a configured role</option>
+                    {roles.filter(role => role.active !== false).map(role => (
+                      <option key={role.id || role.role} value={role.role}>{role.role}</option>
+                    ))}
                   </select>
                 </div>
               </div>

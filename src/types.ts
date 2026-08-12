@@ -13,6 +13,7 @@ export interface CVData {
 export interface Applicant {
   id: string;
   userId?: string;
+  roleId?: string;
   name: string;
   email: string;
   phone: string;
@@ -33,6 +34,7 @@ export interface Staff {
   id: string;
   userId?: string;
   applicantId?: string;
+  roleId?: string;
   name: string;
   email: string;
   phone: string;
@@ -116,12 +118,40 @@ export interface Timesheet {
   reviewer?: string;
 }
 
+export type RequirementStage = 'application' | 'onboarding' | 'deployment';
+export type RequirementType =
+  | 'information_field'
+  | 'document'
+  | 'hr_form'
+  | 'acknowledgement_signature'
+  | 'office_verification'
+  | 'professional_registration';
+export type ResponsibleParty = 'applicant' | 'administrator';
+
+export interface RoleRequirement {
+  id?: string;
+  roleId?: string;
+  requirementKey: string;
+  displayName: string;
+  stage: RequirementStage;
+  requirementType: RequirementType;
+  responsibleParty: ResponsibleParty;
+  required: boolean;
+  sortOrder: number;
+  metadata: Record<string, any>;
+  active: boolean;
+}
+
 export interface RoleTemplate {
+  id?: string;
   role: StaffRole;
+  slug?: string;
   salaryRange: string;
   description: string;
   responsibilities: string[];
   requiredCredentials: string[];
+  active?: boolean;
+  requirements: RoleRequirement[];
 }
 
 export interface FamilyFeedback {

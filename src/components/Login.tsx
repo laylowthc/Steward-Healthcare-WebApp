@@ -68,7 +68,7 @@ export default function Login({ onLoginSuccess, onAddApplicant }: LoginProps) {
       name: regName,
       email: regEmail,
       phone: '',
-      position: 'Care Assistant',
+      position: '',
       status: 'Applied',
       notes: 'Self-registered applicant via portal.'
     }, userId);

@@ -23,12 +23,14 @@ import {
   saveEqualOpportunities,
   saveOfficialApplication,
 } from "../lib/officialApplicationRepository";
-import { isNursingRole, validateOfficialApplication } from "../lib/officialApplicationValidation";
+import { validateOfficialApplication } from "../lib/officialApplicationValidation";
+import { findRole, hasRequirement } from "../lib/roleEngine";
 
 interface Props {
   applicant: Applicant;
   authenticatedUserId: string;
   templates: RoleTemplate[];
+  onRoleChange?: (role: RoleTemplate) => Promise<void> | void;
   onCancel?: () => void;
 }
 const input =
@@ -42,6 +44,7 @@ const initialApplication = (
   return {
     userId,
     applicantId: applicant.id,
+    roleId: applicant.roleId,
     positionApplied: applicant.position || "",
     vacancyReferenceLocation: "",
     sourceOfAdvertisement: "",
@@ -200,6 +203,7 @@ export default function OnlineApplicationForm({
   applicant,
   authenticatedUserId,
   templates,
+  onRoleChange,
   onCancel,
 }: Props) {
   const [form, setForm] = useState(() =>
@@ -214,13 +218,13 @@ export default function OnlineApplicationForm({
   const loaded = useRef(false);
   const timer = useRef<number>();
   const roleOptions = useMemo(
-    () => Array.from(new Set([
-      ...templates.map((t) => t.role).filter(Boolean),
-      applicant.position,
-    ].filter(Boolean))),
-    [templates, applicant.position],
+    () => templates.filter(role => role.active !== false),
+    [templates],
   );
-  const isNurse = isNursingRole(form.positionApplied);
+  const selectedRole = findRole(templates, form.roleId, form.positionApplied);
+  const showNmcRegistration = hasRequirement(selectedRole, ['nmc_registration_information', 'nmc_pin', 'nmc_expiry']);
+  const requireNmcPin = hasRequirement(selectedRole, ['nmc_registration_information', 'nmc_pin']);
+  const requireNmcExpiry = hasRequirement(selectedRole, 'nmc_expiry');
   const canEdit =
     form.status === "Draft" || form.status === "Returned for Correction";
   const update = <K extends keyof OfficialApplicationData>(
@@ -235,7 +239,16 @@ export default function OnlineApplicationForm({
         const found = await loadOfficialApplication(authenticatedUserId);
         if (!active) return;
         if (found) {
-          setForm(found);
+          const persistedRole = findRole(
+            templates,
+            found.roleId || applicant.roleId,
+            found.positionApplied || applicant.position
+          );
+          setForm({
+            ...found,
+            roleId: persistedRole?.id || found.roleId || applicant.roleId,
+            positionApplied: persistedRole?.role || found.positionApplied || applicant.position
+          });
           if (found.id) {
             const eo = await loadEqualOpportunities(found.id);
             if (eo && active) setEqual(eo);
@@ -287,6 +300,7 @@ export default function OnlineApplicationForm({
     return () => window.clearTimeout(timer.current);
   }, [
     form.currentStep,
+    form.roleId,
     form.positionApplied,
     form.vacancyReferenceLocation,
     form.sourceOfAdvertisement,
@@ -336,7 +350,7 @@ export default function OnlineApplicationForm({
   ]);
 
   const submit = async () => {
-    const missing = validateOfficialApplication(form);
+    const missing = validateOfficialApplication(form, selectedRole);
     if (missing.length) {
       setError(`Please complete: ${missing.join(", ")}.`);
       return;
@@ -444,12 +458,26 @@ export default function OnlineApplicationForm({
             <Field label="Application for the Position of">
               <select
                 className={input}
-                value={form.positionApplied}
-                onChange={(e) => update("positionApplied", e.target.value)}
+                value={form.roleId || ""}
+                onChange={async (e) => {
+                  const role = templates.find(item => item.id === e.target.value);
+                  if (!role) return;
+                  try {
+                    await onRoleChange?.(role);
+                    setForm(previous => ({
+                      ...previous,
+                      roleId: role.id,
+                      positionApplied: role.role
+                    }));
+                  } catch {
+                    // The portal reports persistence failures and keeps the prior role.
+                  }
+                }}
+                required
               >
                 <option value="">Select a role</option>
-                {roleOptions.map((r) => (
-                  <option key={r}>{r}</option>
+                {roleOptions.map((role) => (
+                  <option key={role.id || role.role} value={role.id}>{role.role}</option>
                 ))}
               </select>
             </Field>
@@ -528,23 +556,24 @@ export default function OnlineApplicationForm({
         )}
         {form.currentStep === 2 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="md:col-span-2 rounded-xl border border-purple-100 bg-purple-50 p-3 text-xs text-purple-900">
-              NMC fields are mandatory only for nursing roles. Current role:{" "}
-              <b>{form.positionApplied || "Not selected"}</b>.
-            </div>
-            <Field label={`NMC PIN${isNurse ? " *" : ""}`}>
-              <Text value={form.nmcPin} onChange={(v) => update("nmcPin", v)} />
-            </Field>
-            <Field label={`RNA${isNurse ? " *" : ""}`}>
-              <Text value={form.rna} onChange={(v) => update("rna", v)} />
-            </Field>
-            <Field label={`NMC Expiry Date${isNurse ? " *" : ""}`}>
-              <Text
-                type="date"
-                value={form.nmcExpiryDate}
-                onChange={(v) => update("nmcExpiryDate", v)}
-              />
-            </Field>
+            {showNmcRegistration && (
+              <>
+                <div className="md:col-span-2 rounded-xl border border-purple-100 bg-purple-50 p-3 text-xs text-purple-900">
+                  NMC registration is required by the configured requirements for <b>{selectedRole?.role}</b>.
+                </div>
+                <Field label={`NMC PIN${requireNmcPin ? " *" : ""}`}>
+                  <Text value={form.nmcPin} onChange={(v) => update("nmcPin", v)} />
+                </Field>
+                {hasRequirement(selectedRole, 'nmc_registration_information') && (
+                  <Field label="NMC registration / RNA *">
+                    <Text value={form.rna} onChange={(v) => update("rna", v)} />
+                  </Field>
+                )}
+                <Field label={`NMC Expiry Date${requireNmcExpiry ? " *" : ""}`}>
+                  <Text type="date" value={form.nmcExpiryDate} onChange={(v) => update("nmcExpiryDate", v)} />
+                </Field>
+              </>
+            )}
             <Field label="Right to Work">
               <Text
                 value={form.rightToWork}

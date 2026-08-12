@@ -56,7 +56,8 @@ import {
   mapTimesheetRow,
   staffToRow,
   timesheetToRow,
-  getCurrentProfile
+  getCurrentProfile,
+  saveRoleConfiguration
 } from './lib/workflowRepository';
 
 // Dynamic Sub-Views Imports
@@ -431,6 +432,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       if (fields.email !== undefined) updatePayload.email = fields.email.toLowerCase();
       if (fields.phone !== undefined) updatePayload.phone = fields.phone;
       if (fields.position !== undefined) updatePayload.position = fields.position;
+      if (fields.roleId !== undefined) updatePayload.role_id = fields.roleId || null;
       if (fields.status !== undefined) updatePayload.status = fields.status;
       if (fields.notes !== undefined) updatePayload.notes = fields.notes;
       if (fields.interviewTime !== undefined) updatePayload.interview_time = fields.interviewTime || null;
@@ -449,6 +451,28 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       console.error('Failed to update applicant details:', error);
       alert(error.message || 'Failed to update applicant details.');
     }
+  };
+
+  const handleSaveRoleConfiguration = async (role: RoleTemplate) => {
+    const saved = await saveRoleConfiguration(role);
+    setTemplates(current => {
+      const exists = current.some(item => item.id === saved.id);
+      return exists
+        ? current.map(item => item.id === saved.id ? saved : item)
+        : [...current, saved].sort((a, b) => a.role.localeCompare(b.role));
+    });
+  };
+
+  const handleUpdateApplicantRole = async (id: string, role: RoleTemplate) => {
+    if (!role.id) throw new Error('The selected role has not been persisted.');
+    const { data, error } = await supabase
+      .from('applicants')
+      .update({ role_id: role.id, position: role.role, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    setApplicants(current => current.map(applicant => applicant.id === id ? mapApplicantRow(data) : applicant));
   };
 
   const handleSaveCVData = (applicantId: string, cvData: any) => {
@@ -1274,6 +1298,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
         authenticatedUserId={supabaseUser?.id || currentUserId}
         templates={templates}
         documents={documents}
+        onUpdateRole={role => handleUpdateApplicantRole(activeApplicant.id, role)}
         onUploadDocument={(file, category) => {
           return handleUploadDocument({
             name: file.name,
@@ -1692,7 +1717,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'templates' && (
                     <RoleTemplates
                       templates={templates}
-                      onChangeTemplates={setTemplates}
+                      onSaveRole={handleSaveRoleConfiguration}
                     />
                   )}
 
@@ -1718,7 +1743,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   )}
 
                   {activeTab === 'administration' && (
-                    <UserAdministration onSystemReset={handleSystemReset} />
+                    <UserAdministration onSystemReset={handleSystemReset} roles={templates} />
                   )}
 
                   {/* Google Workspace operations center */}
