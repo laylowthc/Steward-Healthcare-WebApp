@@ -5,6 +5,7 @@ import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileStat
 import OfficialApplicationReview from './OfficialApplicationReview';
 import { activeRequirements, findRole } from '../lib/roleEngine';
 import HrOnboardingReview from './HrOnboardingReview';
+import JobDescriptionReview from './JobDescriptionReview';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -440,6 +441,10 @@ export default function ApplicantKanban({
 
                   <div className="pt-4 border-t border-slate-100">
                     <HrOnboardingReview userId={selectedApplicant.userId} />
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <JobDescriptionReview userId={selectedApplicant.userId} />
                   </div>
 
                   {/* job description autolink section */}

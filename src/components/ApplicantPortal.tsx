@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Applicant, RoleTemplate, Document, Staff } from '../types';
+import { Applicant, RoleTemplate, Document } from '../types';
 import { 
   Upload, FileText, CheckCircle, Clock, Eye, ExternalLink, X,
   PenTool, ShieldCheck, UserCheck, BookOpen, AlertCircle, Sparkles, CheckSquare
 } from 'lucide-react';
 import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
-import InteractiveDocumentFiller from './InteractiveDocumentFiller';
 import HrOnboardingFormEditor from './HrOnboardingFormEditor';
+import JobDescriptionApplicant from './JobDescriptionApplicant';
 import BrandedLogo from './BrandedLogo';
-import { getSignedUrlForDocument, supabase } from '../lib/supabase';
-import { deriveCompliance, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
+import { getSignedUrlForDocument } from '../lib/supabase';
+import { getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
 import SHCLoader from './SHCLoader';
 import { loadOfficialApplication } from '../lib/officialApplicationRepository';
 import { OfficialApplicationStatus } from '../types/officialApplication';
@@ -24,6 +24,9 @@ import {
 import { configuredHrForms, isHrOnboardingComplete } from '../lib/hrOnboarding';
 import { loadHrOnboardingForms } from '../lib/hrOnboardingRepository';
 import { HrFormDefinition, HrOnboardingForm } from '../types/hrOnboarding';
+import { JobDescription, JobDescriptionAcknowledgement } from '../types/jobDescription';
+import { loadCurrentJobDescription, loadJobDescriptionAcknowledgements } from '../lib/jobDescriptionRepository';
+import { currentJobDescriptionComplete, jobDescriptionStatus } from '../lib/jobDescriptions';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -54,6 +57,8 @@ export default function ApplicantPortal({
   const [hrForms, setHrForms] = useState<HrOnboardingForm[]>([]);
   const [hrFormsLoading, setHrFormsLoading] = useState(true);
   const [activeHrDefinition, setActiveHrDefinition] = useState<HrFormDefinition | null>(null);
+  const [currentJobDescription, setCurrentJobDescription] = useState<JobDescription | null>(null);
+  const [jobDescriptionAcknowledgements, setJobDescriptionAcknowledgements] = useState<JobDescriptionAcknowledgement[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState(applicant.roleId || '');
   const [savingRole, setSavingRole] = useState(false);
   
@@ -64,9 +69,6 @@ export default function ApplicantPortal({
   const [viewingFileUrl, setViewingFileUrl] = useState<string | null>(null);
   const [resolvedViewingUrl, setResolvedViewingUrl] = useState<string | null>(null);
   const [isLoadingViewing, setIsLoadingViewing] = useState(false);
-
-  // Active filler doc state
-  const [activeFillingDoc, setActiveFillingDoc] = useState<Document | null>(null);
 
   // Profile avatar photo url state
   const applicantIdentity = { userId: authenticatedUserId, applicantId: applicant.id };
@@ -144,6 +146,19 @@ export default function ApplicantPortal({
   const availableRoles = templates.filter(role => role.active !== false);
   const uploadOptions = requirementDocumentCategories(jobTemplate);
 
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      jobTemplate?.id ? loadCurrentJobDescription(jobTemplate.id) : Promise.resolve(null),
+      loadJobDescriptionAcknowledgements(authenticatedUserId),
+    ]).then(([description, acknowledgements]) => {
+      if (!active) return;
+      setCurrentJobDescription(description);
+      setJobDescriptionAcknowledgements(acknowledgements);
+    }).catch(error => console.error('Unable to load Job Description status:', error));
+    return () => { active = false; };
+  }, [authenticatedUserId, jobTemplate?.id]);
+
   // Documents for this applicant
   const applicantDocs = getSubjectDocuments(documents, applicantIdentity);
 
@@ -206,72 +221,6 @@ export default function ApplicantPortal({
         references: formData.references
       });
     }
-  };
-
-  const handleOpenJobDescription = () => {
-    const existing = applicantDocs.find(d => d.category === 'Job Description');
-    const docToFill: Document = existing || {
-      id: `doc_jd_${Date.now()}`,
-      name: `Job_Description_${(jobTemplate?.role || 'Role').replace(/\s+/g, '_')}.pdf`,
-      category: 'Job Description',
-      staffId: applicant.id,
-      staffName: applicant.name,
-      uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Awaiting Review',
-      size: '1.8 MB'
-    };
-    setActiveFillingDoc(docToFill);
-  };
-
-  const handleSaveDocumentSignature = async (filledData: Record<string, any>) => {
-    if (!activeFillingDoc) return;
-
-    const updatedDoc: Document = {
-      ...activeFillingDoc,
-      status: 'Approved',
-      filledData
-    };
-
-    if (onSaveDocument) {
-      onSaveDocument(updatedDoc);
-    }
-
-    // Persist to Supabase
-    try {
-      const { error } = await supabase.from('documents').upsert({
-        user_id: applicant.id,
-        document_name: updatedDoc.name,
-        category: updatedDoc.category,
-        file_path: updatedDoc.fileUrl || '#',
-        verification_status: 'Approved',
-        notes: JSON.stringify(filledData)
-      });
-      if (error) console.error("Error saving signed document to Supabase:", error);
-    } catch (e) {
-      console.error("Exception saving document to Supabase:", e);
-    }
-
-    setActiveFillingDoc(null);
-  };
-
-  const applicantCompliance = deriveCompliance(applicantDocs, applicantIdentity);
-
-  // Adapter required by the shared document filler; values come from the applicant's records.
-  const applicantAsStaff: Staff = {
-    id: applicant.id,
-    userId: applicant.userId,
-    applicantId: applicant.id,
-    name: applicant.name,
-    email: applicant.email,
-    phone: applicant.phone,
-    address: applicant.cvData?.personalDetails?.address || '',
-    role: (jobTemplate?.role || applicant.position) as any,
-    status: 'Active',
-    accountStatus: 'Active',
-    rosterStatus: 'Pending',
-    ...applicantCompliance,
-    avatarUrl: avatarUrl,
-    joinedDate: applicant.dateCreated
   };
 
   return (
@@ -391,7 +340,7 @@ export default function ApplicantPortal({
                     applicationStatus,
                     desc: applicationStatus },
                   { title: '4. HR Onboarding', status: isHrOnboardingComplete(jobTemplate, hrForms) ? 'Done' : hrForms.length ? 'In Progress' : 'Pending', desc: 'Persistent HR forms' },
-                  { title: '5. Job Description', status: applicantDocs.some(d => d.category === 'Job Description') ? 'Done' : 'Pending', desc: 'Read & E-Signed' }
+                  { title: '5. Job Description', status: currentJobDescriptionComplete(currentJobDescription, jobDescriptionAcknowledgements) ? 'Done' : currentJobDescription ? 'In Progress' : 'Pending', desc: jobDescriptionStatus(currentJobDescription, jobDescriptionAcknowledgements) }
                 ].map((step, idx) => {
                   const isDone = step.status === 'Done' || step.status === 'Approved';
                   const isCurrent = step.status === 'In Progress' || step.status === 'Returned';
@@ -458,7 +407,7 @@ export default function ApplicantPortal({
                         <h3 className="mb-2 text-[10px] font-black uppercase tracking-wider text-purple-900">{title}</h3>
                         <div className="space-y-2">
                           {activeRequirements(jobTemplate, stage).map(requirement => {
-                            const status = requirementProgress(requirement, applicationData, applicantDocs, hrForms);
+                            const status = requirementProgress(requirement, applicationData, applicantDocs, hrForms, currentJobDescriptionComplete(currentJobDescription, jobDescriptionAcknowledgements));
                             return (
                               <div key={requirement.id || requirement.requirementKey} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                 <div className="flex items-start justify-between gap-3">
@@ -677,50 +626,21 @@ export default function ApplicantPortal({
               </p>
             </div>
 
-            <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4 max-w-3xl mx-auto">
-              <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-black text-purple-950 uppercase block">Assigned Candidate Role</span>
-                  <div className="text-base font-bold text-slate-900">{applicant.position}</div>
-                </div>
-                {applicantDocs.some(d => d.category === 'Job Description') ? (
-                  <span className="text-xs font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    Job Description Signed
-                  </span>
-                ) : (
-                  <span className="text-xs font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
-                    Awaiting E-Signature
-                  </span>
-                )}
-              </div>
-
-              <p className="text-xs text-slate-600">
-                You must review every duty outlined in the official Steward Health Care job description for {applicant.position}s, acknowledge compliance, and append your electronic signature.
-              </p>
-
-              <button
-                onClick={handleOpenJobDescription}
-                className="w-full py-3 bg-gradient-to-r from-purple-900 to-indigo-900 hover:opacity-95 text-white text-xs font-extrabold rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <PenTool className="w-4 h-4" />
-                <span>Open & E-Sign Official Job Description</span>
-              </button>
+            <div className="mx-auto max-w-4xl">
+              <JobDescriptionApplicant
+                applicant={applicant}
+                authenticatedUserId={authenticatedUserId}
+                role={jobTemplate}
+                onStateChange={(description, acknowledgements) => {
+                  setCurrentJobDescription(description);
+                  setJobDescriptionAcknowledgements(acknowledgements);
+                }}
+              />
             </div>
           </div>
         )}
 
       </main>
-
-      {/* Interactive Document Filler Modal */}
-      {activeFillingDoc && (
-        <InteractiveDocumentFiller
-          document={activeFillingDoc}
-          staffMember={applicantAsStaff}
-          onClose={() => setActiveFillingDoc(null)}
-          onSaveSignature={handleSaveDocumentSignature}
-        />
-      )}
 
       {activeHrDefinition && (
         <HrOnboardingFormEditor

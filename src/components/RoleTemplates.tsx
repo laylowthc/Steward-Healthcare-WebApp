@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { slugifyRole } from '../lib/roleEngine';
 import SHCLoader from './SHCLoader';
+import JobDescriptionAdmin from './JobDescriptionAdmin';
 
 interface RoleTemplatesProps {
   templates: RoleTemplate[];
@@ -262,6 +263,8 @@ export default function RoleTemplates({ templates, onSaveRole }: RoleTemplatesPr
               <Check className="mx-auto mb-2 h-5 w-5 text-slate-400" /> Add the first staged requirement for this role.
             </div>
           )}
+
+          <JobDescriptionAdmin roleId={draft.id} roleName={draft.role || 'Role'} />
         </section>
       </div>
     </div>
