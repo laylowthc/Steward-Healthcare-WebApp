@@ -4,6 +4,7 @@ import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight
 import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
 import OfficialApplicationReview from './OfficialApplicationReview';
 import { activeRequirements, findRole } from '../lib/roleEngine';
+import HrOnboardingReview from './HrOnboardingReview';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
@@ -435,6 +436,10 @@ export default function ApplicantKanban({
 
                   <div className="pt-4 border-t border-slate-100">
                     <OfficialApplicationReview userId={selectedApplicant.userId} />
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <HrOnboardingReview userId={selectedApplicant.userId} />
                   </div>
 
                   {/* job description autolink section */}

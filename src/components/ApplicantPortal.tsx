@@ -7,6 +7,7 @@ import {
 import OnlineApplicationForm from './OnlineApplicationForm';
 import PassportPhotoUpload from './PassportPhotoUpload';
 import InteractiveDocumentFiller from './InteractiveDocumentFiller';
+import HrOnboardingFormEditor from './HrOnboardingFormEditor';
 import BrandedLogo from './BrandedLogo';
 import { getSignedUrlForDocument, supabase } from '../lib/supabase';
 import { deriveCompliance, getSubjectDocuments, resolveAvatarUrl, resolveDisplayAvatarUrl, resolvePreferredAvatarUrl } from '../lib/profileState';
@@ -20,6 +21,9 @@ import {
   requirementDocumentCategories,
   requirementProgress
 } from '../lib/roleEngine';
+import { configuredHrForms, isHrOnboardingComplete } from '../lib/hrOnboarding';
+import { loadHrOnboardingForms } from '../lib/hrOnboardingRepository';
+import { HrFormDefinition, HrOnboardingForm } from '../types/hrOnboarding';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -47,6 +51,9 @@ export default function ApplicantPortal({
   const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
   const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started' | 'Loading' | 'Unavailable'>('Loading');
   const [applicationData, setApplicationData] = useState<OfficialApplicationData | null>(null);
+  const [hrForms, setHrForms] = useState<HrOnboardingForm[]>([]);
+  const [hrFormsLoading, setHrFormsLoading] = useState(true);
+  const [activeHrDefinition, setActiveHrDefinition] = useState<HrFormDefinition | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState(applicant.roleId || '');
   const [savingRole, setSavingRole] = useState(false);
   
@@ -98,6 +105,16 @@ export default function ApplicantPortal({
   }, [authenticatedUserId, activeTab]);
 
   useEffect(() => {
+    let active = true;
+    setHrFormsLoading(true);
+    loadHrOnboardingForms(authenticatedUserId)
+      .then(forms => { if (active) setHrForms(forms); })
+      .catch(error => console.error('Unable to load HR onboarding forms:', error))
+      .finally(() => { if (active) setHrFormsLoading(false); });
+    return () => { active = false; };
+  }, [authenticatedUserId]);
+
+  useEffect(() => {
     setSelectedRoleId(applicant.roleId || selectedRoleId);
   }, [applicant.roleId]);
 
@@ -123,6 +140,7 @@ export default function ApplicantPortal({
   }, [viewingFileUrl]);
 
   const jobTemplate = findRole(templates, selectedRoleId, applicant.position);
+  const configuredOnboardingForms = configuredHrForms(jobTemplate);
   const availableRoles = templates.filter(role => role.active !== false);
   const uploadOptions = requirementDocumentCategories(jobTemplate);
 
@@ -188,51 +206,6 @@ export default function ApplicantPortal({
         references: formData.references
       });
     }
-  };
-
-  // List of mandatory HR onboarding documents
-  const hrDocList = [
-    {
-      category: 'New Starter Form',
-      title: 'New Starter Information Form (Appendix D)',
-      desc: 'Employee personal details, tax history, emergency contacts & health declarations.'
-    },
-    {
-      category: 'Bank Details & PAYE',
-      title: 'Bank Details & PAYE Starter Declaration (PAY 1 B)',
-      desc: 'Payroll bank account details, sort code, account number & HMRC tax statement.'
-    },
-    {
-      category: 'Next of Kin',
-      title: 'Next of Kin & Emergency Contact Form',
-      desc: 'Primary and secondary emergency contacts, medical notices & relationships.'
-    },
-    {
-      category: '48-Hour Opt-Out',
-      title: 'Working Time Regulations 48-Hour Opt-Out Agreement',
-      desc: 'Electronic declaration regarding UK Working Time Directive hours.'
-    },
-    {
-      category: 'Policies Acknowledgement',
-      title: 'Confidentiality Agreement & Policy Handbook Signoff',
-      desc: 'CQC compliance, GDPR data privacy & clinical code of conduct agreement.'
-    }
-  ];
-
-  // Helper to trigger filling an HR doc
-  const handleOpenHrDoc = (category: string, title: string) => {
-    const existing = applicantDocs.find(d => d.category === category);
-    const docToFill: Document = existing || {
-      id: `doc_${category.replace(/\s+/g, '_')}_${Date.now()}`,
-      name: `${title}.pdf`,
-      category: category as any,
-      staffId: applicant.id,
-      staffName: applicant.name,
-      uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Awaiting Review',
-      size: '1.2 MB'
-    };
-    setActiveFillingDoc(docToFill);
   };
 
   const handleOpenJobDescription = () => {
@@ -417,7 +390,7 @@ export default function ApplicantPortal({
                     applicationStatus === 'Returned for Correction' ? 'Returned' :
                     applicationStatus,
                     desc: applicationStatus },
-                  { title: '4. HR Onboarding', status: applicantDocs.some(d => d.category === 'New Starter Form') ? 'Done' : 'Pending', desc: 'PAYE & Appendix D' },
+                  { title: '4. HR Onboarding', status: isHrOnboardingComplete(jobTemplate, hrForms) ? 'Done' : hrForms.length ? 'In Progress' : 'Pending', desc: 'Persistent HR forms' },
                   { title: '5. Job Description', status: applicantDocs.some(d => d.category === 'Job Description') ? 'Done' : 'Pending', desc: 'Read & E-Signed' }
                 ].map((step, idx) => {
                   const isDone = step.status === 'Done' || step.status === 'Approved';
@@ -485,7 +458,7 @@ export default function ApplicantPortal({
                         <h3 className="mb-2 text-[10px] font-black uppercase tracking-wider text-purple-900">{title}</h3>
                         <div className="space-y-2">
                           {activeRequirements(jobTemplate, stage).map(requirement => {
-                            const status = requirementProgress(requirement, applicationData, applicantDocs);
+                            const status = requirementProgress(requirement, applicationData, applicantDocs, hrForms);
                             return (
                               <div key={requirement.id || requirement.requirementKey} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                 <div className="flex items-start justify-between gap-3">
@@ -647,55 +620,44 @@ export default function ApplicantPortal({
                 Digital HR Paperwork
               </span>
               <h2 className="text-xl font-bold text-slate-900 mt-2">Mandatory HR Onboarding Forms</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Fill, sign, and save all required HR documents electronically. All progress persists in Supabase.
-              </p>
+              <p className="text-xs text-slate-500 mt-1">Fill, save, sign and submit the forms configured for your role. Drafts and review status persist securely in Supabase.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {hrDocList.map((hrDoc) => {
-                const existing = applicantDocs.find(d => d.category === hrDoc.category);
-                const isSigned = existing?.status === 'Approved' || existing?.status === 'Signed';
+              {hrFormsLoading && <div className="rounded-xl border bg-white p-5 text-xs text-slate-500">Loading your HR forms…</div>}
+              {!hrFormsLoading && configuredOnboardingForms.map((definition) => {
+                const existing = hrForms.find(form => form.formType === definition.type);
+                const status = existing?.status || 'Not Started';
 
                 return (
-                  <div key={hrDoc.category} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3 flex flex-col justify-between">
+                  <div key={definition.type} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3 flex flex-col justify-between">
                     <div>
                       <div className="flex justify-between items-start">
                         <span className="text-[10px] font-black uppercase tracking-wider text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">
-                          {hrDoc.category}
+                          {definition.signatureRequired ? 'Electronic signature' : 'Secure HR record'}
                         </span>
-                        {isSigned ? (
-                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3 text-emerald-600" />
-                            Completed & Signed
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
-                            Pending Signature
-                          </span>
-                        )}
+                        <span className={`text-[10px] font-extrabold border px-2.5 py-0.5 rounded-full ${status === 'Approved' ? 'text-emerald-800 bg-emerald-50 border-emerald-200' : status === 'Returned for Correction' ? 'text-rose-800 bg-rose-50 border-rose-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`}>{status}</span>
                       </div>
 
-                      <h3 className="text-sm font-bold text-slate-900 mt-2">{hrDoc.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{hrDoc.desc}</p>
+                      <h3 className="text-sm font-bold text-slate-900 mt-2">{definition.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1">{definition.description}</p>
+                      {existing?.updatedAt && <p className="mt-2 text-[10px] text-slate-400">Last saved {new Date(existing.updatedAt).toLocaleString()} · revision {existing.revision}</p>}
+                      {existing?.reviewerNotes && status === 'Returned for Correction' && <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[10px] font-bold text-rose-900">SHC note: {existing.reviewerNotes}</p>}
                     </div>
 
                     <div className="pt-2">
                       <button
-                        onClick={() => handleOpenHrDoc(hrDoc.category, hrDoc.title)}
-                        className={`w-full py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs ${
-                          isSigned
-                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                            : 'bg-purple-900 hover:bg-purple-800 text-white'
-                        }`}
+                        onClick={() => setActiveHrDefinition(definition)}
+                        className="w-full py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-purple-900 hover:bg-purple-800 text-white"
                       >
                         <PenTool className="w-3.5 h-3.5" />
-                        <span>{isSigned ? 'View / Edit Signed Form' : 'Fill & E-Sign Form'}</span>
+                        <span>{existing && !['Draft', 'Returned for Correction'].includes(existing.status) ? 'View form' : existing ? 'Continue form' : 'Start form'}</span>
                       </button>
                     </div>
                   </div>
                 );
               })}
+              {!hrFormsLoading && jobTemplate && configuredOnboardingForms.length === 0 && <div className="rounded-xl border border-dashed bg-white p-5 text-xs text-slate-500">No digital HR forms are currently configured for this role.</div>}
             </div>
           </div>
         )}
@@ -757,6 +719,21 @@ export default function ApplicantPortal({
           staffMember={applicantAsStaff}
           onClose={() => setActiveFillingDoc(null)}
           onSaveSignature={handleSaveDocumentSignature}
+        />
+      )}
+
+      {activeHrDefinition && (
+        <HrOnboardingFormEditor
+          definition={activeHrDefinition}
+          existing={hrForms.find(form => form.formType === activeHrDefinition.type)}
+          applicant={applicant}
+          authenticatedUserId={authenticatedUserId}
+          role={jobTemplate}
+          application={applicationData}
+          onSaved={saved => setHrForms(current => current.some(form => form.id === saved.id)
+            ? current.map(form => form.id === saved.id ? saved : form)
+            : [...current, saved])}
+          onClose={() => setActiveHrDefinition(null)}
         />
       )}
 

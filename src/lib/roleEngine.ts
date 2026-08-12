@@ -1,6 +1,8 @@
 import { Document, RoleRequirement, RoleTemplate } from '../types';
 import { OfficialApplicationData } from '../types/officialApplication';
 import { chronologyValidationMessages } from './continuousHistory';
+import { HrOnboardingForm } from '../types/hrOnboarding';
+import { hrRequirementComplete, requirementHrFormTypes } from './hrOnboarding';
 
 export type RequirementProgress = 'Complete' | 'Missing' | 'In Progress' | 'Pending SHC Verification';
 
@@ -87,11 +89,16 @@ export const requirementProgress = (
   requirement: RoleRequirement,
   application: OfficialApplicationData | null | undefined,
   documents: Document[],
+  hrForms: HrOnboardingForm[] = [],
 ): RequirementProgress => {
   if (requirement.responsibleParty === 'administrator') {
     return 'Pending SHC Verification';
   }
   if (requirement.stage === 'application') return applicationStatus(requirement, application);
+  if (requirement.stage === 'onboarding' && requirementHrFormTypes(requirement).length) {
+    if (hrRequirementComplete(requirement, hrForms)) return 'Complete';
+    return requirementHrFormTypes(requirement).some(type => hrForms.some(form => form.formType === type)) ? 'In Progress' : 'Missing';
+  }
   return documentStatus(requirement, documents);
 };
 
