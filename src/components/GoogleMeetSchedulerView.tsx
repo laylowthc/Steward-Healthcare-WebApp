@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Video, Copy, Plus, Trash, ExternalLink, User, Calendar, Mail, Check, AlertCircle } from 'lucide-react';
+import { Video, Copy, Plus, Trash, ExternalLink, User, Calendar, Check } from 'lucide-react';
 import { Applicant, Staff } from '../types';
 
 interface GoogleMeetSchedulerViewProps {
@@ -50,17 +50,15 @@ export default function GoogleMeetSchedulerView({
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  // Transmit Simulated Email Link
-  const handleSimulateEmail = (meeting: typeof meetings[0]) => {
-    alert(`EMAIL SYSTEM SIMULATION:\n\nTo: ${meeting.attendee}\nSubject: Scheduled Care Meeting Link: ${meeting.title}\n\nDear recipient,\n\nYour secure Steward Health Care virtual room has been initialized. Please join at: ${meeting.meetUrl}\n\nTime: ${new Date(meeting.time).toLocaleString()}`);
-    onAddLog(`Dispatched secure Google Meet invitation notifications regarding space '${meeting.title}'`, 'recruitment');
-  };
-
   // Creation Action Handler
   const handleCreateMeetingSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!meetingTitle.trim()) {
-      alert('Please input a descriptive meeting title first.');
+      alert('Please enter a meeting title.');
+      return;
+    }
+    if (!googleToken) {
+      alert('Connect an authorised Google Workspace account before creating a Google Meet link.');
       return;
     }
 
@@ -73,58 +71,53 @@ export default function GoogleMeetSchedulerView({
       if (match) {
         attendeeName = match.name;
         targetCandidateId = match.id;
-      } else if (applicants.length > 0) {
-        attendeeName = applicants[0].name;
-        targetCandidateId = applicants[0].id;
       } else {
-        attendeeName = 'No active candidates';
+        alert('Please choose a candidate.');
+        setIsGenerating(false);
+        return;
       }
     } else if (attendeeType === 'staff') {
       const match = staff.find(s => s.id === selectedAttendeeId);
       if (match) {
         attendeeName = match.name;
-      } else if (staff.length > 0) {
-        attendeeName = staff[0].name;
       } else {
-        attendeeName = 'No staff caregiver';
+        alert('Please choose an approved staff member.');
+        setIsGenerating(false);
+        return;
       }
     } else {
-      attendeeName = 'Internal HR Board (All Core)';
+      attendeeName = 'SHC internal meeting';
     }
 
     let meetUrl = '';
-    
-    // Attempt real API call if Google OAuth token exists
-    if (googleToken) {
-      try {
-        const response = await fetch('https://meet.googleapis.com/v2/spaces', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${googleToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({})
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.meetingUri) {
-            meetUrl = data.meetingUri;
-            onAddLog(`Created live Google Meet Virtual Link: ${meetUrl}`, 'recruitment');
-          }
+
+    try {
+      const response = await fetch('https://meet.googleapis.com/v2/spaces', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${googleToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.meetingUri) {
+          meetUrl = data.meetingUri;
         }
-      } catch (err) {
-        console.error('Failed to create space via API:', err);
       }
+    } catch (err) {
+      console.error('Failed to create Google Meet space:', err);
     }
 
-    // High fidelity backup code generator if API failed or offline
     if (!meetUrl) {
-      const codes = ['abc-defg-hij', 'nrs-meet-xjp', 'shc-care-wlv', 'nhs-scrn-pzk'];
-      const selectedCode = codes[Math.floor(Math.random() * codes.length)];
-      meetUrl = `https://meet.google.com/${selectedCode}`;
-      onAddLog(`Generated Backup Google Meet link '${meetUrl}' for: ${attendeeName}`, 'recruitment');
+      alert('Google Meet could not create a meeting link. Reconnect Google Workspace and try again.');
+      setIsGenerating(false);
+      return;
     }
+
+    onAddLog(`Created Google Meet link for ${attendeeName}`, 'recruitment');
 
     const newMeeting = {
       id: `meet_${Date.now()}`,
@@ -149,7 +142,7 @@ export default function GoogleMeetSchedulerView({
     setMeetingTitle('');
     setIsGenerating(false);
 
-    alert(`Success!\n\nMeeting link ${meetUrl} created and dispatched to ${attendeeName}`);
+    alert(`Meeting link created for ${attendeeName}. Use Candidate Communications or copy the link to share it.`);
   };
 
   // Remove helper
@@ -261,7 +254,7 @@ export default function GoogleMeetSchedulerView({
           {attendeeType === 'general' && (
             <div className="p-3 bg-slate-50 border border-slate-150 rounded-xl">
               <p className="text-[10px] text-slate-550 italic leading-normal">
-                Generates a flexible open corporate Meet link for shared workspace meetings and internal board alignment sessions.
+                Create an SHC internal Google Meet link that can be shared with the required attendees.
               </p>
             </div>
           )}
@@ -280,11 +273,11 @@ export default function GoogleMeetSchedulerView({
           <div className="pt-2">
             <button
               type="submit"
-              disabled={isGenerating}
-              className="w-full inline-flex justify-center items-center space-x-1.5 py-2.5 bg-gradient-to-r from-purple-900 to-rose-700 hover:from-purple-950 text-white rounded-xl text-xs font-bold shadow-sm transition-all focus:outline-none cursor-pointer"
+              disabled={isGenerating || !googleToken}
+              className="w-full inline-flex justify-center items-center space-x-1.5 py-2.5 bg-gradient-to-r from-purple-900 to-rose-700 hover:from-purple-950 text-white rounded-xl text-xs font-bold shadow-sm transition-all focus:outline-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{isGenerating ? 'Provisioning Room...' : 'Generate Google Meet Space'}</span>
+              <span>{isGenerating ? 'Creating meeting…' : googleToken ? 'Create Google Meet link' : 'Connect Google Workspace to schedule'}</span>
             </button>
           </div>
         </form>
@@ -370,13 +363,6 @@ export default function GoogleMeetSchedulerView({
                       {copiedId === meet.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-
-                  <button
-                    onClick={() => handleSimulateEmail(meet)}
-                    className="p-1 px-2.5 bg-fuchsia-10 text-fuchsia-900 border border-fuchsia-200 bg-fuchsia-50/50 hover:bg-fuchsia-100 text-[10px] font-black rounded cursor-pointer text-center"
-                  >
-                    Send Email Invites
-                  </button>
 
                   <button
                     onClick={() => handleDeleteMeeting(meet.id, meet.attendee)}
