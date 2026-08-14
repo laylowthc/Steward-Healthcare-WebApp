@@ -29,7 +29,12 @@ const requireActiveAdmin = async (authorization?: string) => {
     throw new AcceptApplicantError('Active administrator access is required', 403);
   }
 
-  return { adminClient, workflowClient: sessionClient, caller: profile };
+  const workflowClient = createClient(supabaseUrl, publishableKey, {
+    global: { headers: { Authorization: authorization } },
+    auth: { persistSession: false }
+  });
+
+  return { adminClient, workflowClient, caller: profile };
 };
 
 const removeCreatedStaffProfile = async (client: SupabaseClient, id?: string) => {
