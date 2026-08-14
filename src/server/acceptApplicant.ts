@@ -29,7 +29,7 @@ const requireActiveAdmin = async (authorization?: string) => {
     throw new AcceptApplicantError('Active administrator access is required', 403);
   }
 
-  return { adminClient, caller: profile };
+  return { adminClient, workflowClient: sessionClient, caller: profile };
 };
 
 const removeCreatedStaffProfile = async (client: SupabaseClient, id?: string) => {
@@ -38,7 +38,7 @@ const removeCreatedStaffProfile = async (client: SupabaseClient, id?: string) =>
 
 export async function acceptApplicant(input: { authorization?: string; applicantId?: string }) {
   if (!input.applicantId) throw new AcceptApplicantError('Missing applicantId', 400);
-  const { adminClient, caller } = await requireActiveAdmin(input.authorization);
+  const { adminClient, workflowClient, caller } = await requireActiveAdmin(input.authorization);
 
   const { data: applicant, error: applicantError } = await adminClient
     .from('applicants')
@@ -110,7 +110,11 @@ export async function acceptApplicant(input: { authorization?: string; applicant
   if (staffError || !staffProfile) throw new AcceptApplicantError('Failed to create staff profile', 500);
 
   const createdNewStaffProfile = !existingStaff;
-  const { data: acceptedApplicant, error: statusError } = await adminClient
+  // Recruitment status is protected by a trigger that deliberately requires the
+  // authenticated administrator identity. Keep privileged profile creation on the
+  // service client, but make this workflow transition through the validated admin
+  // session so auth.uid() remains available to the database guard.
+  const { data: acceptedApplicant, error: statusError } = await workflowClient
     .from('applicants')
     .update({ status: 'Accepted', updated_at: new Date().toISOString() })
     .eq('id', applicant.id)
@@ -127,7 +131,7 @@ export async function acceptApplicant(input: { authorization?: string; applicant
     .update({ role: 'Staff', status: 'Active', full_name: applicant.full_name, updated_at: new Date().toISOString() })
     .eq('id', userId);
   if (userUpdateError) {
-    await adminClient.from('applicants').update({ status: 'Compliance' }).eq('id', applicant.id);
+    await workflowClient.from('applicants').update({ status: 'Compliance' }).eq('id', applicant.id);
     if (createdNewStaffProfile) await removeCreatedStaffProfile(adminClient, staffProfile.id);
     throw new AcceptApplicantError('Failed to promote user account', 500);
   }
