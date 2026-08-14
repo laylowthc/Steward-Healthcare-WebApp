@@ -1857,39 +1857,33 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'training' && (
                     <div className="bg-white p-6 border border-slate-100 rounded-2xl shadow-sm">
                       <div className="flex justify-between items-center border-b pb-3 mb-4">
-                        <h3 className="text-sm font-black uppercase text-slate-800">Training & CPD Modules</h3>
+                        <h3 className="text-sm font-black uppercase text-slate-800">Training & CPD</h3>
                         <button onClick={() => setActiveTab('staff_dashboard')} className="text-indigo-600 hover:underline text-[10px] font-bold">Back to Dashboard</button>
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-4 border rounded-xl bg-emerald-50 border-emerald-200">
+                      <div className="max-w-2xl">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                           <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-bold text-emerald-900 text-xs">Mandatory Training</h4>
-                            <span className="bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Compliant</span>
+                            <h4 className="text-xs font-bold text-slate-900">Mandatory Training</h4>
+                            <span className={`rounded px-2 py-0.5 text-[9px] font-bold uppercase ${
+                              activeStaffMember?.trainingStatus === 'Compliant'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : activeStaffMember?.trainingStatus === 'Expiring'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {activeStaffMember?.trainingStatus || 'Pending'}
+                            </span>
                           </div>
-                          <p className="text-[10px] text-emerald-700">Expires: {activeStaffMember?.trainingExpiry || 'N/A'}</p>
-                          <div className="mt-3">
-                            <div className="h-2 w-full bg-emerald-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-emerald-500 w-full"></div>
-                            </div>
-                            <span className="text-[9px] text-emerald-600 mt-1 block">100% Completed</span>
-                          </div>
-                          <button onClick={() => setActiveTab('profile')} className="mt-4 text-[10px] font-bold bg-white text-emerald-700 px-3 py-1.5 rounded border border-emerald-200 hover:bg-emerald-100 transition-colors w-full">View Certificate</button>
-                        </div>
-                        
-                        <div className="p-4 border rounded-xl bg-amber-50 border-amber-200">
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-bold text-amber-900 text-xs">Safeguarding Level 3</h4>
-                            <span className="bg-amber-200 text-amber-800 px-2 py-0.5 rounded text-[9px] font-bold uppercase">Expiring Soon</span>
-                          </div>
-                          <p className="text-[10px] text-amber-700">Expires: Next Month</p>
-                          <div className="mt-3">
-                            <div className="h-2 w-full bg-amber-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-amber-500 w-[80%]"></div>
-                            </div>
-                            <span className="text-[9px] text-amber-600 mt-1 block">Requires Renewal</span>
-                          </div>
-                          <button onClick={() => setActiveTab('profile')} className="mt-4 text-[10px] font-bold bg-white text-amber-700 px-3 py-1.5 rounded border border-amber-200 hover:bg-amber-100 transition-colors w-full">Upload New Certificate</button>
+                          <p className="text-[10px] text-slate-600">
+                            {activeStaffMember?.trainingExpiry
+                              ? `Expiry date: ${activeStaffMember.trainingExpiry}`
+                              : 'No training expiry date is currently recorded.'}
+                          </p>
+                          <p className="mt-3 text-[10px] leading-5 text-slate-500">
+                            Training status is derived from SHC-approved records in Compliance & Documents.
+                          </p>
+                          <button onClick={() => setActiveTab('profile')} className="mt-4 w-full rounded border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold text-slate-700 transition-colors hover:bg-slate-100">View training documents</button>
                         </div>
                       </div>
                     </div>
