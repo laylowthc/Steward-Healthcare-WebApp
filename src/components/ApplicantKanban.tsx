@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../types';
 import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
 import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
@@ -6,9 +6,12 @@ import OfficialApplicationReview from './OfficialApplicationReview';
 import { activeRequirements, findRole } from '../lib/roleEngine';
 import HrOnboardingReview from './HrOnboardingReview';
 import JobDescriptionReview from './JobDescriptionReview';
+import PreEmploymentComplianceReview from './PreEmploymentComplianceReview';
 
 interface ApplicantKanbanProps {
   applicants: Applicant[];
+  initialSelectedApplicantId?: string | null;
+  onApplicantClosed?: () => void;
   onUpdateApplicantStatus: (id: string, newStatus: ApplicantStatus) => void;
   onAddApplicant: (applicant: Omit<Applicant, 'id' | 'dateCreated'>) => Promise<string>;
   templates: RoleTemplate[];
@@ -76,6 +79,8 @@ function ApplicationDataView({ data }: { data: CVData }) {
 
 export default function ApplicantKanban({
   applicants,
+  initialSelectedApplicantId,
+  onApplicantClosed,
   onUpdateApplicantStatus,
   onAddApplicant,
   templates,
@@ -89,6 +94,12 @@ export default function ApplicantKanban({
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    if (!initialSelectedApplicantId) return;
+    const applicant = applicants.find(item => item.id === initialSelectedApplicantId);
+    if (applicant) setSelectedApplicant(applicant);
+  }, [initialSelectedApplicantId, applicants]);
 
   // New applicant form state
   const [newName, setNewName] = useState('');
@@ -391,7 +402,7 @@ export default function ApplicantKanban({
 
         return (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex justify-end">
-            <div className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col justify-between overflow-hidden border-l border-slate-100">
+            <div className="bg-white w-full max-w-4xl h-full shadow-2xl flex flex-col justify-between overflow-hidden border-l border-slate-100">
               <div className="overflow-y-auto flex-1">
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                   <div>
@@ -400,7 +411,7 @@ export default function ApplicantKanban({
                     </span>
                     <h3 className="text-lg font-black text-slate-900 mt-2">{selectedApplicant.name}</h3>
                   </div>
-                  <button onClick={() => setSelectedApplicant(null)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+                  <button onClick={() => { setSelectedApplicant(null); onApplicantClosed?.(); }} className="text-slate-400 hover:text-slate-600 p-1 rounded-full">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -445,6 +456,10 @@ export default function ApplicantKanban({
 
                   <div className="pt-4 border-t border-slate-100">
                     <JobDescriptionReview userId={selectedApplicant.userId} />
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <PreEmploymentComplianceReview applicant={selectedApplicant} templates={templates} documents={documents} />
                   </div>
 
                   {/* job description autolink section */}
