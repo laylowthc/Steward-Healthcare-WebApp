@@ -68,6 +68,7 @@ import StaffDirectory from './components/StaffDirectory';
 import StaffProfile from './components/StaffProfile';
 import DocumentVault from './components/DocumentVault';
 import ComplianceDashboard from './components/ComplianceDashboard';
+import PersonnelFile from './components/PersonnelFile';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
 import UserAdministration from './components/UserAdministration';
@@ -1078,6 +1079,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     { id: 'staff', label: 'Approved Staff', icon: User, desc: 'Operational caregiver roster' },
     { id: 'vault', label: 'Documents', icon: FileText, desc: 'GDPR contract records storage' },
     { id: 'compliance', label: 'Compliance', icon: ShieldAlert, desc: 'Deployment checks and credential alerts' },
+    { id: 'personnel', label: 'Personnel Files', icon: CheckSquare, desc: 'Live employment record completeness' },
     { id: 'templates', label: 'Roles', icon: BookOpen, desc: 'Criteria checklists by role' },
     { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
     { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
@@ -1664,6 +1666,35 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                       onSelectApplicant={(applicantId) => {
                         setActiveTab('recruitment');
                         setSelectedApplicantId(applicantId);
+                      }}
+                    />
+                  )}
+
+                  {/* Derived personnel-file control surface */}
+                  {activeTab === 'personnel' && (
+                    <PersonnelFile
+                      applicants={applicants}
+                      staff={staff}
+                      documents={documents}
+                      templates={templates}
+                      onNavigate={(route, subject) => {
+                        if (route === 'documents') {
+                          setActiveTab('vault');
+                          return;
+                        }
+                        if (route === 'compliance') {
+                          setActiveTab('compliance');
+                          return;
+                        }
+                        if (subject.applicant) {
+                          setSelectedApplicantId(subject.applicant.id);
+                          setActiveTab('recruitment');
+                          return;
+                        }
+                        if (subject.staff) {
+                          setSelectedStaffId(subject.staff.id);
+                          setActiveTab('staff');
+                        }
                       }}
                     />
                   )}
