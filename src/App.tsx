@@ -69,6 +69,7 @@ import StaffProfile from './components/StaffProfile';
 import DocumentVault from './components/DocumentVault';
 import ComplianceDashboard from './components/ComplianceDashboard';
 import PersonnelFile from './components/PersonnelFile';
+import TrainingCredentials from './components/TrainingCredentials';
 import { adminNavigationItems, adminTabFromHash, PERSONNEL_FILES_HASH } from './lib/adminNavigation';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
@@ -89,7 +90,7 @@ import { readApiResponse } from './lib/apiResponse';
 
 const navigationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   dashboard: Users, recruitment: Briefcase, staff: User, vault: FileText, compliance: ShieldAlert,
-  personnel: CheckSquare, templates: BookOpen, timesheets: Clock, workspace: Cloud,
+  personnel: CheckSquare, training: Award, templates: BookOpen, timesheets: Clock, workspace: Cloud,
   family_feedback: Heart, administration: Shield,
 };
 
@@ -943,6 +944,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       type: 'document'
     };
     setActivityLogs(prev => [log, ...prev]);
+    return newDocItem;
   };
 
   const handleAssignDocument = async (targetStaffId: string, docCategory: DocumentCategory, docName: string) => {
@@ -1275,8 +1277,8 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
         templates={templates}
         documents={documents}
         onUpdateRole={role => handleUpdateApplicantRole(activeApplicant.id, role)}
-        onUploadDocument={(file, category) => {
-          return handleUploadDocument({
+        onUploadDocument={async (file, category) => {
+          await handleUploadDocument({
             name: file.name,
             category: category as any,
             staffId: currentUserId,
@@ -1302,6 +1304,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     } else {
       if (activeTab === 'profile') return 'My Credentials';
       if (activeTab === 'staff_timesheets') return 'Timesheets';
+      if (activeTab === 'training') return 'My Training & Credentials';
       if (activeTab === 'role_briefs') return 'Mandatory Checklist';
       return 'Staff Portal';
     }
@@ -1401,7 +1404,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                 }`}
               >
                 <BookOpen className="w-4 h-4" />
-                <span>Training & CPD</span>
+                <span>My Training & Credentials</span>
               </button>
             </>
           )}
@@ -1510,7 +1513,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                       activeTab === 'training' ? 'bg-slate-900 text-white' : 'text-slate-650 hover:bg-slate-50'
                     }`}
                   >
-                    <span>Training & CPD</span>
+                    <span>My Training & Credentials</span>
                   </button>
                 </>
               )}
@@ -1705,6 +1708,10 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                           navigateToAdminTab('compliance');
                           return;
                         }
+                        if (route === 'training') {
+                          navigateToAdminTab('training');
+                          return;
+                        }
                         if (subject.applicant) {
                           navigateToAdminTab('recruitment');
                           setSelectedApplicantId(subject.applicant.id);
@@ -1715,6 +1722,17 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                           setSelectedStaffId(subject.staff.id);
                         }
                       }}
+                    />
+                  )}
+
+                  {activeTab === 'training' && (
+                    <TrainingCredentials
+                      mode="admin"
+                      staff={staff}
+                      templates={templates}
+                      documents={documents}
+                      onSaveRole={handleSaveRoleConfiguration}
+                      onUploadDocument={handleUploadDocument}
                     />
                   )}
 
@@ -1913,38 +1931,14 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   )}
 
                   {activeTab === 'training' && (
-                    <div className="bg-white p-6 border border-slate-100 rounded-2xl shadow-sm">
-                      <div className="flex justify-between items-center border-b pb-3 mb-4">
-                        <h3 className="text-sm font-black uppercase text-slate-800">Training & CPD</h3>
-                        <button onClick={() => setActiveTab('staff_dashboard')} className="text-indigo-600 hover:underline text-[10px] font-bold">Back to Dashboard</button>
-                      </div>
-                      
-                      <div className="max-w-2xl">
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="text-xs font-bold text-slate-900">Mandatory Training</h4>
-                            <span className={`rounded px-2 py-0.5 text-[9px] font-bold uppercase ${
-                              activeStaffMember?.trainingStatus === 'Compliant'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : activeStaffMember?.trainingStatus === 'Expiring'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-rose-100 text-rose-800'
-                            }`}>
-                              {activeStaffMember?.trainingStatus || 'Pending'}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-600">
-                            {activeStaffMember?.trainingExpiry
-                              ? `Expiry date: ${activeStaffMember.trainingExpiry}`
-                              : 'No training expiry date is currently recorded.'}
-                          </p>
-                          <p className="mt-3 text-[10px] leading-5 text-slate-500">
-                            Training status is derived from SHC-approved records in Compliance & Documents.
-                          </p>
-                          <button onClick={() => setActiveTab('profile')} className="mt-4 w-full rounded border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold text-slate-700 transition-colors hover:bg-slate-100">View training documents</button>
-                        </div>
-                      </div>
-                    </div>
+                    <TrainingCredentials
+                      mode="staff"
+                      staff={staff}
+                      currentStaff={activeStaffMember}
+                      templates={templates}
+                      documents={documents}
+                      onUploadDocument={handleUploadDocument}
+                    />
                   )}
 
                 </div>

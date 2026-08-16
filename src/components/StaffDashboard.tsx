@@ -131,8 +131,8 @@ export default function StaffDashboard({ currentUser, documents, timesheets, onN
           className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-amber-300 hover:shadow-md transition-all text-left group"
         >
           <BookOpen className="w-6 h-6 text-amber-500 mb-2 group-hover:scale-110 transition-transform" />
-          <h4 className="text-xs font-bold text-slate-800">Training & CPD</h4>
-          <p className="text-[10px] text-slate-500 mt-1">View Modules & Certs</p>
+          <h4 className="text-xs font-bold text-slate-800">My Training & Credentials</h4>
+          <p className="text-[10px] text-slate-500 mt-1">Evidence, verification and expiry</p>
         </button>
       </div>
     </div>
