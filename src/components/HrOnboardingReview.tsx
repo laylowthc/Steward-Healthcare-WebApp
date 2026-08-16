@@ -7,6 +7,7 @@ import {
   reviewHrOnboardingForm,
 } from '../lib/hrOnboardingRepository';
 import { HrOnboardingForm, HrOnboardingFormVersion, HrOnboardingStatus } from '../types/hrOnboarding';
+import { loadReviewerNames, reviewerDisplayName } from '../lib/reviewerIdentity';
 
 const humanize = (key: string) => key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, value => value.toUpperCase());
 
@@ -34,11 +35,16 @@ export default function HrOnboardingReview({ userId }: { userId?: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [reviewerNames, setReviewerNames] = useState<Record<string, string>>({});
 
   const refresh = async () => {
     if (!userId) { setForms([]); setLoading(false); return; }
     setLoading(true);
-    try { setForms(await loadHrOnboardingForms(userId)); }
+    try {
+      const loaded = await loadHrOnboardingForms(userId);
+      setForms(loaded);
+      setReviewerNames(await loadReviewerNames(loaded.map(form => form.reviewedBy)).catch(() => ({})));
+    }
     catch (reason: any) { setError(reason.message || 'Unable to load HR onboarding forms.'); }
     finally { setLoading(false); }
   };
@@ -61,8 +67,10 @@ export default function HrOnboardingReview({ userId }: { userId?: string }) {
     setError('');
     try {
       const updated = await reviewHrOnboardingForm(selected.id, status, notes);
+      const updatedReviewerNames = await loadReviewerNames([updated.reviewedBy]).catch(() => ({}));
       setForms(current => current.map(form => form.id === updated.id ? updated : form));
       setSelected(updated);
+      setReviewerNames(current => ({ ...current, ...updatedReviewerNames }));
     } catch (reason: any) { setError(reason.message || 'Review action failed.'); }
     finally { setSaving(false); }
   };
@@ -76,13 +84,13 @@ export default function HrOnboardingReview({ userId }: { userId?: string }) {
         {forms.map(form => (
           <button key={form.id || form.formType} type="button" onClick={() => void open(form)} className="w-full rounded-xl border bg-white p-3 text-left hover:border-purple-300">
             <div className="flex items-start justify-between gap-2"><span className="text-xs font-bold text-slate-900">{hrFormDefinitions[form.formType].title}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${tone[form.status]}`}>{form.status}</span></div>
-            <div className="mt-2 grid grid-cols-2 gap-1 text-[9px] text-slate-500"><span>Revision {form.revision}</span><span>{form.submittedAt ? `Submitted ${new Date(form.submittedAt).toLocaleDateString()}` : 'Not submitted'}</span><span>{form.signatureValue ? 'Signature recorded' : 'No signature required/recorded'}</span><span>{form.reviewedAt ? `Reviewed ${new Date(form.reviewedAt).toLocaleDateString()}` : 'Not reviewed'}</span>{form.reviewedBy && <span className="col-span-2">Reviewer: {form.reviewedBy}</span>}</div>
+            <div className="mt-2 grid grid-cols-1 gap-1 text-[9px] text-slate-500 sm:grid-cols-2"><span>Revision {form.revision}</span><span>{form.submittedAt ? `Submitted ${new Date(form.submittedAt).toLocaleDateString()}` : 'Not submitted'}</span><span>{form.signatureValue ? 'Signature recorded' : 'No signature required/recorded'}</span><span>{form.reviewedAt ? `Reviewed ${new Date(form.reviewedAt).toLocaleDateString()}` : 'Not reviewed'}</span>{form.reviewedBy && <span className="sm:col-span-2">Reviewed by {reviewerDisplayName(form.reviewedBy, reviewerNames)}</span>}</div>
           </button>
         ))}
       </div>
 
       {selected && <div className="rounded-2xl border border-purple-200 bg-white p-4 shadow-sm">
-        <div className="flex items-start justify-between gap-2"><div><h5 className="text-sm font-black text-purple-950">{hrFormDefinitions[selected.formType].title}</h5><p className="text-[10px] text-slate-500">Revision {selected.revision} · {selected.status}</p></div><button type="button" onClick={() => setSelected(null)} className="text-slate-400"><XCircle className="h-4 w-4" /></button></div>
+        <div className="flex items-start justify-between gap-2"><div><h5 className="text-sm font-black text-purple-950">{hrFormDefinitions[selected.formType].title}</h5><p className="text-[10px] text-slate-500">Revision {selected.revision} · {selected.status}{selected.reviewedBy ? ` · reviewed by ${reviewerDisplayName(selected.reviewedBy, reviewerNames)}` : ''}</p></div><button type="button" aria-label="Close HR form review" onClick={() => setSelected(null)} className="text-slate-400"><XCircle className="h-4 w-4" /></button></div>
         <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border bg-slate-50 p-3 text-[10px]"><Value value={selected.formData} /></div>
         {selected.signatureValue && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><p className="font-bold">Signed by {selected.signerName} · {selected.signedAt ? new Date(selected.signedAt).toLocaleString() : 'timestamp unavailable'}</p>{selected.signatureType === 'drawn' ? <img src={selected.signatureValue} alt="Applicant drawn signature" className="mt-2 max-h-20 rounded bg-white" /> : <p className="mt-2 font-serif text-xl italic">{selected.signatureValue}</p>}</div>}
         {selected.reviewerNotes && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs"><b>Reviewer notes:</b> {selected.reviewerNotes}</div>}

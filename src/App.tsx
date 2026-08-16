@@ -69,6 +69,7 @@ import StaffProfile from './components/StaffProfile';
 import DocumentVault from './components/DocumentVault';
 import ComplianceDashboard from './components/ComplianceDashboard';
 import PersonnelFile from './components/PersonnelFile';
+import { adminNavigationItems, adminTabFromHash, PERSONNEL_FILES_HASH } from './lib/adminNavigation';
 import RoleTemplates from './components/RoleTemplates';
 import TimesheetManager from './components/TimesheetManager';
 import UserAdministration from './components/UserAdministration';
@@ -85,6 +86,12 @@ import FirstTimePasswordSetup from './components/FirstTimePasswordSetup';
 import { requiresFirstTimePasswordSetup } from './lib/firstTimePasswordSetup';
 import { resolveAvatarUrl } from './lib/profileState';
 import { readApiResponse } from './lib/apiResponse';
+
+const navigationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  dashboard: Users, recruitment: Briefcase, staff: User, vault: FileText, compliance: ShieldAlert,
+  personnel: CheckSquare, templates: BookOpen, timesheets: Clock, workspace: Cloud,
+  family_feedback: Heart, administration: Shield,
+};
 
 export default function App() {
   const [startupReady, setStartupReady] = useState(false);
@@ -122,9 +129,12 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    typeof window !== 'undefined' ? adminTabFromHash(window.location.hash) || 'dashboard' : 'dashboard'
+  );
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
+  const [selectedPersonnelUserId, setSelectedPersonnelUserId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
 
@@ -262,6 +272,34 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
       }
     }
   }, [currentRole, isLoggedIn, activeTab]);
+
+  useEffect(() => {
+    const restoreAdminDestination = () => {
+      const historyTab = (window.history.state as { shcAdminTab?: string } | null)?.shcAdminTab;
+      const destination = adminTabFromHash(window.location.hash) || historyTab || 'dashboard';
+      setSelectedStaffId(null);
+      setSelectedApplicantId(null);
+      setActiveTab(destination);
+    };
+    window.addEventListener('popstate', restoreAdminDestination);
+    window.addEventListener('hashchange', restoreAdminDestination);
+    return () => {
+      window.removeEventListener('popstate', restoreAdminDestination);
+      window.removeEventListener('hashchange', restoreAdminDestination);
+    };
+  }, []);
+
+  const navigateToAdminTab = (tabId: string, options: { personnelUserId?: string | null } = {}) => {
+    setSelectedStaffId(null);
+    setSelectedApplicantId(null);
+    if (tabId === 'personnel') {
+      setSelectedPersonnelUserId(options.personnelUserId ?? null);
+      if (window.location.hash !== PERSONNEL_FILES_HASH) window.history.pushState({ shcAdminTab: tabId }, '', PERSONNEL_FILES_HASH);
+    } else {
+      window.history.pushState({ shcAdminTab: tabId }, '', `${window.location.pathname}${window.location.search}`);
+    }
+    setActiveTab(tabId);
+  };
 
   const handleToggleCard = (cardId: string, visible?: boolean) => {
     setVisibleCards(prev => {
@@ -1073,19 +1111,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
     : undefined;
 
   // Navigation Links & Icons configuration
-  const navigationTabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: Users, desc: 'Global credentials summary' },
-    { id: 'recruitment', label: 'Recruitment', icon: Briefcase, desc: 'Registered onboarding pool' },
-    { id: 'staff', label: 'Approved Staff', icon: User, desc: 'Operational caregiver roster' },
-    { id: 'vault', label: 'Documents', icon: FileText, desc: 'GDPR contract records storage' },
-    { id: 'compliance', label: 'Compliance', icon: ShieldAlert, desc: 'Deployment checks and credential alerts' },
-    { id: 'personnel', label: 'Personnel Files', icon: CheckSquare, desc: 'Live employment record completeness' },
-    { id: 'templates', label: 'Roles', icon: BookOpen, desc: 'Criteria checklists by role' },
-    { id: 'timesheets', label: 'Timesheets', icon: Clock, desc: 'Shift approvals and pays metrics' },
-    { id: 'workspace', label: 'Google Workspace', icon: Cloud, desc: 'Drive & Sheets Integration' },
-    { id: 'family_feedback', label: 'Family Surveys Hub', icon: Heart, desc: 'Real-time client satisfaction' },
-    { id: 'administration', label: 'User Administration', icon: Shield, desc: 'Manage system users and access roles' }
-  ];
+  const navigationTabs = adminNavigationItems.map(item => ({ ...item, icon: navigationIcons[item.id] }));
 
   // Auth Guard
   if (isAuthRestoring || isProfileSyncing) {
@@ -1315,9 +1341,9 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                 <button
                   key={item.id}
                   onClick={() => {
-                    setSelectedStaffId(null);
-                    setActiveTab(item.id);
+                    navigateToAdminTab(item.id);
                   }}
+                  data-testid={`admin-nav-desktop-${item.id}`}
                   className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-tight transition-all relative ${
                     activeTab === item.id && selectedStaffId === null
                       ? 'bg-slate-900 text-white font-bold shadow-sm'
@@ -1419,16 +1445,16 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
               <button onClick={() => setMobileMenuOpen(false)} className="text-slate-550 hover:text-slate-800 text-xl font-black p-1 leading-none">×</button>
             </div>
             
-            <nav className="flex-1 space-y-2">
+            <nav className="flex-1 space-y-2 overflow-y-auto pr-1">
               {currentRole === 'admin' ? (
                 navigationTabs.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => {
-                      setSelectedStaffId(null);
-                      setActiveTab(item.id);
+                      navigateToAdminTab(item.id);
                       setMobileMenuOpen(false);
                     }}
+                    data-testid={`admin-nav-mobile-${item.id}`}
                     className={`w-full flex items-center space-x-3 p-2.5 rounded-lg text-left text-xs font-semibold ${
                       activeTab === item.id && selectedStaffId === null
                         ? 'bg-slate-900 text-white font-bold'
@@ -1622,15 +1648,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                       onSaveCVData={handleSaveCVData}
                       onGenerateCVPdf={handleGenerateCVPdf}
                       onDeleteApplicant={handleDeleteApplicant}
-                      onUploadDocument={(file, category, staffId, staffName) => {
-                        handleUploadDocument({
-                          name: file.name,
-                          category: category as any,
-                          staffId: staffId,
-                          staffName: staffName,
-                          status: 'Awaiting Review',
-                        }, file);
-                      }}
+                      onOpenPersonnelFile={(userId) => navigateToAdminTab('personnel', { personnelUserId: userId })}
                     />
                   )}
 
@@ -1677,23 +1695,24 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                       staff={staff}
                       documents={documents}
                       templates={templates}
+                      initialUserId={selectedPersonnelUserId || undefined}
                       onNavigate={(route, subject) => {
                         if (route === 'documents') {
-                          setActiveTab('vault');
+                          navigateToAdminTab('vault');
                           return;
                         }
                         if (route === 'compliance') {
-                          setActiveTab('compliance');
+                          navigateToAdminTab('compliance');
                           return;
                         }
                         if (subject.applicant) {
+                          navigateToAdminTab('recruitment');
                           setSelectedApplicantId(subject.applicant.id);
-                          setActiveTab('recruitment');
                           return;
                         }
                         if (subject.staff) {
+                          navigateToAdminTab('staff');
                           setSelectedStaffId(subject.staff.id);
-                          setActiveTab('staff');
                         }
                       }}
                     />

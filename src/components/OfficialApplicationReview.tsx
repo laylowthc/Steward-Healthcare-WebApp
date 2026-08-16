@@ -12,6 +12,8 @@ import {
   OfficialApplicationStatus,
   OfficialApplicationVersion,
 } from "../types/officialApplication";
+import { RoleTemplate } from '../types';
+import { nmcPresentation } from '../lib/officialApplicationPresentation';
 
 const statuses: OfficialApplicationStatus[] = [
   "Submitted",
@@ -63,7 +65,17 @@ const show = (value: any): React.ReactNode =>
     String(value)
   );
 
-const sections = (a: OfficialApplicationData) =>
+const sections = (a: OfficialApplicationData, templates: RoleTemplate[]) => {
+  const nmc = nmcPresentation(a, templates);
+  const professionalRegistration = nmc.required || nmc.hasSubmittedData ? {
+    professionalRegistrationContext: nmc.historicalOnly
+      ? 'Historical submitted data retained in this immutable application; NMC registration is not a current requirement for this role.'
+      : 'Professional registration required for the selected role.',
+    nmcPin: a.nmcPin,
+    rna: a.rna,
+    nmcExpiryDate: a.nmcExpiryDate,
+  } : {};
+  return (
   [
     [
       "1. Role and Personal Details",
@@ -86,9 +98,7 @@ const sections = (a: OfficialApplicationData) =>
     [
       "2. Professional and Compliance",
       {
-        nmcPin: a.nmcPin,
-        rna: a.rna,
-        nmcExpiryDate: a.nmcExpiryDate,
+        ...professionalRegistration,
         rightToWork: a.rightToWork,
         enhancedDbs: a.enhancedDbs,
         dbsIssueDate: a.dbsIssueDate,
@@ -141,12 +151,16 @@ const sections = (a: OfficialApplicationData) =>
         submittedAt: a.submittedAt,
       },
     ],
-  ] as Array<[string, any]>;
+  ] as Array<[string, any]>
+  );
+};
 
 export default function OfficialApplicationReview({
   userId,
+  templates,
 }: {
   userId?: string;
+  templates: RoleTemplate[];
 }) {
   const [app, setApp] = useState<OfficialApplicationData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,11 +233,11 @@ export default function OfficialApplicationReview({
         reader.readAsDataURL(logoBlob);
       });
       const pageGroups = [
-        sections(app).slice(0, 2),
-        sections(app).slice(2, 4),
-        sections(app).slice(4, 5),
-        sections(app).slice(5, 6),
-        sections(app).slice(6),
+        sections(app, templates).slice(0, 2),
+        sections(app, templates).slice(2, 4),
+        sections(app, templates).slice(4, 5),
+        sections(app, templates).slice(5, 6),
+        sections(app, templates).slice(6),
       ];
       pageGroups.forEach((group, pageIndex) => {
         if (pageIndex > 0) doc.addPage();
@@ -316,8 +330,9 @@ export default function OfficialApplicationReview({
         </button>
       </div>
       {exportMessage && <p className="text-xs font-bold text-emerald-700">{exportMessage}</p>}
+      {nmcPresentation(app, templates).historicalOnly && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">This immutable submission contains historical professional-registration information. NMC registration is not part of the applicant's current role requirements and does not affect their current personnel-file or compliance status.</p>}
       <div className="max-h-[520px] space-y-4 overflow-y-auto rounded-xl border bg-slate-50 p-3 text-[11px]">
-        {sections(app).map(([heading, value]) => (
+        {sections(app, templates).map(([heading, value]) => (
           <section key={heading} className="rounded-xl border bg-white p-3">
             {heading.startsWith('4.') ? <ContinuousHistoryTimeline application={app} /> : <>
               <h5 className="mb-2 font-black uppercase text-purple-900">{heading}</h5>
@@ -380,7 +395,7 @@ export default function OfficialApplicationReview({
         )}
         {selectedVersion && (
           <div className="mt-3 max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-slate-50 p-3 text-[11px]">
-            {sections(selectedVersion.snapshot).map(([heading, value]) => (
+            {sections(selectedVersion.snapshot, templates).map(([heading, value]) => (
               <section key={heading} className="rounded-lg border bg-white p-3">
                 {heading.startsWith('4.') ? <ContinuousHistoryTimeline application={selectedVersion.snapshot} /> : <>
                   <h6 className="mb-2 font-black uppercase text-purple-900">{heading}</h6>

@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Applicant, ApplicantStatus, RoleTemplate, CVData, Document } from '../types';
-import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, CheckCircle, FileBadge } from 'lucide-react';
-import { deriveRequirementStatus, getSubjectDocuments } from '../lib/profileState';
+import { Plus, Mail, Phone, Calendar, ArrowRight, ArrowLeft, Trash, ChevronRight, X, ShieldCheck, ClipboardList, Clock, FileBadge, FolderOpen } from 'lucide-react';
 import OfficialApplicationReview from './OfficialApplicationReview';
-import { activeRequirements, findRole } from '../lib/roleEngine';
+import { findRole } from '../lib/roleEngine';
 import HrOnboardingReview from './HrOnboardingReview';
 import JobDescriptionReview from './JobDescriptionReview';
 import PreEmploymentComplianceReview from './PreEmploymentComplianceReview';
@@ -17,7 +16,7 @@ interface ApplicantKanbanProps {
   templates: RoleTemplate[];
   documents: Document[];
   onUpdateApplicantDetails: (id: string, fields: Partial<Applicant>) => void;
-  onUploadDocument?: (file: File, category: string, staffId: string, staffName: string) => void;
+  onOpenPersonnelFile?: (userId: string) => void;
   onSaveCVData?: (applicantId: string, cvData: CVData) => void;
   onGenerateCVPdf?: (applicantId: string, pdfBlob: Blob) => void;
   onDeleteApplicant?: (id: string) => void;
@@ -86,7 +85,7 @@ export default function ApplicantKanban({
   templates,
   documents,
   onUpdateApplicantDetails,
-  onUploadDocument,
+  onOpenPersonnelFile,
   onSaveCVData,
   onGenerateCVPdf,
   onDeleteApplicant
@@ -395,41 +394,41 @@ export default function ApplicantKanban({
       {selectedApplicant && (() => {
         // Find matching job template
         const jobTemplate = findRole(templates, selectedApplicant.roleId, selectedApplicant.position);
-        const applicantDocuments = getSubjectDocuments(documents, {
-          userId: selectedApplicant.userId,
-          applicantId: selectedApplicant.id
-        });
-
         return (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex justify-end">
             <div className="bg-white w-full max-w-4xl h-full shadow-2xl flex flex-col justify-between overflow-hidden border-l border-slate-100">
               <div className="overflow-y-auto flex-1">
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="p-4 sm:p-6 border-b border-slate-100 flex items-start justify-between gap-3 bg-slate-50">
                   <div>
                     <span className="text-[10px] font-black uppercase text-purple-700 bg-purple-100 px-2.5 py-1 rounded-full">
                       {selectedApplicant.position}
                     </span>
                     <h3 className="text-lg font-black text-slate-900 mt-2">{selectedApplicant.name}</h3>
+                    {selectedApplicant.userId && onOpenPersonnelFile && (
+                      <button type="button" onClick={() => onOpenPersonnelFile(selectedApplicant.userId!)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-white px-3 py-2 text-[10px] font-black text-purple-900 hover:bg-purple-50">
+                        <FolderOpen className="h-3.5 w-3.5" />Open Personnel File
+                      </button>
+                    )}
                   </div>
-                  <button onClick={() => { setSelectedApplicant(null); onApplicantClosed?.(); }} className="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+                  <button type="button" aria-label="Close applicant review" onClick={() => { setSelectedApplicant(null); onApplicantClosed?.(); }} className="shrink-0 text-slate-400 hover:text-slate-600 p-1 rounded-full">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
-                <div className="p-6 space-y-5">
+                <div className="p-4 sm:p-6 space-y-5">
                   <div>
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Primary Contact Card</h4>
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact details</h4>
                     <div className="mt-2 space-y-2 text-xs font-medium text-slate-800 font-sans">
-                      <p className="flex justify-between">
-                        <span className="text-slate-500">Email Address:</span>
-                        <a href={`mailto:${selectedApplicant.email}`} className="text-purple-700 hover:underline">{selectedApplicant.email}</a>
+                      <p className="flex flex-col gap-1 sm:flex-row sm:justify-between">
+                        <span className="text-slate-500">Email address:</span>
+                        <a href={`mailto:${selectedApplicant.email}`} className="break-all text-purple-700 hover:underline">{selectedApplicant.email}</a>
                       </p>
-                      <p className="flex justify-between">
-                        <span className="text-slate-500">Mobile Direct:</span>
+                      <p className="flex justify-between gap-3">
+                        <span className="text-slate-500">Mobile:</span>
                         <span>{selectedApplicant.phone}</span>
                       </p>
-                      <p className="flex justify-between">
-                        <span className="text-slate-500">Registered Date:</span>
+                      <p className="flex justify-between gap-3">
+                        <span className="text-slate-500">Registered:</span>
                         <span>{selectedApplicant.dateCreated}</span>
                       </p>
                     </div>
@@ -439,7 +438,7 @@ export default function ApplicantKanban({
                     <div className="pt-4 border-t border-slate-100">
                       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
                         <h4 className="text-[10px] font-black text-emerald-900 uppercase flex items-center">
-                          <FileBadge className="w-3.5 h-3.5 mr-1" /> Submitted Application Form Data
+                          <FileBadge className="w-3.5 h-3.5 mr-1" /> Legacy CV profile
                         </h4>
                         <ApplicationDataView data={selectedApplicant.cvData} />
                       </div>
@@ -447,7 +446,7 @@ export default function ApplicantKanban({
                   )}
 
                   <div className="pt-4 border-t border-slate-100">
-                    <OfficialApplicationReview userId={selectedApplicant.userId} />
+                    <OfficialApplicationReview userId={selectedApplicant.userId} templates={templates} />
                   </div>
 
                   <div className="pt-4 border-t border-slate-100">
@@ -466,11 +465,11 @@ export default function ApplicantKanban({
                   {jobTemplate && (
                     <div className="pt-4 border-t border-slate-100 space-y-2.5">
                       <h4 className="text-[10px] font-black text-purple-900 uppercase tracking-wider flex items-center">
-                        <ClipboardList className="w-3.5 h-3.5 mr-1" /> Linked Designation Brief
+                        <ClipboardList className="w-3.5 h-3.5 mr-1" /> Role summary
                       </h4>
                       <div className="p-3 bg-purple-50/40 border border-purple-100 rounded-xl space-y-2">
                         <p className="text-[11px] font-extrabold text-purple-950 flex justify-between">
-                          <span>SLA Target Pay:</span>
+                          <span>Pay range:</span>
                           <span>{jobTemplate.salaryRange}</span>
                         </p>
                         <p className="text-xs text-slate-650 leading-relaxed font-semibold">
@@ -480,79 +479,24 @@ export default function ApplicantKanban({
                     </div>
                   )}
 
-                  {/* interactive required document checklist */}
-                  {jobTemplate && (
-                    <div className="pt-4 border-t border-slate-100 space-y-3">
-                      <h4 className="text-[10px] font-black text-rose-700 uppercase tracking-wider flex items-center">
-                        <CheckCircle className="w-3.5 h-3.5 mr-1" /> Statutory compliance checklists
-                      </h4>
-                      <p className="text-[10px] text-slate-500 font-medium leading-normal -mt-1.5">
-                        Verify and declare certification status. Updates synchronize with compliance dashboards.
-                      </p>
-                      <div className="space-y-2">
-                        {activeRequirements(jobTemplate).map((requirement) => {
-                          const categories = requirement.metadata?.document_categories
-                            || (requirement.metadata?.document_category ? [requirement.metadata.document_category] : []);
-                          const currentStatus = categories.length
-                            ? deriveRequirementStatus(applicantDocuments, categories[0])
-                            : requirement.responsibleParty === 'administrator' ? 'Awaiting Review' : 'Missing';
-                          return (
-                            <div key={requirement.id || requirement.requirementKey} className="p-2.5 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col gap-2">
-                              <div className="flex justify-between items-start">
-                                <span className="text-xs font-bold text-slate-800 leading-snug">{requirement.displayName}</span>
-                                <span className={`p-0.5 px-2 text-[9px] font-black uppercase rounded-full border ${
-                                  currentStatus === 'Compliant'
-                                    ? 'bg-emerald-50 text-emerald-850 border-emerald-200'
-                                    : currentStatus === 'Awaiting Review'
-                                    ? 'bg-amber-50 text-amber-850 border-amber-250'
-                                    : 'bg-rose-50 text-rose-850 border-rose-200'
-                                }`}>
-                                  {currentStatus}
-                                </span>
-                              </div>
-                              <span className="text-[9px] font-bold uppercase text-slate-400">{requirement.stage} · {requirement.responsibleParty === 'administrator' ? 'SHC office' : 'applicant'}</span>
-                              <div className="flex justify-between items-center gap-1 font-sans mt-1">
-                                {requirement.responsibleParty === 'applicant' && categories.length > 0 && <label className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100 transition">
-                                  + Upload Document
-                                  <input 
-                                    type="file" 
-                                    className="hidden" 
-                                    accept=".pdf,image/*"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file && onUploadDocument) {
-                                        onUploadDocument(file, categories[0], selectedApplicant.id, selectedApplicant.name);
-                                      }
-                                    }} 
-                                  />
-                                </label>}
-                                <span className="text-[9px] text-slate-400 font-semibold">{requirement.responsibleParty === 'administrator' ? 'Office verification' : 'Role requirement'}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Google Meet virtual interviews */}
                   <div className="pt-4 border-t border-slate-100 space-y-3">
                     <h4 className="text-[10px] font-black text-[#5e2290] uppercase tracking-wider flex items-center">
-                      <span className="text-sm mr-1.5">🎥</span> virtual interviews & Google Meet
+                      <span className="text-sm mr-1.5">🎥</span> Virtual interview
                     </h4>
                     
                     {selectedApplicant.interviewMeetUrl ? (
                       <div className="p-3 bg-fuchsia-50/50 border border-fuchsia-100 rounded-xl space-y-3">
                         <div className="flex justify-between items-start">
                           <div>
-                            <p className="text-[10px] uppercase font-black text-fuchsia-900 leading-normal">Active Meet Space Connected</p>
+                            <p className="text-[10px] uppercase font-black text-fuchsia-900 leading-normal">Google Meet scheduled</p>
                             <p className="text-xs text-slate-700 font-bold mt-1">
                               Time: {selectedApplicant.interviewTime ? new Date(selectedApplicant.interviewTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not Scheduled'}
                             </p>
                           </div>
                           <span className="p-0.5 px-2 text-[9px] font-black uppercase rounded-full border bg-emerald-50 text-emerald-800 border-emerald-250 flex items-center space-x-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span>Provisioned</span>
+                            <span>Scheduled</span>
                           </span>
                         </div>
 
