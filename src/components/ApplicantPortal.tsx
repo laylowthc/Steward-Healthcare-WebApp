@@ -27,6 +27,7 @@ import { HrFormDefinition, HrOnboardingForm } from '../types/hrOnboarding';
 import { JobDescription, JobDescriptionAcknowledgement } from '../types/jobDescription';
 import { loadCurrentJobDescription, loadJobDescriptionAcknowledgements } from '../lib/jobDescriptionRepository';
 import { currentJobDescriptionComplete, jobDescriptionStatus } from '../lib/jobDescriptions';
+import ApplicantCompliancePanel from './ApplicantCompliancePanel';
 
 interface ApplicantPortalProps {
   applicant: Applicant;
@@ -51,7 +52,7 @@ export default function ApplicantPortal({
   onSaveCVData,
   onSaveDocument
 }: ApplicantPortalProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'application_form' | 'hr_documents' | 'job_description' | 'pre_employment'>('overview');
   const [applicationStatus, setApplicationStatus] = useState<OfficialApplicationStatus | 'Not Started' | 'Loading' | 'Unavailable'>('Loading');
   const [applicationData, setApplicationData] = useState<OfficialApplicationData | null>(null);
   const [hrForms, setHrForms] = useState<HrOnboardingForm[]>([]);
@@ -242,7 +243,7 @@ export default function ApplicantPortal({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <nav className="flex bg-slate-100 p-1 rounded-xl">
+            <nav className="flex max-w-full gap-1 overflow-x-auto bg-slate-100 p-1 rounded-xl">
               <button
                 onClick={() => setActiveTab('overview')}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
@@ -274,6 +275,14 @@ export default function ApplicantPortal({
                 }`}
               >
                 4. Job Description
+              </button>
+              <button
+                onClick={() => setActiveTab('pre_employment')}
+                className={`whitespace-nowrap px-3 py-1.5 text-xs font-bold rounded-lg transition ${
+                  activeTab === 'pre_employment' ? 'bg-white text-purple-950 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                5. Pre-employment Checks
               </button>
             </nav>
 
@@ -638,6 +647,10 @@ export default function ApplicantPortal({
               />
             </div>
           </div>
+        )}
+
+        {activeTab === 'pre_employment' && (
+          <ApplicantCompliancePanel userId={authenticatedUserId} roleId={jobTemplate?.id} />
         )}
 
       </main>

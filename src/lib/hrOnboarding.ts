@@ -111,10 +111,14 @@ export const validateHrForm = (
       ['fullLegalName', 'Full legal name'], ['address', 'Address'], ['postcode', 'Postcode'],
       ['mobile', 'Mobile number'], ['personalEmail', 'Personal email'], ['dateOfBirth', 'Date of birth'],
       ['nationalInsuranceNumber', 'National Insurance number'], ['jobRole', 'Job role'],
+      ['placeOfWork', 'Place of work / base'], ['relatedToShcPerson', 'Relationship to an SHC person declaration'],
+      ['previouslyWorkedForShc', 'Previous SHC work declaration'],
       ['intendedStartDate', 'Intended start date'], ['employmentType', 'Employment type'],
       ['emergencyContactName', 'Emergency contact name'], ['emergencyContactRelationship', 'Emergency contact relationship'],
       ['emergencyContactPhone', 'Emergency contact telephone'],
     ].forEach(([key, label]) => required(key, label));
+    if (data.relatedToShcPerson === 'Yes') required('relatedToShcPersonDetails', 'Relationship details');
+    if (data.previouslyWorkedForShc === 'Yes') required('previousShcWorkDetails', 'Previous SHC work details');
   }
   if (formType === 'bank_details') {
     [['accountHolderName', 'Account holder name'], ['bankName', 'Bank / building society'], ['sortCode', 'Sort code'], ['accountNumber', 'Account number']]
@@ -124,7 +128,11 @@ export const validateHrForm = (
   if (formType === 'paye_declaration') {
     required('starterStatement', 'Starter statement A, B or C');
     required('studentLoanOutstanding', 'Student loan answer');
-    if (data.studentLoanOutstanding === 'Yes') required('studentLoanPlan', 'Student loan plan');
+    if (data.studentLoanOutstanding === 'Yes') {
+      required('studentLoanPlan', 'Student loan plan');
+      required('studentLoanDirectDebit', 'Student loan Direct Debit answer');
+      required('studyCompletionDate', 'Study completion date');
+    }
   }
   if (formType === 'next_of_kin') {
     [['fullName', 'Full name'], ['relationship', 'Relationship'], ['telephone', 'Telephone / mobile']]

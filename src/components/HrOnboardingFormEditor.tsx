@@ -37,10 +37,11 @@ const initialData = (
     postcode: application?.postcode || '', telephone: application?.telephone || '', mobile: application?.mobile || applicant.phone,
     personalEmail: application?.personalEmail || applicant.email, dateOfBirth: applicant.cvData?.personalDetails?.dob || '',
     nationalInsuranceNumber: application?.nationalInsuranceNumber || '', jobRole: role?.role || applicant.position,
+    placeOfWork: '', alsoKnownAs: '', genderIdentity: '', relatedToShcPerson: '', relatedToShcPersonDetails: '', previouslyWorkedForShc: '', previousShcWorkDetails: '',
     intendedStartDate: '', employmentType: '', emergencyContactName: '', emergencyContactRelationship: '', emergencyContactPhone: '',
   };
   if (definition.type === 'bank_details') return { accountHolderName: applicant.name, bankName: '', sortCode: '', accountNumber: '', buildingSocietyNumber: '', payrollDeclaration: false };
-  if (definition.type === 'paye_declaration') return { starterStatement: '', studentLoanOutstanding: '', studentLoanPlan: '', studentLoanDirectDebit: '' };
+  if (definition.type === 'paye_declaration') return { starterStatement: '', studentLoanOutstanding: '', studentLoanPlan: '', studentLoanDirectDebit: '', studyCompletionDate: '' };
   if (definition.type === 'next_of_kin') return { fullName: '', relationship: '', telephone: '', address: '', alternativeName: '', alternativeTelephone: '' };
   if (definition.type === 'working_time_declaration') return { workingTimeChoice: '', declarationRead: false };
   return {
@@ -169,7 +170,11 @@ export default function HrOnboardingFormEditor({
               <Field label="Address" wide>{text('address')}</Field><Field label="Postcode">{text('postcode')}</Field><Field label="Telephone">{text('telephone')}</Field>
               <Field label="Mobile">{text('mobile')}</Field><Field label="Personal email">{text('personalEmail', 'email')}</Field>
               <Field label="National Insurance number">{text('nationalInsuranceNumber')}</Field><Field label="Job role">{text('jobRole')}</Field>
+              <Field label="Place of work / base">{text('placeOfWork')}</Field><Field label="Also known as (optional)">{text('alsoKnownAs')}</Field>
+              <Field label="Gender identity (optional)"><select disabled={!editable} value={form.formData.genderIdentity || ''} onChange={event => changeData('genderIdentity', event.target.value)} className={inputClass}><option value="">Prefer not to say / not provided</option><option>Woman</option><option>Man</option><option>Non-binary</option><option>Self-describe</option></select></Field>
               <Field label="Intended start date">{text('intendedStartDate', 'date')}</Field><Field label="Employment type"><select disabled={!editable} value={form.formData.employmentType || ''} onChange={event => changeData('employmentType', event.target.value)} className={inputClass}><option value="">Select</option><option>Permanent</option><option>Fixed term</option><option>Bank / casual</option><option>Part time</option></select></Field>
+              <Field label="Related to an SHC employee or service user?">{yesNo('relatedToShcPerson')}</Field>{form.formData.relatedToShcPerson === 'Yes' && <Field label="Relationship details">{text('relatedToShcPersonDetails')}</Field>}
+              <Field label="Previously worked for SHC, including agency work?">{yesNo('previouslyWorkedForShc')}</Field>{form.formData.previouslyWorkedForShc === 'Yes' && <Field label="Previous SHC work details">{text('previousShcWorkDetails')}</Field>}
               <Field label="Emergency contact name">{text('emergencyContactName')}</Field><Field label="Relationship">{text('emergencyContactRelationship')}</Field><Field label="Emergency contact telephone">{text('emergencyContactPhone')}</Field>
             </>}
             {definition.type === 'bank_details' && <>
@@ -187,7 +192,7 @@ export default function HrOnboardingFormEditor({
                 ].map(([value, label]) => <label key={value} className="flex gap-2"><input type="radio" disabled={!editable} name="starterStatement" checked={form.formData.starterStatement === value} onChange={() => changeData('starterStatement', value)} /><span><b>{value}.</b> {label}</span></label>)}
               </div>
               <Field label="Student loan not fully repaid?">{yesNo('studentLoanOutstanding')}</Field>
-              {form.formData.studentLoanOutstanding === 'Yes' && <><Field label="Student loan plan"><select disabled={!editable} value={form.formData.studentLoanPlan || ''} onChange={event => changeData('studentLoanPlan', event.target.value)} className={inputClass}><option value="">Select</option><option>Plan 1</option><option>Plan 2</option><option>Plan 4</option><option>Postgraduate Loan</option></select></Field><Field label="Repaying by Direct Debit?">{yesNo('studentLoanDirectDebit')}</Field></>}
+              {form.formData.studentLoanOutstanding === 'Yes' && <><Field label="Student loan plan"><select disabled={!editable} value={form.formData.studentLoanPlan || ''} onChange={event => changeData('studentLoanPlan', event.target.value)} className={inputClass}><option value="">Select</option><option>Plan 1</option><option>Plan 2</option><option>Plan 4</option><option>Postgraduate Loan</option></select></Field><Field label="Repaying by Direct Debit?">{yesNo('studentLoanDirectDebit')}</Field><Field label="Study completion date">{text('studyCompletionDate', 'date')}</Field></>}
             </>}
             {definition.type === 'next_of_kin' && <>
               <Field label="Full name">{text('fullName')}</Field><Field label="Relationship">{text('relationship')}</Field><Field label="Telephone / mobile">{text('telephone')}</Field><Field label="Address">{text('address')}</Field>

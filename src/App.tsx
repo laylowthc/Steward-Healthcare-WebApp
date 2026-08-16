@@ -123,6 +123,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState<boolean>(false);
 
@@ -1609,6 +1610,8 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'recruitment' && (
                     <ApplicantKanban
                       applicants={applicants}
+                      initialSelectedApplicantId={selectedApplicantId}
+                      onApplicantClosed={() => setSelectedApplicantId(null)}
                       onUpdateApplicantStatus={handleUpdateApplicantStatus}
                       onAddApplicant={handleAddApplicant}
                       templates={templates}
@@ -1656,7 +1659,12 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'compliance' && (
                     <ComplianceDashboard
                       staff={staff}
+                      applicants={applicants}
                       onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
+                      onSelectApplicant={(applicantId) => {
+                        setActiveTab('recruitment');
+                        setSelectedApplicantId(applicantId);
+                      }}
                     />
                   )}
 

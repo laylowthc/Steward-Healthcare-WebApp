@@ -29,6 +29,7 @@ assert(validateHrForm('starter_information', {}, starter).includes('Full legal n
 assert.equal(validateHrForm('starter_information', {
   fullLegalName: 'Applicant Name', address: '1 Road', postcode: 'AB1 2CD', mobile: '07000000000', personalEmail: 'a@example.com',
   dateOfBirth: '1990-01-01', nationalInsuranceNumber: 'AB123456C', jobRole: 'Care Assistant', intendedStartDate: '2026-09-01',
+  placeOfWork: 'SHC', relatedToShcPerson: 'No', previouslyWorkedForShc: 'No',
   employmentType: 'Permanent', emergencyContactName: 'Contact', emergencyContactRelationship: 'Sibling', emergencyContactPhone: '07111111111',
 }, starter).length, 0, 'complete starter form validates');
 
