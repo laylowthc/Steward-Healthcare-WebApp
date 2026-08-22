@@ -3,6 +3,9 @@ import { JobDescription, JobDescriptionAcknowledgement, JobDescriptionStatus } f
 export const jobDescriptionAcknowledgementText =
   'I confirm that I have read and understood this Job Description and understand the duties and responsibilities associated with my role.';
 
+export const acknowledgementTextFor = (current: JobDescription | null | undefined) =>
+  current?.content.acknowledgementText?.trim() || jobDescriptionAcknowledgementText;
+
 export const jobDescriptionStatus = (
   current: JobDescription | null | undefined,
   acknowledgements: JobDescriptionAcknowledgement[],
@@ -18,4 +21,3 @@ export const currentJobDescriptionComplete = (
   current: JobDescription | null | undefined,
   acknowledgements: JobDescriptionAcknowledgement[],
 ) => Boolean(current && acknowledgements.some(item => item.jobDescriptionId === current.id));
-

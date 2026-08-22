@@ -1,10 +1,14 @@
 import { HrSignatureType } from './hrOnboarding';
 
 export interface JobDescriptionContent {
+  organisation: string;
+  documentStatus: string;
+  professionalRequirement: string;
   summary: string;
   reportsTo: string;
   duties: string[];
   conduct: string[];
+  acknowledgementText: string;
 }
 
 export interface JobDescription {
@@ -45,4 +49,3 @@ export type JobDescriptionStatus =
   | 'Awaiting Signature'
   | 'Signed'
   | 'Re-sign Required';
-

@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
-import { currentJobDescriptionComplete, jobDescriptionStatus } from '../src/lib/jobDescriptions';
+import { acknowledgementTextFor, currentJobDescriptionComplete, jobDescriptionStatus } from '../src/lib/jobDescriptions';
 import { requirementProgress } from '../src/lib/roleEngine';
 import { JobDescription, JobDescriptionAcknowledgement } from '../src/types/jobDescription';
 import { RoleRequirement } from '../src/types';
 
 const description = (overrides: Partial<JobDescription> = {}): JobDescription => ({
   id: 'care-v1', roleId: 'care-role', title: 'Care Assistant Job Description', version: '1.0',
-  content: { summary: 'Care role', reportsTo: 'Manager', duties: ['Provide safe care'], conduct: [] },
+  content: { organisation: 'Steward Health Care 247 Professionals', documentStatus: 'Controlled HR Document', professionalRequirement: '', summary: 'Care role', reportsTo: 'Manager', duties: ['Provide safe care'], conduct: ['Act safely'], acknowledgementText: 'Care acknowledgement' },
   active: true, createdAt: '2026-08-12T00:00:00Z', updatedAt: '2026-08-12T00:00:00Z', ...overrides,
 });
 const acknowledgement = (overrides: Partial<JobDescriptionAcknowledgement> = {}): JobDescriptionAcknowledgement => ({
   id: 'ack-care-v1', jobDescriptionId: 'care-v1', userId: 'user', applicantId: 'applicant', roleId: 'care-role',
   roleName: 'Care Assistant / Care Worker', jdTitle: 'Care Assistant Job Description', jdVersion: '1.0',
-  contentSnapshot: { summary: 'Care role', reportsTo: 'Manager', duties: ['Provide safe care'], conduct: [] },
+  contentSnapshot: { organisation: 'Steward Health Care 247 Professionals', documentStatus: 'Controlled HR Document', professionalRequirement: '', summary: 'Care role', reportsTo: 'Manager', duties: ['Provide safe care'], conduct: ['Act safely'], acknowledgementText: 'Care acknowledgement' },
   acknowledgementText: 'Acknowledged', acknowledgementVersion: '1.0', signatureType: 'typed', signatureValue: 'Applicant',
   signerUserId: 'user', signerName: 'Applicant', signedAt: '2026-08-12T00:00:00Z', createdAt: '2026-08-12T00:00:00Z', ...overrides,
 });
@@ -20,6 +20,7 @@ const acknowledgement = (overrides: Partial<JobDescriptionAcknowledgement> = {})
 const careV1 = description();
 const careAck = acknowledgement();
 assert.equal(jobDescriptionStatus(careV1, []), 'Awaiting Signature', 'Care applicant awaits the configured Care JD');
+assert.equal(acknowledgementTextFor(careV1), 'Care acknowledgement', 'the role-specific controlled acknowledgement is presented for signing');
 assert.equal(jobDescriptionStatus(careV1, [careAck]), 'Signed', 'Care acknowledgement survives reload when read from persistence');
 
 const nurseV1 = description({ id: 'nurse-v1', roleId: 'nurse-role', title: 'Nurse Job Description' });

@@ -3,17 +3,25 @@ import { HrSignatureType } from '../types/hrOnboarding';
 import { JobDescription, JobDescriptionAcknowledgement, JobDescriptionContent } from '../types/jobDescription';
 
 const contentFromRow = (value: any): JobDescriptionContent => ({
+  organisation: String(value?.organisation || ''),
+  documentStatus: String(value?.document_status || value?.documentStatus || 'Controlled HR Document'),
+  professionalRequirement: String(value?.professional_requirement || value?.professionalRequirement || ''),
   summary: String(value?.summary || ''),
   reportsTo: String(value?.reports_to || value?.reportsTo || ''),
   duties: Array.isArray(value?.duties) ? value.duties.map(String) : [],
   conduct: Array.isArray(value?.conduct) ? value.conduct.map(String) : [],
+  acknowledgementText: String(value?.acknowledgement_text || value?.acknowledgementText || ''),
 });
 
 const contentToRow = (value: JobDescriptionContent) => ({
+  organisation: value.organisation,
+  document_status: value.documentStatus,
+  professional_requirement: value.professionalRequirement,
   summary: value.summary,
   reports_to: value.reportsTo,
   duties: value.duties,
   conduct: value.conduct,
+  acknowledgement_text: value.acknowledgementText,
 });
 
 export const mapJobDescriptionRow = (row: any): JobDescription => ({
