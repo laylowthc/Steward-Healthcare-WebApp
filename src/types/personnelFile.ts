@@ -23,7 +23,7 @@ export type PersonnelFileStatus =
   | 'Not Applicable'
   | 'Exception Approved';
 
-export type PersonnelSourceRoute = 'application' | 'recruitment' | 'compliance' | 'hr_onboarding' | 'job_description' | 'documents';
+export type PersonnelSourceRoute = 'application' | 'recruitment' | 'compliance' | 'hr_onboarding' | 'job_description' | 'documents' | 'training';
 
 export interface PersonnelFileSource {
   workflow: string;

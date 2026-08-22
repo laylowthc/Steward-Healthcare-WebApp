@@ -59,7 +59,7 @@ assert.equal(dbsConcern.find(item => item.key === 'dbs_verification')?.status, '
 assert.equal(derivePersonnelFile({ role: careRole, compliance: bundle([record('dbs_verification', 'Verified')]) }).find(item => item.key === 'dbs_verification')?.status, 'Complete');
 
 // F: a signature is for the exact current role JD version.
-const jd = { id: 'jd-care-v2', roleId: careRole.id, title: 'Care Assistant Job Description', version: '2', content: { summary: '', reportsTo: '', duties: [], conduct: [] }, active: true, createdAt: '', updatedAt: '' };
+const jd = { id: 'jd-care-v2', roleId: careRole.id, title: 'Care Assistant Job Description', version: '2', content: { organisation: '', documentStatus: 'Controlled HR Document', professionalRequirement: '', summary: '', reportsTo: '', duties: [], conduct: [], acknowledgementText: '' }, active: true, createdAt: '', updatedAt: '' };
 const ack = { id: 'ack-1', jobDescriptionId: jd.id, userId: 'user-1', applicantId: 'applicant-1', roleId: careRole.id, roleName: careRole.role, jdTitle: jd.title, jdVersion: jd.version, contentSnapshot: jd.content, acknowledgementText: 'Acknowledged', acknowledgementVersion: '1', signatureType: 'typed' as const, signatureValue: 'Test Person', signerUserId: 'user-1', signerName: 'Test Person', signedAt: '', createdAt: '' };
 assert.equal(derivePersonnelFile({ role: careRole, currentJobDescription: jd, acknowledgements: [ack] }).find(item => item.key === 'job_description')?.status, 'Complete');
 assert.equal(derivePersonnelFile({ role: careRole, currentJobDescription: { ...jd, id: 'jd-care-v3', version: '3' }, acknowledgements: [ack] }).find(item => item.key === 'job_description')?.status, 'Awaiting Applicant');

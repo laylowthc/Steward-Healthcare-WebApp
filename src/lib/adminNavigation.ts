@@ -7,6 +7,7 @@ export const adminNavigationItems = [
   { id: 'vault', label: 'Documents', desc: 'GDPR contract records storage' },
   { id: 'compliance', label: 'Compliance', desc: 'Deployment checks and credential alerts' },
   { id: 'personnel', label: 'Personnel Files', desc: 'Live employment record completeness' },
+  { id: 'training', label: 'Training & Credentials', desc: 'Role requirements, evidence and expiry status' },
   { id: 'templates', label: 'Roles', desc: 'Criteria checklists by role' },
   { id: 'timesheets', label: 'Timesheets', desc: 'Shift approvals and pays metrics' },
   { id: 'workspace', label: 'Google Workspace', desc: 'Drive & Sheets Integration' },

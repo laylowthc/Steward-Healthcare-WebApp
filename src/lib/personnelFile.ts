@@ -7,6 +7,8 @@ import { PersonnelChecklistItem, PersonnelFileCategory, PersonnelFileStatus, Per
 import { chronologyValidationMessages } from './continuousHistory';
 import { configuredHrForms } from './hrOnboarding';
 import { hasRequirement } from './roleEngine';
+import { StaffTrainingRecord } from '../types/trainingCredentials';
+import { deriveTrainingCredentials } from './trainingCredentials';
 
 export interface PersonnelFileInput {
   role?: RoleTemplate;
@@ -18,6 +20,7 @@ export interface PersonnelFileInput {
   currentJobDescription?: JobDescription | null;
   acknowledgements?: JobDescriptionAcknowledgement[];
   compliance?: ComplianceCaseBundle;
+  trainingRecords?: StaffTrainingRecord[];
 }
 
 const completeStatuses = new Set<PersonnelFileStatus>(['Complete', 'Exception Approved', 'Not Required']);
@@ -115,6 +118,14 @@ export const derivePersonnelFile = (input: PersonnelFileInput): PersonnelCheckli
   const applicationComplete = application?.status === 'Approved';
   const historyComplete = Boolean(application && chronologyValidationMessages(application).length === 0);
   const currentJdSigned = Boolean(input.currentJobDescription && (input.acknowledgements || []).some(ack => ack.jobDescriptionId === input.currentJobDescription?.id));
+  const trainingItems = deriveTrainingCredentials({ role, records: input.trainingRecords || [], complianceRecords: records });
+  const mandatoryTraining = trainingItems.filter(entry => entry.mandatory);
+  const trainingComplete = mandatoryTraining.length > 0 && mandatoryTraining.every(entry => ['Valid', 'Expiring Soon'].includes(entry.status));
+  const trainingStatus: PersonnelFileStatus = !mandatoryTraining.length ? 'Not Required'
+    : trainingComplete ? (mandatoryTraining.some(entry => entry.status === 'Expiring Soon') ? 'Expiring' : 'Complete')
+      : mandatoryTraining.some(entry => entry.status === 'Expired') ? 'Expired'
+        : mandatoryTraining.some(entry => entry.status === 'Awaiting Verification') ? 'Awaiting SHC Review'
+          : 'Not Recorded';
   const result: PersonnelChecklistItem[] = [
     item({ key: 'application_form', displayName: 'Official Application', category: 'Recruitment', status: applicationComplete ? 'Complete' : application ? 'In Progress' : 'Not Recorded', blocking: true, responsibleParty: 'applicant', derivation: 'auto-derived', reason: applicationComplete ? `Approved application revision ${application?.revision}.` : application ? `Application is ${application.status}.` : 'No official application is recorded.', source: source('Official Application', 'application', application?.id, application?.reviewedAt || application?.updatedAt, undefined, application?.reviewedBy) }),
     item({ key: 'continuous_history', displayName: 'Employment / Education History', category: 'Recruitment', status: historyComplete ? 'Complete' : application ? 'Outstanding' : 'Not Recorded', blocking: true, responsibleParty: 'applicant', derivation: 'auto-derived', reason: historyComplete ? 'Secondary education is present and the chronology has no unexplained gaps.' : application ? chronologyValidationMessages(application)[0] || 'History is incomplete.' : 'No application history is recorded.', source: source('Continuous History', 'application', application?.id, application?.updatedAt) }),
@@ -134,7 +145,7 @@ export const derivePersonnelFile = (input: PersonnelFileInput): PersonnelCheckli
     documentItem(documents, 'conditional_offer', 'Conditional Offer / Appointment Letter', 'Employment Documents', doc => /conditional offer|appointment letter|offer letter/i.test(`${doc.category} ${doc.name}`)),
     documentItem(documents, 'employment_contract', 'Employment Contract', 'Employment Documents', doc => doc.category === 'Employment Contract' || /employment contract|signed contract/i.test(doc.name), true),
     documentItem(documents, 'variation_terms', 'Variation of Terms', 'Employment Documents', doc => /variation of terms|variation of t&c/i.test(doc.name)),
-    { ...complianceItem(records, 'mandatory_training', 'Mandatory Training / Credentials', 'Ongoing Staff Record', { blocking: hasRequirement(role, 'mandatory_training'), reason: 'Role-configured training evidence and verification remain outstanding; detailed credential control is scheduled for Sprint 4C.' }), key: 'training_records' },
+    item({ key: 'training_records', displayName: 'Training & Credentials', category: 'Ongoing Staff Record', status: trainingStatus, blocking: mandatoryTraining.some(entry => entry.mandatory), responsibleParty: 'applicant', derivation: 'auto-derived', reason: !mandatoryTraining.length ? 'No mandatory training requirements are configured for this role.' : trainingComplete ? `${mandatoryTraining.length} mandatory role requirement${mandatoryTraining.length === 1 ? '' : 's'} ${trainingStatus === 'Expiring' ? 'are verified; at least one expires soon.' : 'are verified and current.'}` : `${mandatoryTraining.filter(entry => !['Valid', 'Expiring Soon'].includes(entry.status)).length} of ${mandatoryTraining.length} mandatory training or credential requirements remain outstanding.`, source: source('Training & Credentials', 'training', undefined, (input.trainingRecords || []).map(entry => entry.updatedAt).filter(Boolean).sort().at(-1)) }),
     item({ key: 'supervision_appraisal', displayName: 'Supervision / Appraisal', category: 'Ongoing Staff Record', status: 'Not Applicable', blocking: false, responsibleParty: 'administrator', derivation: 'future-workflow', reason: 'Ongoing personnel workflows are scheduled for Sprint 6.', source: source('Future personnel workflow', 'documents') }),
     item({ key: 'sickness_employee_relations', displayName: 'Sickness / Employee Relations', category: 'Ongoing Staff Record', status: 'Not Applicable', blocking: false, responsibleParty: 'administrator', derivation: 'future-workflow', reason: 'Sickness, disciplinary and grievance workflows are not yet active.', source: source('Future personnel workflow', 'documents') }),
   ];

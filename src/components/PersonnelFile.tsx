@@ -9,6 +9,7 @@ import { derivePersonnelFile, summarisePersonnelFile } from '../lib/personnelFil
 import { getSubjectDocuments } from '../lib/profileState';
 import { findRole } from '../lib/roleEngine';
 import { PersonnelChecklistItem, PersonnelFileCategory, PersonnelFileStatus, PersonnelSourceRoute } from '../types/personnelFile';
+import { loadTrainingRecords } from '../lib/trainingRepository';
 
 interface PersonnelSubject {
   key: string;
@@ -88,15 +89,16 @@ export default function PersonnelFile({ applicants, staff, documents, templates,
       try {
         const role = findRole(templates, selected.roleId, selected.roleName);
         const subjectDocuments = getSubjectDocuments(documents, { userId: selected.userId, applicantId: selected.applicant?.id, staffProfileId: selected.staff?.id });
-        const [application, hrForms, acknowledgements, compliance, jd] = await Promise.all([
+        const [application, hrForms, acknowledgements, compliance, jd, training] = await Promise.all([
           loadOfficialApplication(selected.userId),
           loadHrOnboardingForms(selected.userId),
           loadJobDescriptionAcknowledgements(selected.userId),
           loadComplianceCase(selected.userId, true, role?.id),
           role?.id ? loadCurrentJobDescription(role.id) : Promise.resolve(null),
+          loadTrainingRecords(selected.userId),
         ]);
         if (!active) return;
-        setItems(derivePersonnelFile({ role, applicant: selected.applicant, staff: selected.staff, application, documents: subjectDocuments, hrForms, currentJobDescription: jd, acknowledgements, compliance }));
+        setItems(derivePersonnelFile({ role, applicant: selected.applicant, staff: selected.staff, application, documents: subjectDocuments, hrForms, currentJobDescription: jd, acknowledgements, compliance, trainingRecords: training.records }));
         setDeploymentEligible(Boolean(compliance.complianceCase?.deploymentEligible));
         setComplianceStatus(compliance.complianceCase?.overallStatus || 'Not recorded');
       } catch (reason: any) {
