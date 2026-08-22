@@ -122,13 +122,6 @@ with check (
       and applicant.user_id = (select auth.uid())
       and applicant.role_id = job_description_acknowledgements.role_id
   )
-  and exists (
-    select 1
-    from public.job_descriptions description
-    where description.id = job_description_acknowledgements.job_description_id
-      and description.role_id = job_description_acknowledgements.role_id
-      and description.active
-  )
 );
 
 -- The previously published Care Assistant v1.0 wording is materially different
