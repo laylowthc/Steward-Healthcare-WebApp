@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Applicant, Staff, Document, Timesheet, ActivityLog, RoleTemplate, FamilyFeedback, SystemUserProfile } from '../types';
 import { 
@@ -18,7 +18,8 @@ import {
   Heart, 
   Cloud 
 } from 'lucide-react';
-import { getComplianceState, isApprovedStaffProfile, isFullyCompliantStaff } from '../lib/complianceState';
+import { isApprovedStaffProfile } from '../lib/complianceState';
+import { useDeploymentReadiness } from '../lib/useDeploymentReadiness';
 
 
 interface DashboardProps {
@@ -62,16 +63,17 @@ export default function Dashboard({
   
   // Calculate dynamic stats from application state
   const totalApplicants = applicants.filter(a => a.status !== 'Accepted' && a.status !== 'Rejected').length;
-  const approvedStaff = staff.filter(isApprovedStaffProfile);
+  const approvedStaff = useMemo(() => staff.filter(isApprovedStaffProfile), [staff]);
   const activeStaff = approvedStaff.length;
   const awaitingReviewDocs = documents.filter(d => d.status === 'Awaiting Review').length;
-  const complianceAlerts = staff.filter(s => getComplianceState(s) !== 'Compliant').length;
-  const expiringDBS = staff.filter(s => s.dbsStatus === 'Expiring').length;
   const scheduledInterviews = applicants.filter(applicant => applicant.interviewTime && applicant.interviewMeetUrl).length;
+  const { readiness, loading: readinessLoading, error: readinessError } = useDeploymentReadiness(approvedStaff, templates);
+  const readinessResults = approvedStaff.map(member => readiness[member.id]?.result).filter(Boolean);
+  const readyStaffCount = readinessResults.filter(result => result?.ready).length;
+  const restrictedStaffCount = readinessResults.filter(result => result && !result.ready).length;
+  const expiryWarningCount = readinessResults.reduce((count, result) => count + (result?.warnings.length || 0), 0);
 
-  // Compliance percentage widget
-  const compliantStaffCount = approvedStaff.filter(isFullyCompliantStaff).length;
-  const compliancePercentage = approvedStaff.length > 0 ? Math.round((compliantStaffCount / approvedStaff.length) * 100) : 0;
+  const readinessPercentage = approvedStaff.length > 0 ? Math.round((readyStaffCount / approvedStaff.length) * 100) : 0;
 
   const [isCardFlipped, setIsCardFlipped] = useState(false);
   const displayName = currentUserProfile?.fullName || currentUser?.name || 'Authenticated User';
@@ -240,61 +242,62 @@ export default function Dashboard({
           </div>
         </button>
 
-        {/* Card 3: Compliance Alerts */}
+        {/* Card 3: Ready for deployment */}
         <button
           onClick={() => onNavigate('compliance')}
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Compliance Alerts</span>
-            <span className={`p-2 rounded-xl group-hover:opacity-90 transition-opacity ${complianceAlerts > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-500'}`}>
-              <ShieldAlert className="w-5 h-5" />
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ready for Deployment</span>
+            <span className="p-2 rounded-xl bg-emerald-50 text-emerald-700 group-hover:opacity-90 transition-opacity">
+              <CheckCircle className="w-5 h-5" />
             </span>
           </div>
           <div className="mt-4">
-            <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{complianceAlerts}</span>
-            <span className="text-[11px] font-semibold text-amber-700 mt-1 block flex items-center">
-              Profiles requiring attention →
+            <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{readinessLoading ? '…' : readyStaffCount}</span>
+            <span className="text-[11px] font-semibold text-emerald-700 mt-1 block flex items-center">
+              Current operationally cleared Staff →
             </span>
           </div>
         </button>
 
-        {/* Card 4: Documents Awaiting Review */}
+        {/* Card 4: Deployment restricted */}
+        <button
+          onClick={() => onNavigate('compliance')}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Deployment Restricted</span>
+            <span className="p-2 bg-rose-50 rounded-xl text-rose-700 group-hover:bg-rose-100 transition-colors">
+              <ShieldAlert className="w-5 h-5" />
+            </span>
+          </div>
+          <div className="mt-4">
+            <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{readinessLoading ? '…' : restrictedStaffCount}</span>
+            <span className="text-[11px] font-semibold text-rose-700 mt-1 block">Approved Staff with blockers →</span>
+          </div>
+        </button>
+
+        {/* Card 5: Documents Awaiting Review */}
         <button
           onClick={() => onNavigate('vault')}
           className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Document Review</span>
-            <span className="p-2 bg-indigo-50 rounded-xl text-indigo-700 group-hover:bg-indigo-100 transition-colors">
+            <span className="p-2 rounded-xl bg-indigo-50 text-indigo-700 group-hover:opacity-90 transition-opacity">
               <FileText className="w-5 h-5" />
             </span>
           </div>
           <div className="mt-4">
             <span className="text-3xl font-extrabold text-slate-900 block tracking-tight">{awaitingReviewDocs}</span>
-            <span className="text-[11px] font-semibold text-indigo-700 mt-1 block font-medium">Open the review queue →</span>
-          </div>
-        </button>
-
-        {/* Card 5: Expiring DBS Checks */}
-        <button
-          onClick={() => onNavigate('compliance')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg hover:border-purple-200 text-left transition-all duration-200 cursor-pointer group"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Expiring DBS Checks</span>
-            <span className={`p-2 rounded-xl group-hover:opacity-90 transition-opacity ${expiringDBS > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-50 text-slate-500'}`}>
-              <AlertTriangle className="w-5 h-5" />
-            </span>
-          </div>
-          <div className="mt-4">
-            <span className="text-3xl font-extrabold text-rose-700 block tracking-tight">{expiringDBS}</span>
-            <span className="text-[11px] font-semibold text-rose-700 mt-1 block flex items-center">
-              Expiring credentials →
+            <span className="text-[11px] font-semibold text-indigo-700 mt-1 block flex items-center">
+              Open the review queue →
             </span>
           </div>
         </button>
       </div>
+      {readinessError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800">Deployment readiness could not be loaded: {readinessError}</div>}
 
       {/* Dynamic Customizable Layout Panels Placeholder if everything hidden */}
       {visibleCards.length === 0 && (
@@ -352,16 +355,16 @@ export default function Dashboard({
                           strokeWidth="8" 
                           fill="transparent" 
                           strokeDasharray="251.2"
-                          strokeDashoffset={251.2 - (251.2 * compliancePercentage) / 100}
+                          strokeDashoffset={251.2 - (251.2 * readinessPercentage) / 100}
                         />
                       </svg>
                       <div className="absolute flex flex-col items-center">
-                        <span className="text-2xl font-black text-slate-800">{compliancePercentage}%</span>
-                        <span className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">COMPLIANT</span>
+                        <span className="text-2xl font-black text-slate-800">{readinessLoading ? '…' : `${readinessPercentage}%`}</span>
+                        <span className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">READY</span>
                       </div>
                     </div>
                     <div className="text-xs">
-                      <span className="font-bold text-slate-700">{compliantStaffCount} of {approvedStaff.length} approved staff</span> meet all current deployment checks.
+                      <span className="font-bold text-slate-700">{readyStaffCount} of {approvedStaff.length} approved staff</span> meet all current deployment gates.
                     </div>
                   </div>
 
@@ -369,45 +372,45 @@ export default function Dashboard({
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                        <span>Valid DBS Certificates</span>
+                        <span>Ready for Deployment</span>
                         <span className="font-bold text-slate-800">
-                          {approvedStaff.filter(s => s.dbsStatus === 'Compliant').length}/{approvedStaff.length}
+                          {readyStaffCount}/{approvedStaff.length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-purple-800 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${approvedStaff.length > 0 ? (approvedStaff.filter(s => s.dbsStatus === 'Compliant').length / approvedStaff.length) * 100 : 0}%` }}
+                          style={{ width: `${approvedStaff.length > 0 ? (readyStaffCount / approvedStaff.length) * 100 : 0}%` }}
                         ></div>
                       </div>
                     </div>
 
                     <div>
                       <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                        <span>NMC Registrations (Nurses)</span>
+                        <span>Deployment Restricted</span>
                         <span className="font-bold text-slate-800">
-                          {approvedStaff.filter(s => s.role === 'Nurse' && isFullyCompliantStaff(s)).length}/{approvedStaff.filter(s => s.role === 'Nurse').length}
+                          {restrictedStaffCount}/{approvedStaff.length}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(approvedStaff.filter(s => s.role === 'Nurse' && isFullyCompliantStaff(s)).length / (approvedStaff.filter(s => s.role === 'Nurse').length || 1) * 100)}%` }}
+                          style={{ width: `${approvedStaff.length > 0 ? (restrictedStaffCount / approvedStaff.length) * 100 : 0}%` }}
                         ></div>
                       </div>
                     </div>
 
                     <div>
                       <div className="flex justify-between text-xs font-semibold text-slate-650 mb-1">
-                        <span>Mandatory Training Sign-off</span>
+                        <span>Expiry Warnings</span>
                         <span className="font-bold text-slate-800">
-                          {approvedStaff.filter(s => s.trainingStatus === 'Compliant').length}/{approvedStaff.length}
+                          {expiryWarningCount}
                         </span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                         <div 
                           className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${approvedStaff.length > 0 ? (approvedStaff.filter(s => s.trainingStatus === 'Compliant').length / approvedStaff.length) * 100 : 0}%` }}
+                          style={{ width: `${approvedStaff.length > 0 ? Math.min(100, (expiryWarningCount / approvedStaff.length) * 100) : 0}%` }}
                         ></div>
                       </div>
                     </div>

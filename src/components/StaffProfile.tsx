@@ -225,14 +225,14 @@ export default function StaffProfile({
           </div>
 
           <div className="flex flex-wrap gap-2.5 items-center">
-            {/* Roster state block */}
+            {/* Employment state only; deployment readiness is derived in the Compliance surfaces. */}
             <div className="text-xs text-right mt-1 mr-4">
-              <span className="block text-[10px] font-bold text-slate-400 uppercase">ROSTER PERMISSION</span>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase">Employment status</span>
               <span className={`font-extrabold text-sm flex items-center mt-0.5 justify-end ${
-                staffMember.rosterStatus === 'Deployable' ? 'text-emerald-700' :
-                staffMember.rosterStatus === 'Suspended' ? 'text-rose-700' : 'text-amber-700'
+                staffMember.status === 'Active' ? 'text-emerald-700' :
+                staffMember.status === 'Suspended' ? 'text-rose-700' : 'text-amber-700'
               }`}>
-                {staffMember.rosterStatus}
+                {staffMember.status}
               </span>
             </div>
           </div>

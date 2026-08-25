@@ -1,140 +1,48 @@
-import React, { useState } from 'react';
-import { Staff, Document, Timesheet } from '../types';
-import { Bell, MessageSquare, Calendar, Shield, Clock, BookOpen, ChevronRight, CheckCircle, FileText } from 'lucide-react';
+import { type ReactNode, useMemo } from 'react';
+import { BookOpen, Clock, FileText, Shield } from 'lucide-react';
+import { Document, RoleTemplate, Staff, Timesheet } from '../types';
+import { useDeploymentReadiness } from '../lib/useDeploymentReadiness';
+import { DeploymentReadinessBadge, DeploymentReadinessDetails } from './DeploymentReadiness';
+import { getSubjectDocuments } from '../lib/profileState';
 
-interface StaffDashboardProps {
+interface Props {
   currentUser: Staff;
   documents: Document[];
   timesheets: Timesheet[];
+  templates: RoleTemplate[];
   onNavigate: (tab: string) => void;
 }
 
-export default function StaffDashboard({ currentUser, documents, timesheets, onNavigate }: StaffDashboardProps) {
-  const isCompliant = currentUser.dbsStatus === 'Compliant' && currentUser.trainingStatus === 'Compliant' && currentUser.rightToWork === 'Compliant';
+export default function StaffDashboard({ currentUser, documents, timesheets, templates, onNavigate }: Props) {
+  const staffList = useMemo(() => [currentUser], [currentUser]);
+  const ownDocuments = useMemo(() => getSubjectDocuments(documents, { userId: currentUser.userId, applicantId: currentUser.applicantId, staffProfileId: currentUser.id }), [documents, currentUser]);
+  const { readiness, loading, error } = useDeploymentReadiness(staffList, templates);
+  const result = readiness[currentUser.id]?.result;
+  const pendingDocuments = ownDocuments.filter(document => document.status === 'Awaiting Review').length;
+  const pendingTimesheets = timesheets.filter(timesheet => timesheet.approvalStatus === 'Pending').length;
 
-  return (
-    <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadow-sm relative overflow-hidden">
-        <div className="relative z-10">
-          <span className={`p-0.5 px-2 border rounded text-[9px] font-black uppercase tracking-wider ${isCompliant ? 'bg-emerald-500/35 border-emerald-400 text-emerald-300' : 'bg-rose-500/35 border-rose-400 text-rose-300'}`}>
-            {isCompliant ? 'Fully Compliant - Ready to Deploy' : 'Compliance Action Required'}
-          </span>
-          <h2 className="text-2xl font-bold tracking-tight mt-2 text-white">Welcome back, {currentUser.name.split(' ')[0]}!</h2>
-          <p className="text-slate-400 text-xs mt-1">
-            Your deployment status is currently listed as{' '}
-            <span className={`font-extrabold ${currentUser.rosterStatus === 'Deployable' ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {currentUser.rosterStatus}
-            </span>.
-          </p>
-        </div>
-      </div>
+  return <div className="space-y-6">
+    <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 p-6 text-white shadow-sm">
+      <div className="relative z-10"><DeploymentReadinessBadge result={result} loading={loading} /><h2 className="mt-3 text-2xl font-bold tracking-tight text-white">Welcome back, {currentUser.name.split(' ')[0]}!</h2><p className="mt-1 text-xs text-slate-300">Employment status: <strong>{currentUser.status}</strong>. Deployment readiness is recalculated from SHC's current verified records.</p></div>
+    </section>
+    {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800">{error}</div>}
+    {result && <DeploymentReadinessDetails result={result} staffSafe onNavigate={source => onNavigate(source === 'training' ? 'training' : 'profile')} />}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Messages & Notifications */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-800 text-sm flex items-center">
-              <MessageSquare className="w-4 h-4 mr-2 text-indigo-600" />
-              Recent Messages & Notifications
-            </h3>
-            <span className="bg-rose-100 text-rose-700 font-black text-[9px] px-2 py-0.5 rounded-full uppercase">
-              2 Unread
-            </span>
-          </div>
-          <div className="space-y-3">
-            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase">Admin Team</span>
-                <span className="text-[9px] text-slate-400 font-mono">10 mins ago</span>
-              </div>
-              <p className="text-xs text-slate-700 font-medium mt-1">
-                Please remember to submit your timesheet for this week by Friday 5 PM.
-              </p>
-            </div>
-            <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] font-bold text-amber-600 uppercase">Compliance</span>
-                <span className="text-[9px] text-slate-400 font-mono">1 day ago</span>
-              </div>
-              <p className="text-xs text-slate-700 font-medium mt-1">
-                Your Mandatory Training certificate is expiring next month. Please upload the renewed version.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Assigned Shifts */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-800 text-sm flex items-center">
-              <Calendar className="w-4 h-4 mr-2 text-emerald-600" />
-              Upcoming Shifts
-            </h3>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center p-3 border border-slate-100 rounded-xl bg-slate-50">
-              <div className="bg-white border shadow-sm rounded-lg p-2 text-center mr-3 min-w-[50px]">
-                <span className="block text-[10px] font-bold text-slate-400 uppercase">JUL</span>
-                <span className="block text-lg font-black text-slate-800">14</span>
-              </div>
-              <div className="flex-1">
-                <h4 className="text-xs font-bold text-slate-800">Royal Care Home - Day Shift</h4>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">08:00 - 20:00 (12 hrs)</p>
-              </div>
-            </div>
-            <div className="flex items-center p-3 border border-slate-100 rounded-xl bg-slate-50">
-              <div className="bg-white border shadow-sm rounded-lg p-2 text-center mr-3 min-w-[50px]">
-                <span className="block text-[10px] font-bold text-slate-400 uppercase">JUL</span>
-                <span className="block text-lg font-black text-slate-800">16</span>
-              </div>
-              <div className="flex-1">
-                <h4 className="text-xs font-bold text-slate-800">City Hospital - Night Shift</h4>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">20:00 - 08:00 (12 hrs)</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider mb-3 mt-6 pl-1">Self-Service Actions</h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <button
-          onClick={() => onNavigate('profile')}
-          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all text-left group"
-        >
-          <Shield className="w-6 h-6 text-indigo-500 mb-2 group-hover:scale-110 transition-transform" />
-          <h4 className="text-xs font-bold text-slate-800">My Compliance</h4>
-          <p className="text-[10px] text-slate-500 mt-1">Upload & Replace Documents</p>
-        </button>
-
-        <button
-          onClick={() => onNavigate('staff_timesheets')}
-          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-md transition-all text-left group"
-        >
-          <Clock className="w-6 h-6 text-emerald-500 mb-2 group-hover:scale-110 transition-transform" />
-          <h4 className="text-xs font-bold text-slate-800">Timesheets</h4>
-          <p className="text-[10px] text-slate-500 mt-1">Upload & View Status</p>
-        </button>
-
-        <button
-          onClick={() => onNavigate('profile')}
-          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-purple-300 hover:shadow-md transition-all text-left group"
-        >
-          <FileText className="w-6 h-6 text-purple-500 mb-2 group-hover:scale-110 transition-transform" />
-          <h4 className="text-xs font-bold text-slate-800">E-Signatures</h4>
-          <p className="text-[10px] text-slate-500 mt-1">Sign Pending Documents</p>
-        </button>
-
-        <button
-          onClick={() => onNavigate('training')}
-          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-amber-300 hover:shadow-md transition-all text-left group"
-        >
-          <BookOpen className="w-6 h-6 text-amber-500 mb-2 group-hover:scale-110 transition-transform" />
-          <h4 className="text-xs font-bold text-slate-800">My Training & Credentials</h4>
-          <p className="text-[10px] text-slate-500 mt-1">Evidence, verification and expiry</p>
-        </button>
-      </div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Documents awaiting SHC review</p><p className="mt-2 text-3xl font-black text-slate-900">{pendingDocuments}</p><p className="mt-1 text-xs text-slate-500">Uploaded evidence remains pending until SHC verifies it.</p></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Pending timesheets</p><p className="mt-2 text-3xl font-black text-slate-900">{pendingTimesheets}</p><p className="mt-1 text-xs text-slate-500">Only persisted timesheet records are included.</p></div>
     </div>
-  );
+
+    <h3 className="pl-1 text-xs font-black uppercase tracking-wider text-slate-800">Self-Service Actions</h3>
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <Action icon={<Shield className="h-6 w-6 text-indigo-500" />} title="My Compliance" description="View records and documents" onClick={() => onNavigate('profile')} />
+      <Action icon={<Clock className="h-6 w-6 text-emerald-500" />} title="Timesheets" description="Upload and view status" onClick={() => onNavigate('staff_timesheets')} />
+      <Action icon={<FileText className="h-6 w-6 text-purple-500" />} title="My Documents" description="Review controlled records" onClick={() => onNavigate('profile')} />
+      <Action icon={<BookOpen className="h-6 w-6 text-amber-500" />} title="My Training & Credentials" description="Evidence, verification and expiry" onClick={() => onNavigate('training')} />
+    </div>
+  </div>;
+}
+
+function Action({ icon, title, description, onClick }: { icon: ReactNode; title: string; description: string; onClick: () => void }) {
+  return <button onClick={onClick} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-purple-300 hover:shadow-md">{icon}<h4 className="mt-2 text-xs font-bold text-slate-800">{title}</h4><p className="mt-1 text-[10px] text-slate-500">{description}</p></button>;
 }

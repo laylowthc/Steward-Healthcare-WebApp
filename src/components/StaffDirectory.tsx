@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Staff, StaffRole } from '../types';
-import { Search, ShieldAlert, CheckCircle, AlertTriangle, ArrowRight, MapPin, BadgePercent, Filter, Plus, Trash2, UserPlus, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { RoleTemplate, Staff, StaffRole } from '../types';
+import { Search, ArrowRight, MapPin, Filter, Plus, Trash2, UserPlus, X, ShieldAlert } from 'lucide-react';
 import { isApprovedStaffProfile } from '../lib/complianceState';
+import { useDeploymentReadiness } from '../lib/useDeploymentReadiness';
+import { DeploymentReadinessBadge } from './DeploymentReadiness';
 
 interface StaffDirectoryProps {
   staff: Staff[];
@@ -9,6 +11,7 @@ interface StaffDirectoryProps {
   currentRole?: 'admin' | 'staff' | 'family' | 'applicant';
   onAddStaff?: (newStaff: Staff) => void;
   onDeleteStaff?: (staffId: string) => void;
+  templates: RoleTemplate[];
 }
 
 export default function StaffDirectory({
@@ -16,7 +19,8 @@ export default function StaffDirectory({
   onSelectStaff,
   currentRole,
   onAddStaff,
-  onDeleteStaff
+  onDeleteStaff,
+  templates
 }: StaffDirectoryProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('All');
@@ -96,7 +100,8 @@ export default function StaffDirectory({
   };
 
   // Employment approval and deployment readiness are separate lifecycle states.
-  const approvedStaff = staff.filter(isApprovedStaffProfile);
+  const approvedStaff = useMemo(() => staff.filter(isApprovedStaffProfile), [staff]);
+  const { readiness, loading: readinessLoading, error: readinessError } = useDeploymentReadiness(approvedStaff, templates);
 
   // Filter deployable staff according to search term and drop filters
   const filteredStaff = approvedStaff.filter((member) => {
@@ -107,23 +112,10 @@ export default function StaffDirectory({
     const matchesRole = roleFilter === 'All' || member.role === roleFilter;
 
     let matchesStatus = true;
-    if (statusFilter !== 'All') {
-      matchesStatus = member.rosterStatus === statusFilter;
-    }
+    if (statusFilter !== 'All') matchesStatus = readiness[member.id]?.result.status === statusFilter;
 
     return matchesSearch && matchesRole && matchesStatus;
   });
-
-  const getDbsBadge = (status: string) => {
-    switch (status) {
-      case 'Compliant':
-        return <span className="p-0.5 px-2 text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-250 rounded font-semibold flex items-center w-fit"><CheckCircle className="w-3 h-3 mr-1 shrink-0 text-emerald-600" /> Compliant</span>;
-      case 'Expiring':
-        return <span className="p-0.5 px-2 text-[10px] bg-amber-50 text-amber-800 border border-amber-250 rounded font-semibold flex items-center w-fit"><AlertTriangle className="w-3 h-3 mr-1 shrink-0 text-amber-600" /> Expiring Soon</span>;
-      default:
-        return <span className="p-0.5 px-2 text-[10px] bg-rose-50 text-rose-800 border border-rose-250 rounded font-semibold flex items-center w-fit"><ShieldAlert className="w-3 h-3 mr-1 shrink-0 text-rose-600" /> Non-Compliant</span>;
-    }
-  };
 
   const getRoleAbbr = (role: StaffRole) => {
     switch (role) {
@@ -192,10 +184,8 @@ export default function StaffDirectory({
               className="block w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
             >
               <option value="All">Status: All</option>
-              <option value="Deployable">Deployable</option>
-              <option value="Pending">Pending checks</option>
-              <option value="Active">Deployment restricted</option>
-              <option value="Suspended">Suspended</option>
+              <option value="Ready for Deployment">Ready for Deployment</option>
+              <option value="Deployment Restricted">Deployment Restricted</option>
             </select>
           </div>
         </div>
@@ -227,22 +217,24 @@ export default function StaffDirectory({
       </div>
 
       {/* Staff List Table Card */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-md overflow-hidden">
+      {readinessError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800">{readinessError}</div>}
+      <div className="hidden bg-white rounded-2xl border border-slate-100 shadow-md overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-150">
             <thead className="bg-slate-50">
               <tr className="text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <th scope="col" className="px-6 py-4">Name & Address</th>
                 <th scope="col" className="px-6 py-4">Role Code</th>
-                <th scope="col" className="px-6 py-4">Registration PIN</th>
-                <th scope="col" className="px-6 py-4">Enhanced DBS Status</th>
-                <th scope="col" className="px-6 py-4">Roster Status</th>
+                <th scope="col" className="px-6 py-4">Employment</th>
+                <th scope="col" className="px-6 py-4">Deployment</th>
+                <th scope="col" className="px-6 py-4">Blockers</th>
                 <th scope="col" className="px-6 py-4 text-right pr-8">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-102 text-xs">
               {filteredStaff.map((person) => {
-                const hasOverallViolation = person.rosterStatus === 'Suspended';
+                const deployment = readiness[person.id]?.result;
+                const hasOverallViolation = person.status === 'Suspended' || person.accountStatus === 'Suspended';
 
                 return (
                   <tr
@@ -287,32 +279,14 @@ export default function StaffDirectory({
                       </div>
                     </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap font-mono text-[11px] text-slate-600 font-semibold">
-                      {person.nmcPin ? (
-                        <div className="flex flex-col">
-                          <span>{person.nmcPin}</span>
-                          <span className="text-[9px] text-slate-400 font-sans">Exp: {person.nmcExpiry}</span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 text-[10px] font-sans italic">
-                          {person.role === 'Nurse' ? 'Not recorded' : 'Not required'}
-                        </span>
-                      )}
-                    </td>
-
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {getDbsBadge(person.dbsStatus)}
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700">Approved · {person.status}</span>
                     </td>
-
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                        person.rosterStatus === 'Deployable' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                        person.rosterStatus === 'Suspended' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                        person.rosterStatus === 'Active' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                        'bg-amber-50 text-amber-800 border-amber-200'
-                      }`}>
-                        {person.rosterStatus}
-                      </span>
+                      <DeploymentReadinessBadge result={deployment} loading={readinessLoading} />
+                    </td>
+                    <td className="px-6 py-4 text-[11px] text-slate-600">
+                      {deployment ? `${deployment.blockers.length} blocker${deployment.blockers.length === 1 ? '' : 's'}${deployment.warnings.length ? ` · ${deployment.warnings.length} warning${deployment.warnings.length === 1 ? '' : 's'}` : ''}` : 'Checking…'}
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-semibold pr-8">
@@ -356,6 +330,13 @@ export default function StaffDirectory({
             </tbody>
           </table>
         </div>
+      </div>
+      <div className="space-y-3 md:hidden">
+        {filteredStaff.map(person => {
+          const deployment = readiness[person.id]?.result;
+          return <button key={person.id} type="button" onClick={() => onSelectStaff(person.id)} className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{person.name}</p><p className="mt-1 text-[10px] text-slate-500">{person.role} · Approved Staff · {person.status}</p></div><ArrowRight className="h-4 w-4 shrink-0 text-purple-700" /></div><div className="mt-3"><DeploymentReadinessBadge result={deployment} loading={readinessLoading} /></div><p className="mt-3 text-[11px] text-slate-600">{deployment ? deployment.ready ? `${deployment.warnings.length} current expiry warning${deployment.warnings.length === 1 ? '' : 's'}.` : `${deployment.blockers.length} deployment blocker${deployment.blockers.length === 1 ? '' : 's'}.` : 'Checking authoritative records…'}</p></button>;
+        })}
+        {!filteredStaff.length && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-xs text-slate-500">{approvedStaff.length ? 'No approved staff match the current filters.' : 'No approved staff yet.'}</div>}
       </div>
 
       {/* ADD STAFF MODAL */}

@@ -120,11 +120,7 @@ export const deriveRosterStatus = (input: {
 }): RosterStatus => {
   if (input.accountStatus === 'Suspended' || input.employmentStatus === 'Suspended') return 'Suspended';
   if (input.accountStatus === 'Pending') return 'Pending';
-
-  const compliance = [input.dbsStatus, input.rightToWork, input.trainingStatus, input.referenceStatus];
-  if (compliance.includes('Non-Compliant') || compliance.includes('Expiring')) return 'Active';
-  if (!input.hasAvatar || compliance.includes('Pending')) return 'Pending';
-  return 'Deployable';
+  return 'Active';
 };
 
 export const enrichStaffFromRecords = (staff: Staff, documents: Document[]): Staff => {

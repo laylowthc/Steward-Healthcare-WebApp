@@ -1659,6 +1659,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'staff' && (
                     <StaffDirectory
                       staff={staff}
+                      templates={templates}
                       onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
                       currentRole={currentRole}
                       onAddStaff={handleAddStaff}
@@ -1683,6 +1684,8 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                     <ComplianceDashboard
                       staff={staff}
                       applicants={applicants}
+                      templates={templates}
+                      onOpenTraining={() => navigateToAdminTab('training')}
                       onSelectStaff={(staffId) => setSelectedStaffId(staffId)}
                       onSelectApplicant={(applicantId) => {
                         setActiveTab('recruitment');
@@ -1830,6 +1833,7 @@ function AppShell({ onStartupReady }: { onStartupReady: (ready: boolean) => void
                   {activeTab === 'staff_dashboard' && activeStaffMember && (
                     <StaffDashboard
                       currentUser={activeStaffMember}
+                      templates={templates}
                       documents={documents}
                       timesheets={timesheets.filter(t => t.staffName === activeStaffMember.name)}
                       onNavigate={(tabId) => setActiveTab(tabId)}

@@ -10,6 +10,9 @@ import { getSubjectDocuments } from '../lib/profileState';
 import { findRole } from '../lib/roleEngine';
 import { PersonnelChecklistItem, PersonnelFileCategory, PersonnelFileStatus, PersonnelSourceRoute } from '../types/personnelFile';
 import { loadTrainingRecords } from '../lib/trainingRepository';
+import { deriveDeploymentReadiness } from '../lib/deploymentReadiness';
+import { DeploymentReadinessResult } from '../types/deploymentReadiness';
+import { DeploymentReadinessBadge, DeploymentReadinessDetails } from './DeploymentReadiness';
 
 interface PersonnelSubject {
   key: string;
@@ -69,7 +72,7 @@ export default function PersonnelFile({ applicants, staff, documents, templates,
   const [selectedKey, setSelectedKey] = useState(subjects[0]?.key || '');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<PersonnelChecklistItem[]>([]);
-  const [deploymentEligible, setDeploymentEligible] = useState(false);
+  const [deploymentReadiness, setDeploymentReadiness] = useState<DeploymentReadinessResult | null>(null);
   const [complianceStatus, setComplianceStatus] = useState('Not recorded');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -99,7 +102,7 @@ export default function PersonnelFile({ applicants, staff, documents, templates,
         ]);
         if (!active) return;
         setItems(derivePersonnelFile({ role, applicant: selected.applicant, staff: selected.staff, application, documents: subjectDocuments, hrForms, currentJobDescription: jd, acknowledgements, compliance, trainingRecords: training.records }));
-        setDeploymentEligible(Boolean(compliance.complianceCase?.deploymentEligible));
+        setDeploymentReadiness(selected.staff ? deriveDeploymentReadiness({ staff: selected.staff, role, compliance, trainingRecords: training.records }) : null);
         setComplianceStatus(compliance.complianceCase?.overallStatus || 'Not recorded');
       } catch (reason: any) {
         if (active) setError(reason.message || 'Personnel file could not be loaded.');
@@ -134,7 +137,8 @@ export default function PersonnelFile({ applicants, staff, documents, templates,
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex min-w-0 items-center gap-3"><div className="shrink-0 rounded-xl bg-purple-50 p-3 text-purple-800"><UserRound className="h-5 w-5" /></div><div className="min-w-0"><h3 className="truncate font-bold text-slate-900">{selected?.name}</h3><p className="text-xs leading-5 text-slate-500">{selected?.roleName || 'Role not assigned'} · {selected?.lifecycle} · Account {selected?.accountStatus}</p></div></div><div className="rounded-xl bg-slate-50 px-4 py-3 text-left sm:text-right"><div className="text-2xl font-black text-slate-900">{summary.percentage}%</div><div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Required file controls</div></div></div>
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4"><Metric label="Required" value={summary.required} /><Metric label="Complete" value={summary.complete} tone="green" /><Metric label="Awaiting verification" value={summary.awaitingVerification} tone="blue" /><Metric label="Outstanding" value={summary.outstanding} tone="red" /></div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2"><StateCard label="Compliance clearance" value={complianceStatus} ok={complianceStatus === 'Satisfied'} /><StateCard label="Deployment readiness" value={deploymentEligible ? 'Eligible' : 'Restricted'} ok={deploymentEligible} /></div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2"><StateCard label="Pre-employment compliance" value={complianceStatus} ok={complianceStatus === 'Satisfied'} /><div className="flex items-center justify-between rounded-xl border border-slate-200 p-3"><div><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Deployment readiness</div>{selected?.staff ? <div className="mt-1"><DeploymentReadinessBadge result={deploymentReadiness || undefined} loading={loading} /></div> : <div className="text-xs font-bold text-slate-800">Not applicable until approved Staff</div>}</div><ShieldCheck className={`h-5 w-5 ${deploymentReadiness?.ready ? 'text-emerald-600' : 'text-amber-600'}`} /></div></div>
+          {selected?.staff && deploymentReadiness && <div className="mt-3"><DeploymentReadinessDetails result={deploymentReadiness} onNavigate={source => onNavigate(source === 'training' ? 'training' : 'compliance', selected)} /></div>}
           <p className="mt-3 text-[11px] text-slate-500">Personnel-file completeness, compliance clearance and deployment readiness are separate controls.</p>
         </section>
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-800">{error}</div>}
