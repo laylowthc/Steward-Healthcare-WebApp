@@ -169,10 +169,7 @@ export default function StaffDirectory({
               className="block w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-purple-500 text-xs"
             >
               <option value="All">Role: All Categories</option>
-              <option value="Nurse">Registered Nurse (RGN)</option>
-              <option value="Care Assistant">Care Assistant (HCA)</option>
-              <option value="Senior Care Assistant">Senior Care Assistant (SCA)</option>
-              <option value="Deputy Manager">Deputy Manager (DEP)</option>
+              {Array.from(new Set(approvedStaff.map(member => member.role))).sort().map(role => <option key={role} value={role}>{role}</option>)}
             </select>
           </div>
 
@@ -193,7 +190,7 @@ export default function StaffDirectory({
         {/* Quick Filter Pill Shortcuts */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
           <span className="text-[10px] font-black uppercase text-slate-400 flex items-center mr-1">
-            <Filter className="w-3 h-3 mr-1" /> Quick Pill:
+            <Filter className="w-3 h-3 mr-1" /> Quick filters:
           </span>
           <button
             onClick={() => { setRoleFilter('All'); setStatusFilter('All'); }}
@@ -202,16 +199,16 @@ export default function StaffDirectory({
             Show All ({approvedStaff.length})
           </button>
           <button
-            onClick={() => { setRoleFilter('Nurse'); }}
-            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${roleFilter === 'Nurse' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+            onClick={() => { setRoleFilter('All'); setStatusFilter('Ready for Deployment'); }}
+            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${statusFilter === 'Ready for Deployment' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
           >
-            Nurses ({approvedStaff.filter(s => s.role === 'Nurse').length})
+            Ready ({approvedStaff.filter(member => readiness[member.id]?.result.ready).length})
           </button>
           <button
-            onClick={() => { setRoleFilter('Care Assistant'); }}
-            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${roleFilter === 'Care Assistant' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+            onClick={() => { setRoleFilter('All'); setStatusFilter('Deployment Restricted'); }}
+            className={`px-3 py-1 rounded-full border text-[11px] font-semibold transition-all ${statusFilter === 'Deployment Restricted' ? 'bg-purple-900 text-white border-purple-900' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
           >
-            Care Assistants ({approvedStaff.filter(s => s.role === 'Care Assistant').length})
+            Restricted ({approvedStaff.filter(member => readiness[member.id]?.result.ready === false).length})
           </button>
         </div>
       </div>
