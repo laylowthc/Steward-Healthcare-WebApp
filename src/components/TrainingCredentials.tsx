@@ -13,6 +13,7 @@ import { loadTrainingRecords, saveTrainingRecord, verifyTrainingRecord } from '.
 import { getSubjectDocuments } from '../lib/profileState';
 import { ComplianceRecord } from '../types/preEmploymentCompliance';
 import { StaffTrainingRecord, TrainingCredentialItem, TrainingCredentialStatus } from '../types/trainingCredentials';
+import { isApprovedStaffProfile } from '../lib/complianceState';
 
 const statusClass: Record<TrainingCredentialStatus, string> = {
   'Not Recorded': 'border-rose-200 bg-rose-50 text-rose-800',
@@ -66,7 +67,7 @@ export default function TrainingCredentials({
   onSaveRole?: (role: RoleTemplate) => Promise<void>;
   onUploadDocument: (doc: Omit<Document, 'id' | 'uploadDate'>, file?: File) => Promise<Document | void>;
 }) {
-  const visibleStaff = mode === 'staff' ? (currentStaff ? [currentStaff] : []) : staff;
+  const visibleStaff = mode === 'staff' ? (currentStaff ? [currentStaff] : []) : staff.filter(isApprovedStaffProfile);
   const [records, setRecords] = useState<StaffTrainingRecord[]>([]);
   const [complianceByUser, setComplianceByUser] = useState<Record<string, ComplianceRecord[]>>({});
   const [schemaAvailable, setSchemaAvailable] = useState(true);

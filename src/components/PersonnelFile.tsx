@@ -13,6 +13,7 @@ import { loadTrainingRecords } from '../lib/trainingRepository';
 import { deriveDeploymentReadiness } from '../lib/deploymentReadiness';
 import { DeploymentReadinessResult } from '../types/deploymentReadiness';
 import { DeploymentReadinessBadge, DeploymentReadinessDetails } from './DeploymentReadiness';
+import { isApprovedStaffProfile } from '../lib/complianceState';
 
 interface PersonnelSubject {
   key: string;
@@ -60,6 +61,7 @@ export default function PersonnelFile({ applicants, staff, documents, templates,
     staff.forEach(member => {
       if (!member.userId) return;
       const applicant = applicants.find(entry => entry.id === member.applicantId || entry.userId === member.userId);
+      if (!isApprovedStaffProfile(member)) return;
       seen.add(member.userId);
       result.push({ key: `staff-${member.id}`, userId: member.userId, name: member.name, roleId: member.roleId || applicant?.roleId, roleName: member.role, lifecycle: 'Approved Staff', accountStatus: member.accountStatus || 'Active', applicant, staff: member });
     });

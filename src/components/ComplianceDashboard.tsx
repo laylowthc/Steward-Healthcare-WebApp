@@ -19,19 +19,30 @@ export default function ComplianceDashboard({ staff, applicants, templates, onSe
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const approvedStaff = useMemo(() => staff.filter(isApprovedStaffProfile), [staff]);
+  const monitoredApplicants = useMemo(() => {
+    const approvedUserIds = new Set(approvedStaff.map(member => member.userId).filter(Boolean));
+    const approvedApplicantIds = new Set(approvedStaff.map(member => member.applicantId).filter(Boolean));
+    return applicants.filter(applicant => applicant.status !== 'Accepted' && applicant.status !== 'Rejected'
+      && !approvedUserIds.has(applicant.userId) && !approvedApplicantIds.has(applicant.id));
+  }, [applicants, approvedStaff]);
   const { readiness, loading, error } = useDeploymentReadiness(approvedStaff, templates);
   const filtered = approvedStaff.filter(person => person.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const readyCount = approvedStaff.filter(person => readiness[person.id]?.result.ready).length;
   const restrictedCount = approvedStaff.filter(person => readiness[person.id]?.result.ready === false).length;
   const warningCount = approvedStaff.filter(person => (readiness[person.id]?.result.warnings.length || 0) > 0).length;
-  const navigateSource = (person: Staff, source: DeploymentReadinessSource) => source === 'training' ? onOpenTraining() : onSelectStaff(person.id);
+  const navigateSource = (person: Staff, source: DeploymentReadinessSource) => {
+    if (source === 'training') return onOpenTraining();
+    const applicant = applicants.find(entry => entry.id === person.applicantId || (person.userId && entry.userId === person.userId));
+    if (applicant) return onSelectApplicant(applicant.id);
+    onSelectStaff(person.id);
+  };
 
   return <div className="space-y-6" id="shc-compliance-view">
     <header><h2 className="text-xl font-bold text-slate-900">Compliance</h2><p className="text-xs font-medium text-slate-500">Current deployment readiness for approved Staff, with candidate checks kept as a separate pre-employment population.</p></header>
 
     <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-slate-900">Candidate compliance cases</h3><p className="mt-1 text-[10px] font-semibold text-slate-500">Review evidence, office verification and Registered Manager clearance in Recruitment.</p></div><span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[10px] font-black text-purple-800">{applicants.length} candidate{applicants.length === 1 ? '' : 's'}</span></div>
-      {applicants.length ? <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{applicants.map(applicant => <button key={applicant.id} onClick={() => onSelectApplicant(applicant.id)} className="rounded-xl border border-slate-200 p-3 text-left transition hover:border-purple-300 hover:bg-purple-50/40"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-extrabold text-slate-900">{applicant.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{applicant.position || 'Role not selected'}</p></div><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-700">{applicant.status}</span></div><p className="mt-2 text-[10px] font-bold text-purple-800">Review compliance case →</p></button>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-500">No candidate compliance cases require monitoring.</div>}
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-slate-900">Candidate compliance cases</h3><p className="mt-1 text-[10px] font-semibold text-slate-500">Review evidence, office verification and Registered Manager clearance in Recruitment.</p></div><span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[10px] font-black text-purple-800">{monitoredApplicants.length} candidate{monitoredApplicants.length === 1 ? '' : 's'}</span></div>
+      {monitoredApplicants.length ? <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{monitoredApplicants.map(applicant => <button key={applicant.id} onClick={() => onSelectApplicant(applicant.id)} className="rounded-xl border border-slate-200 p-3 text-left transition hover:border-purple-300 hover:bg-purple-50/40"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-extrabold text-slate-900">{applicant.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{applicant.position || 'Role not selected'}</p></div><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-700">{applicant.status}</span></div><p className="mt-2 text-[10px] font-bold text-purple-800">Review compliance case →</p></button>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-500">No candidate compliance cases require monitoring.</div>}
     </section>
 
     <div className="grid gap-4 md:grid-cols-3"><Metric icon={<CheckCircle2 className="h-6 w-6" />} label="Ready for Deployment" value={readyCount} tone="emerald" /><Metric icon={<ShieldAlert className="h-6 w-6" />} label="Deployment Restricted" value={restrictedCount} tone="rose" /><Metric icon={<AlertTriangle className="h-6 w-6" />} label="Expiry Warnings" value={warningCount} tone="amber" /></div>
