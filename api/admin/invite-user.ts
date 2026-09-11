@@ -1,12 +1,9 @@
 import type { Request, Response } from 'express';
 import { inviteUser, InviteUserError } from '../../src/server/inviteUser.js';
+import { resolveStaffHubInviteRedirect } from '../../src/server/inviteRedirect.js';
 
 const jsonError = (response: Response, status: number, message: string) =>
   response.status(status).json({ success: false, message });
-
-const CANONICAL_PRODUCTION_APP_URL = 'https://steward-healthcare-web-app.vercel.app';
-
-const resolveRedirectUrl = () => CANONICAL_PRODUCTION_APP_URL;
 
 export default async function handler(request: Request, response: Response) {
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -24,7 +21,7 @@ export default async function handler(request: Request, response: Response) {
       email: body.email,
       fullName: body.fullName,
       role: body.role,
-      redirectTo: resolveRedirectUrl()
+      redirectTo: resolveStaffHubInviteRedirect()
     });
 
     return response.status(200).json({
