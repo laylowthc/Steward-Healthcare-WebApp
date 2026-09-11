@@ -104,3 +104,32 @@ export async function removeStoredFile(adminClient: SupabaseClient, filePath?: s
   }
   return normalizedPath;
 }
+
+export async function removeUserAvatarFiles(adminClient: SupabaseClient, userId: string) {
+  const { data: files, error: listError } = await adminClient.storage
+    .from('documents')
+    .list('avatars', { limit: 1000, search: `${userId}_` });
+
+  if (listError) {
+    throw new AdminDeletionError('Failed to verify the user\'s avatar storage objects', 502, {
+      storageError: describeSupabaseError(listError),
+      folder: 'avatars'
+    });
+  }
+
+  const names = (files || [])
+    .filter(file => file.name.startsWith(`${userId}_`))
+    .map(file => `avatars/${file.name}`);
+
+  if (!names.length) return [];
+
+  const { error: removeError } = await adminClient.storage.from('documents').remove(names);
+  if (removeError) {
+    throw new AdminDeletionError('Failed to remove the user\'s remaining avatar storage objects', 502, {
+      storageError: describeSupabaseError(removeError),
+      paths: names
+    });
+  }
+
+  return names;
+}
