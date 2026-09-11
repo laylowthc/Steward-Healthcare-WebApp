@@ -12,6 +12,22 @@ export class AdminDeletionError extends Error {
   }
 }
 
+export const describeSupabaseError = (error: unknown) => {
+  const candidate = (error && typeof error === 'object') ? error as Record<string, unknown> : {};
+  const message = typeof candidate.message === 'string' && candidate.message.trim()
+    ? candidate.message.trim()
+    : 'Supabase returned an error without a message.';
+
+  return {
+    message,
+    code: typeof candidate.code === 'string' ? candidate.code : undefined,
+    status: typeof candidate.status === 'number' ? candidate.status : undefined,
+    name: typeof candidate.name === 'string' ? candidate.name : undefined,
+    details: typeof candidate.details === 'string' ? candidate.details : undefined,
+    hint: typeof candidate.hint === 'string' ? candidate.hint : undefined
+  };
+};
+
 export const normalizeDocumentStoragePath = (value?: string | null) => {
   if (!value) return null;
   let path = value.trim();
@@ -50,7 +66,9 @@ export async function requireActiveAdmin(authorization?: string) {
   const { data: authData, error: authError } = await userClient.auth.getUser(token);
 
   if (authError || !authData.user) {
-    throw new AdminDeletionError('Invalid or expired session token', 401);
+    throw new AdminDeletionError('Invalid or expired session token', 401, {
+      authError: describeSupabaseError(authError)
+    });
   }
 
   const { data: caller, error: callerError } = await adminClient
@@ -65,7 +83,9 @@ export async function requireActiveAdmin(authorization?: string) {
     String(caller.role).toLowerCase() !== 'admin' ||
     caller.status !== 'Active'
   ) {
-    throw new AdminDeletionError('Forbidden: active administrative privileges required', 403);
+    throw new AdminDeletionError('Forbidden: active administrative privileges required', 403, {
+      profileError: callerError ? describeSupabaseError(callerError) : undefined
+    });
   }
 
   return { callerId: authData.user.id, adminClient };
@@ -77,9 +97,9 @@ export async function removeStoredFile(adminClient: SupabaseClient, filePath?: s
 
   const { error } = await adminClient.storage.from('documents').remove([normalizedPath]);
   if (error) {
-    throw new AdminDeletionError('Failed to delete the stored file', 500, {
+    throw new AdminDeletionError('Failed to delete the stored file', 502, {
       path: normalizedPath,
-      storageError: error.message
+      storageError: describeSupabaseError(error)
     });
   }
   return normalizedPath;
