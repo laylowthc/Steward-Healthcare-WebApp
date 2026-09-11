@@ -1,4 +1,10 @@
-import { AdminDeletionError, describeSupabaseError, removeStoredFile, requireActiveAdmin } from './adminDeletion.js';
+import {
+  AdminDeletionError,
+  describeSupabaseError,
+  removeStoredFile,
+  removeUserAvatarFiles,
+  requireActiveAdmin
+} from './adminDeletion.js';
 
 const isAuthUserNotFound = (error: unknown) => {
   const details = describeSupabaseError(error);
@@ -79,12 +85,13 @@ export async function deleteUserAccount(input: {
   }
 
   // Supabase Auth refuses to delete users that still own Storage objects. Remove only the exact
-  // document paths already linked to this target, then perform the trusted Auth deletion.
+  // document paths already linked to this target plus any orphaned avatar files for this user.
   const removedFiles: string[] = [];
   for (const document of documents || []) {
     const removedPath = await removeStoredFile(adminClient, document.file_path);
     if (removedPath) removedFiles.push(removedPath);
   }
+  removedFiles.push(...await removeUserAvatarFiles(adminClient, targetUserId));
 
   let authUserDeleted = false;
   if (authUserExists) {
