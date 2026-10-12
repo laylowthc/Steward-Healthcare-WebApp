@@ -1,7 +1,6 @@
 import { RoleTemplate } from '../types';
 import { activeRequirements, hasRequirement } from './roleEngine';
 import { OfficialApplicationData } from '../types/officialApplication';
-import { chronologyValidationMessages } from './continuousHistory';
 
 export const validateOfficialApplication = (
   form: OfficialApplicationData,
@@ -24,13 +23,12 @@ export const validateOfficialApplication = (
     req(form.postcode, 'Postcode');
     req(form.mobile, 'Mobile Number');
     req(form.personalEmail, 'Personal Email Address');
-    if (!/^\S+@\S+\.\S+$/.test(form.personalEmail)) missing.push('Valid Personal Email Address');
+    if (!/^\\S+@\\S+\\.\\S+$/.test(form.personalEmail)) missing.push('Valid Personal Email Address');
     if (form.eligibleToWorkUk === null) missing.push('Eligible to work in the UK');
   }
 
-  if (configured('continuous_history')) {
-    missing.push(...chronologyValidationMessages(form));
-  }
+  // Continuous-history validation is intentionally non-blocking for submission.
+  // Keep the history section visible so candidates can still review and correct it.
 
   if (hasRequirement(role, 'nmc_registration_information')) {
     req(form.nmcPin, 'NMC PIN');
