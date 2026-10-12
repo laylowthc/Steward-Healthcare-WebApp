@@ -28,7 +28,8 @@ export const validateOfficialApplication = (
   }
 
   // Continuous-history validation is intentionally non-blocking for submission.
-  // Keep the history section visible so candidates can still review and correct it.
+  // Present-employer date consistency is also non-blocking: applicants may be unemployed,
+  // and any date corrections can be reviewed without preventing application submission.
 
   if (hasRequirement(role, 'nmc_registration_information')) {
     req(form.nmcPin, 'NMC PIN');
@@ -36,9 +37,6 @@ export const validateOfficialApplication = (
   }
   if (hasRequirement(role, 'nmc_pin')) req(form.nmcPin, 'NMC PIN');
   if (hasRequirement(role, 'nmc_expiry')) req(form.nmcExpiryDate, 'NMC Expiry Date');
-
-  if (form.recentEmployerDateFrom && form.recentEmployerDateTo && form.recentEmployerDateFrom > form.recentEmployerDateTo)
-    missing.push('Present employer date range');
 
   if (configured('professional_references')) {
     const requirement = applicationRequirements.find(item => item.requirementKey === 'professional_references');
