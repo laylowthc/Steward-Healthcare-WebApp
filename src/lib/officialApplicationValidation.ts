@@ -23,7 +23,7 @@ export const validateOfficialApplication = (
     req(form.postcode, 'Postcode');
     req(form.mobile, 'Mobile Number');
     req(form.personalEmail, 'Personal Email Address');
-    if (!/^\\S+@\\S+\\.\\S+$/.test(form.personalEmail)) missing.push('Valid Personal Email Address');
+    if (!/^\S+@\S+\.\S+$/.test(form.personalEmail)) missing.push('Valid Personal Email Address');
     if (form.eligibleToWorkUk === null) missing.push('Eligible to work in the UK');
   }
 
